@@ -1,17 +1,27 @@
 name: Refresh lockfile
 
-# One-off maintenance workflow (not part of CI): checks out a branch, runs
-# `bun install` so bun.lock picks up any package.json changes made off-machine
-# (e.g. adding @codemirror/vim for the vim-mode branch), and pushes the result
-# back to the same branch. Dispatched via the API/UI with ref=<branch>.
+# One-off maintenance workflow (not part of CI): runs `bun install` so bun.lock
+# picks up any package.json changes made off-machine (e.g. adding
+# @codemirror/vim for the vim-mode branch), and pushes the result back.
+#
+# Triggers on pushes that touch package.json or this file. Remove this
+# workflow (or the push trigger) once every machine contributing package.json
+# edits has bun available.
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "package.json"
+      - ".github/workflows/refresh-lockfile.yml"
 
 permissions:
   contents: write
 
 jobs:
   refresh:
+    # Only run on the feature branches that carry package.json changes —
+    # never on main, where Dependabot owns the lockfile.
+    if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
