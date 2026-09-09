@@ -6,7 +6,12 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover lets the app draw behind status/gesture insets;
+         env(safe-area-inset-*) padding is applied in index.css. No
+         user-scalable=no: blocking zoom is an accessibility failure, and the
+         input-focus auto-zoom it usually works around is prevented instead by
+         keeping every field >= 16px under html.mobile. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Paperling</title>
     <!-- Render-blocking: paint the correct theme background BEFORE first paint.
          The window is created hidden and revealed once React mounts, but this
@@ -24,21 +29,34 @@
             dracula: "#282a36",
           };
           var stored = localStorage.getItem("paperling-theme");
-          var theme = THEME_BG[stored]
-            ? stored
-            : window.matchMedia &&
-              window.matchMedia("(prefers-color-scheme: light)").matches
-            ? "light"
-            : "dark";
+          // Paper is the brand default for first runs; a saved choice always
+          // wins. (Must mirror ThemeContext's getInitialTheme.)
+          var theme = THEME_BG[stored] ? stored : "paper";
           var el = document.documentElement;
           // Set data-theme so index.css variables resolve correctly the instant
           // the stylesheet loads, and set the color inline for the pre-CSS frame.
           el.setAttribute("data-theme", theme);
           el.style.backgroundColor = THEME_BG[theme];
         } catch (e) {
-          /* localStorage blocked or corrupt: keep the dark inline default */
+          /* localStorage blocked or corrupt: keep the paper default */
         }
       })();
+    </script>
+    <!-- Android "Open with Paperling" bridge. The patched MainActivity copies
+         the picked file into app-private storage and calls this with the real
+         path (std::fs cannot read content:// URIs). Defined inline so it
+         exists the moment the webview is up — the native side retries until
+         it sees it, then fires once. If React isn't mounted yet the payload
+         waits in __paperlingPendingOpen and App picks it up on mount. -->
+    <script>
+      window.__paperlingOpenFile = function (path, name) {
+        var payload = { path: path, name: name };
+        if (window.__paperlingOnOpenFile) {
+          try { window.__paperlingOnOpenFile(payload); } catch (e) { /* app not ready to open */ }
+        } else {
+          window.__paperlingPendingOpen = payload;
+        }
+      };
     </script>
     <!-- Fonts and Material Symbols are bundled locally via src/fonts.ts so the
          app renders identically with or without an internet connection. -->

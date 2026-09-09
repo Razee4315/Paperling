@@ -1,0 +1,22 @@
+{
+  "$schema": "./mobile-schema.json",
+  "identifier": "mobile-capability",
+  "description": "Mobile (Android/iOS) permissions for the main window. Desktop-only plugins (updater, process, window-state, mcp-bridge) are NOT compiled on mobile, so their permissions must not appear here or capability validation fails the build. Window controls are OS chrome on mobile, so no drag/maximize/close grants. The fs plugin gets NO grants at all here: every mobile file operation (open, save, search, images) flows through validated Rust commands that confine paths to the app's private storage, so the webview holds no direct filesystem access. SECURITY-02.",
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-title",
+    "opener:default",
+    "opener:allow-open-url",
+    "dialog:default"
+  ]
+}

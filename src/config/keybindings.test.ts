@@ -113,4 +113,15 @@ describe("keybindings on Windows/Linux", () => {
         expect(kb.formatShortcut("nextTab")).toBe("Ctrl+Tab");
         expect(kb.formatShortcut("settings")).toBe("Ctrl+,");
     });
+
+    it("toggles Zen mode on plain F9", async () => {
+        const kb = await loadFresh();
+        expect(kb.matchesBinding(kev({ key: "F9" }), "zenMode")).toBe(true);
+        expect(kb.matchesBinding(kev({ key: "F9", ctrlKey: true }), "zenMode")).toBe(false);
+        expect(kb.matchesBinding(kev({ key: "F9", shiftKey: true }), "zenMode")).toBe(false);
+        expect(kb.formatShortcut("zenMode")).toBe("F9");
+        // F9 must not collide with the F1 palette alias or F11 fullscreen.
+        expect(kb.matchesBinding(kev({ key: "F9" }), "palette")).toBe(false);
+        expect(kb.matchesBinding(kev({ key: "F9" }), "fullscreen")).toBe(false);
+    });
 });

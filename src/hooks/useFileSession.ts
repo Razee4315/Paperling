@@ -6,7 +6,10 @@ import type { ViewMode } from "../components/ModeToggle";
 import type { ToastType } from "./useToast";
 import { useAutosave } from "./useAutosave";
 import { useExternalChangeWatcher } from "./useExternalChangeWatcher";
+import { IS_MOBILE } from "../utils/platform";
 import { errMessage } from "../utils/errors";
+import { DOWNLOADS_SENTINEL, saveToDownloads } from "../utils/nativePicker";
+import { normalizeMarkdownFileName } from "../utils/mobileFiles";
 import {
   addRecentFile,
   getLastFile,
@@ -39,14 +42,21 @@ interface FileData {
 type ShowToast = (message: string, type?: ToastType) => void;
 
 export interface UseFileSessionOptions {
-  currentLine: number;
-  autoSaveEnabled: boolean;
-  isReviewActive: boolean;
-  clearReview: () => void;
-  setMode: Dispatch<SetStateAction<ViewMode>>;
-  showToast: ShowToast;
-  /** Tests can disable launch restoration without changing production behavior. */
-  restoreOnMount?: boolean;
+    currentLine: number;
+    autoSaveEnabled: boolean;
+    isReviewActive: boolean;
+    clearReview: () => void;
+    setMode: Dispatch<SetStateAction<ViewMode>>;
+    showToast: ShowToast;
+    /**
+     * Where an untitled buffer should be saved. The desktop default opens the
+     * OS save panel; mobile injects the in-app name prompt (SAF URIs from the
+     * OS panel are unreadable by the Rust file commands). Resolves null on
+     * cancel.
+     */
+    promptSavePath?: (defaultName: string | null) => Promise<string | null>;
+    /** Tests can disable launch restoration without changing production behavior. */
+    restoreOnMount?: boolean;
 }
 
 // The launch-file resolution must run exactly once per webview load. React
@@ -57,13 +67,14 @@ export interface UseFileSessionOptions {
 let bootResolved = false;
 
 export function useFileSession({
-  currentLine,
-  autoSaveEnabled,
-  isReviewActive,
-  clearReview,
-  setMode,
-  showToast,
-  restoreOnMount = true,
+    currentLine,
+    autoSaveEnabled,
+    isReviewActive,
+    clearReview,
+    setMode,
+    showToast,
+    promptSavePath,
+    restoreOnMount = true,
 }: UseFileSessionOptions) {
   // File state
   const [filePath, setFilePath] = useState<string | null>(null);
@@ -398,6 +409,36 @@ export function useFileSession({
     };
   }, []);
 
+  // Ask where an untitled buffer should live: the injected strategy when the
+  // shell provides one (mobile name prompt), otherwise the OS save panel.
+  const promptForPath = useCallback(
+    (defaultName: string | null): Promise<string | null> => {
+      if (promptSavePath) return promptSavePath(defaultName);
+      return save({
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+        defaultPath: defaultName ?? undefined,
+      }).then((selected) => (typeof selected === "string" ? selected : null));
+    },
+    [promptSavePath],
+  );
+
+  // The Save-As prompt resolves the Downloads sentinel when the user picked
+  // "Save to Downloads" in the mobile modal. This hook owns the buffer
+  // content, so the native MediaStore write happens here; the bridge mirrors
+  // the file into the app cache and returns that path, which then behaves
+  // like any other saved location (tabs, recents, autosave).
+  const saveViaDownloads = useCallback(
+    async (name: string, data: string): Promise<string | null> => {
+      const result = await saveToDownloads(normalizeMarkdownFileName(name), data);
+      if (!result.ok || !result.path) {
+        showToast(result.error || "Could not save to Downloads", "error");
+        return null;
+      }
+      return result.path;
+    },
+    [showToast],
+  );
+
   // "Save" in the close-tab dialog: persist the tab (prompting a location for an
   // untitled buffer), then close it. Cancel/failure keeps the tab open. TABS-05.
   const handleSaveCloseTab = useCallback(async () => {
@@ -410,12 +451,17 @@ export function useFileSession({
     }
     let path = data.filePath;
     if (!path) {
-      const selected = await save({
-        filters: [{ name: "Markdown", extensions: ["md"] }],
-        defaultPath: data.fileName,
-      });
+      const selected = await promptForPath(data.fileName);
       if (!selected) return;
-      path = selected;
+      if (selected === DOWNLOADS_SENTINEL) {
+        // The prompt can only hand back the sentinel; this hook owns the
+        // content, so the native MediaStore write happens here.
+        const cachePath = await saveViaDownloads(data.fileName, data.content);
+        if (!cachePath) return;
+        path = cachePath;
+      } else {
+        path = selected;
+      }
     }
     try {
       await invoke("save_file", { path, content: data.content });
@@ -425,7 +471,7 @@ export function useFileSession({
     }
     setCloseTabPrompt(null);
     finalizeCloseTab(prompt.id);
-  }, [closeTabPrompt, finalizeCloseTab, getTabSaveData, showToast]);
+  }, [closeTabPrompt, finalizeCloseTab, getTabSaveData, promptForPath, saveViaDownloads, showToast]);
 
   const handleDiscardCloseTab = useCallback(() => {
     const prompt = closeTabPrompt;
@@ -524,11 +570,15 @@ export function useFileSession({
 
   // Save As — always prompts for a new path, even if a path is already set.
   const handleSaveAs = useCallback(async () => {
-    const selected = await save({
-      filters: [{ name: "Markdown", extensions: ["md"] }],
-      defaultPath: fileName ?? undefined,
-    });
+    let selected = await promptForPath(fileName ?? null);
     if (!selected) return;
+    let viaDownloads = false;
+    if (selected === DOWNLOADS_SENTINEL) {
+      const cachePath = await saveViaDownloads(fileName ?? "Untitled.md", content);
+      if (!cachePath) return;
+      selected = cachePath;
+      viaDownloads = true;
+    }
     try {
       knownMtimeRef.current = await invoke<number>("save_file", { path: selected, content });
       setFilePath(selected);
@@ -556,12 +606,17 @@ export function useFileSession({
           ),
         );
       }
-      showToast("File saved", "success");
+      showToast(
+        viaDownloads
+          ? `Saved to Downloads as "${name}" — a working copy lives in your notes folder`
+          : "File saved",
+        "success",
+      );
     } catch (error) {
       console.error("Failed to save file:", error);
       showToast(errMessage(error) || "Failed to save file", "error");
     }
-  }, [commitTabs, content, fileName, showToast]);
+  }, [commitTabs, content, fileName, promptForPath, saveViaDownloads, showToast]);
 
   // Save file (Save As if no path yet).
   const handleSaveFile = useCallback(async () => {
@@ -732,6 +787,18 @@ export function useFileSession({
       } catch {
         // Browser development mode or an older backend: restore only.
       }
+      // Android "Open with": the Kotlin side copies the picked file into the
+      // app cache and leaves a marker; pull it once. On the phone it wins the
+      // same priority the double-clicked file has on desktop (there is no CLI
+      // there), beating the last-session restore.
+      let incoming: { path: string; name: string } | null = null;
+      if (IS_MOBILE) {
+        try {
+          incoming = await invoke<{ path: string; name: string } | null>("get_incoming_file");
+        } catch {
+          // No pending file / older backend.
+        }
+      }
       // Prefer the full saved session (TABS-07); fall back to lastFile for
       // sessions saved before multi-tab restore existed.
       const session = getSession();
@@ -749,17 +816,20 @@ export function useFileSession({
           activePath = lastFile;
         }
       }
-      // A CLI / double-clicked file is always the active tab, appended if new.
-      if (cliFile) {
-        if (!paths.includes(cliFile)) paths.push(cliFile);
-        activePath = cliFile;
+      // A CLI / double-clicked file (desktop) or an intent-opened file
+      // (Android) is always the active tab, appended if new.
+      const forcedFile = cliFile ?? incoming?.path ?? null;
+      if (forcedFile) {
+        if (!paths.includes(forcedFile)) paths.push(forcedFile);
+        activePath = forcedFile;
       }
       if (paths.length === 0) {
         setBooting(false);
         return;
       }
-      // Read each file, skipping stale entries. Always surface a CLI file's
-      // failure because the user explicitly requested it.
+      // Read each file, skipping stale entries. Always surface a forced-open
+      // file's failure (CLI arg or Android intent) — the user explicitly
+      // requested it from outside the app.
       const loaded: TabState[] = [];
       let activeId: string | null = null;
       for (const path of paths) {
@@ -779,7 +849,7 @@ export function useFileSession({
           if (path === activePath) activeId = id;
         } catch (error) {
           const message = errMessage(error);
-          if (cliFile && path === cliFile) showToast(`Could not open file: ${message || path}`, "error");
+          if (forcedFile && path === forcedFile) showToast(`Could not open file: ${message || path}`, "error");
           else if (/too large/i.test(message)) showToast(`Could not restore "${path}": ${message}`, "error");
         }
       }

@@ -45,6 +45,7 @@ export const BINDINGS = {
     // View
     toggleMode: { key: "e", mod: true },
     toggleSplit: { key: "\\", mod: true },
+    zenMode: { key: "F9" },
     toggleFileExplorer: { key: "e", mod: true, shift: true },
     toggleTOC: { key: "o", mod: true, shift: true },
     searchInFolder: { key: "f", mod: true, shift: true },

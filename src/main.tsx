@@ -3,11 +3,18 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { revealMainWindow } from "./utils/appWindow";
+import { initPlatformClass } from "./utils/platform";
 // Bundled fonts — load BEFORE index.css so @font-face declarations are
 // registered before any rule that references the family names. Without this
 // import the app falls back to system fonts when there is no network.
 import "./fonts";
 import "./index.css";
+
+// Resolve the shell (mobile vs desktop) and stamp `mobile`/`touch` classes on
+// <html> BEFORE the first render, so the phone layout never flashes the
+// desktop one. The decision is made once and never revisited (see
+// utils/platform.ts); all mobile styling keys off these classes.
+initPlatformClass();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

@@ -3,10 +3,14 @@ mod commands;
 mod pdf;
 
 use commands::{
-    find_backlinks, get_ai_key, get_file_info, list_directory_files, read_file, read_image_file,
-    save_file, save_image, search_files, set_ai_key,
+    exit_app, find_backlinks, get_ai_key, get_file_info, get_incoming_file, get_notes_dir,
+    list_directory_files, read_file, read_image_file, save_file, save_image, search_files,
+    set_ai_key,
 };
 use std::sync::Mutex;
+// Both traits are only exercised by the desktop single-instance closure
+// (window lookup + event emit); on mobile they would be unused imports.
+#[cfg(desktop)]
 use tauri::{Emitter, Manager};
 
 /// File path passed on the command line (double-clicking a .md in the OS).
@@ -37,12 +41,23 @@ fn get_cli_file(state: tauri::State<CliFile>) -> Option<String> {
 pub fn run() {
     let cli_file = md_arg(&std::env::args().collect::<Vec<_>>());
 
+    // Desktop reassigns `builder` twice below (single-instance, window-state);
+    // both blocks are compiled out on mobile, where the plain chain needs no
+    // mut — hence the target-conditional lint allowance.
+    #[cfg_attr(not(desktop), allow(unused_mut))]
     let mut builder = tauri::Builder::default()
-        // Must be the first plugin so it wins the instance lock race.
-        // A second launch (double-clicking another .md while Paperling runs)
-        // forwards its argv here and exits; we surface the window and hand
-        // the path to the existing frontend listener.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init());
+
+    // Desktop only: forward a second launch's argv to the running instance.
+    // A second launch (double-clicking another .md while Paperling runs)
+    // forwards its argv here and exits; we surface the window and hand
+    // the path to the existing frontend listener. Android launches one
+    // activity per app — there is no second process to forward from.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
@@ -50,10 +65,8 @@ pub fn run() {
                     let _ = window.emit("file-open-from-cli", path);
                 }
             }
-        }))
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_dialog::init());
+        }));
+    }
 
     // Remembers where the window was and how big it was across launches.
     // Geometry ONLY — the plugin's default flag set is all(), and three of
@@ -86,21 +99,26 @@ pub fn run() {
     }
 
     builder
-        .setup(|app| {
+        .setup(|_app| {
             // Updater (GitHub latest.json) + process (relaunch after install)
             // are desktop-only plugins, hence registered here behind cfg
-            // instead of in the unconditional plugin chain above.
+            // instead of in the unconditional plugin chain above. The closure
+            // param carries the conventional underscore prefix: on mobile both
+            // cfg blocks below vanish and the param would otherwise be flagged
+            // as unused there.
             #[cfg(desktop)]
             {
-                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
-                app.handle().plugin(tauri_plugin_process::init())?;
+                _app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+                _app.handle().plugin(tauri_plugin_process::init())?;
             }
-            // UI-automation bridge for the Tauri MCP server. Debug builds
-            // only; bound to localhost so nothing on the network can drive
-            // the app.
-            #[cfg(debug_assertions)]
+            // UI-automation bridge for the Tauri MCP server. Desktop debug
+            // builds only; bound to localhost so nothing on the network can
+            // drive the app. (The crate is a desktop-only dependency too —
+            // gating both sides keeps `cargo check --target aarch64-linux-android`
+            // clean without pulling a WebSocket stack onto the phone.)
+            #[cfg(all(debug_assertions, desktop))]
             {
-                app.handle().plugin(
+                _app.handle().plugin(
                     tauri_plugin_mcp_bridge::Builder::new()
                         .bind_address("127.0.0.1")
                         .build(),
@@ -121,6 +139,9 @@ pub fn run() {
             read_image_file,
             get_ai_key,
             set_ai_key,
+            get_notes_dir,
+            get_incoming_file,
+            exit_app,
             get_cli_file,
             pdf::export_pdf,
             ai::ai_request,

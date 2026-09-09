@@ -1,0 +1,172 @@
+name: Android Test Build
+
+# Test APKs for the Android port, built entirely in CI and uploaded as run
+# ARTIFACTS: Actions tab -> Android Test Build -> download the APK (nothing
+# public, no tag, no release, no version bump — mirrors test-build.yml for
+# Windows). Signed with Android's auto-generated DEBUG key so the APK is
+# installable without anyone handling a signing secret; a debug-key build can
+# never become a release, by construction.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - android-app
+  pull_request:
+    branches:
+      - main
+    # Only the app code and this workflow can break the Android build; docs
+    # edits shouldn't burn a 20-minute cross-compile.
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "index.html"
+      - "package.json"
+      - "bun.lock"
+      - "scripts/patch-android-release-signing.mjs"
+      - "scripts/patch-android-open-with.mjs"
+      - ".github/workflows/android-build.yml"
+
+# A cross-compile of the full Rust dependency tree takes a while; a stale run
+# on the same ref is noise, not signal.
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        # Caching is an optimization — a flaky GitHub cache service must never
+        # fail the build (mirrors ci.yml / test-build.yml). Separate key from
+        # the desktop caches: a different target triple means a different
+        # target/ tree.
+        continue-on-error: true
+        with:
+          workspaces: './src-tauri -> target'
+          key: aarch64-linux-android
+
+      - name: Setup Java 17 (Android Gradle Plugin requirement)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          # NOTE: no `cache: gradle` — the Gradle files don't exist in the
+          # checkout (the project is generated in CI), and setup-java's cache
+          # fails outright when nothing matches.
+
+      - name: Cache the Android debug keystore (stable test signature)
+        # Ephemeral runners generate a fresh debug key per run, and an APK
+        # signed with a different key can never install over an old one —
+        # every test build would demand an uninstall first. Caching the
+        # keystore keeps the signature stable across runs (best effort: if the
+        # cache entry is evicted, one uninstall is needed again).
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: paperling-android-debug-keystore
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Locate the preinstalled Android NDK
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          # Use the runner's preinstalled NDK — downloading one costs minutes
+          # and pins a version nobody tested. Sorted so a multi-version
+          # install resolves to the newest.
+          NDK_DIR="$(ls -d "$SDK"/ndk/*/ 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$NDK_DIR" ]; then
+            echo "::error::No preinstalled Android NDK found under $SDK/ndk"
+            exit 1
+          fi
+          echo "NDK_HOME=${NDK_DIR%/}" >> "$GITHUB_ENV"
+          echo "Using NDK: $NDK_DIR"
+
+      - name: Generate app icons (all densities, incl. Android mipmaps)
+        # Written to a scratch dir, NOT src-tauri/icons — regenerating the
+        # desktop icons from CI would churn every checked-in desktop asset.
+        # The Android mipmaps are copied into the generated project below,
+        # because `tauri android init` ignores the app's icons and ships the
+        # Tauri logo instead (verified in the CLI source).
+        run: bun run tauri icon public/icon.svg --output .tauri-icons
+
+      - name: Initialize the Android project
+        run: bun run tauri android init
+
+      - name: Copy launcher icons into the generated project
+        run: |
+          SRC=".tauri-icons/android"
+          DEST="src-tauri/gen/android/app/src/main/res"
+          if [ ! -d "$SRC" ]; then
+            echo "::error::No android icons were generated at $SRC"
+            exit 1
+          fi
+          cp -r "$SRC"/mipmap-* "$DEST"/
+          # Adaptive-icon pieces depend on the tauri icon version's layout —
+          # copy what exists, don't fail on what doesn't.
+          if [ -d "$SRC/mipmap-anydpi-v26" ]; then
+            mkdir -p "$DEST/mipmap-anydpi-v26"
+            cp "$SRC"/mipmap-anydpi-v26/* "$DEST/mipmap-anydpi-v26"/
+            # The template has no round adaptive icon — cover that variant too.
+            if [ -f "$DEST/mipmap-anydpi-v26/ic_launcher.xml" ]; then
+              cp "$DEST/mipmap-anydpi-v26/ic_launcher.xml" "$DEST/mipmap-anydpi-v26/ic_launcher_round.xml"
+            fi
+          fi
+          if [ -f "$SRC/values/ic_launcher_background.xml" ]; then
+            cp "$SRC/values/ic_launcher_background.xml" "$DEST/values/"
+          fi
+          echo "Launcher resources:"
+          ls "$DEST" | grep mipmap || true
+
+      - name: Patch release signing (debug-key fallback for test builds)
+        run: node scripts/patch-android-release-signing.mjs src-tauri/gen/android/app/build.gradle.kts
+
+      - name: Patch "Open with Paperling" file handling + system-bar insets
+        # Intent-filter + MainActivity glue so tapping a .md in a file manager
+        # opens it (the file is copied into app-private storage first, because
+        # std::fs cannot read Android content:// URIs), plus real status/nav
+        # insets applied as padding (the WebView reports env() insets as 0).
+        run: node scripts/patch-android-open-with.mjs src-tauri/gen/android
+
+      - name: Build APK (release, aarch64)
+        # Release, not --debug: a debug build keeps the Rust library's debug
+        # symbols (~143 MB APK); release is single-digit MB.
+        run: bun run tauri android build --target aarch64 --apk
+
+      - name: Collect APKs
+        # Scope the search to outputs/ — intermediates/ holds a partial bundle
+        # with the same name. Don't filter on "*arm64*": Gradle calls the
+        # output "universal" even for a single-ABI build.
+        run: |
+          mkdir -p dist-apk
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} dist-apk/ \; || true
+          if [ -z "$(ls -A dist-apk 2>/dev/null || true)" ]; then
+            echo "::error::Build succeeded but produced no APK under outputs/apk"
+            exit 1
+          fi
+          ls -la dist-apk
+
+      - name: Upload APK as run artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: paperling-android-aarch64-test-apk
+          path: dist-apk/*.apk
+          if-no-files-found: error
+          retention-days: 14

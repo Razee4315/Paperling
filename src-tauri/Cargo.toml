@@ -22,32 +22,43 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
-# Forward a double-clicked file to the running instance instead of spawning a
-# second app (and racing it for the session-restore state).
-tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["fs", "time", "sync"] }
+# `macros` (ai.rs's tokio::select!) and `rt` (spawn_blocking) are declared
+# explicitly: desktop builds used to receive them transitively from the
+# desktop-only crates, and the Android build — which compiles none of those —
+# broke on the very first CI run because of that hidden dependency.
+tokio = { version = "1", features = ["fs", "time", "sync", "macros", "rt"] }
 # Native HTTP for AI requests (AI-01): the webview's fetch is cross-origin
 # from https://tauri.localhost, so most OpenAI-compatible servers fail the
 # CORS preflight, and plain-http LAN endpoints are blocked by CSP. reqwest
 # has neither restriction. 0.13 matches what tauri already resolves in the
-# lock file so we don't pull a second copy of the HTTP stack.
+# lock file so we don't pull a second copy of the HTTP stack. Its default TLS
+# is rustls + aws-lc-rs (pure Rust), so Android cross-compiles without any
+# native-TLS/OpenSSL swapping.
 reqwest = { version = "0.13", features = ["stream"] }
 futures-util = "0.3"
+
+# Desktop-only crates. Everything here either has no mobile backend or no
+# meaning on a phone; the `use` sites in lib.rs are gated with #[cfg(desktop)]
+# to match (a target-gated dependency with an ungated import fails the mobile
+# build at the `use`, not at the dependency).
+[target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
+# Forward a double-clicked file to the running instance instead of spawning a
+# second app (and racing it for the session-restore state).
+tauri-plugin-single-instance = "2"
 # OS keychain for the AI API key (SECURITY-01). Pure-Rust backends: Windows
 # Credential Manager, macOS Keychain, and Linux Secret Service (zbus + crypto-rust,
-# no system C libs needed at build time).
+# no system C libs needed at build time). Mobile stores the key in an
+# app-private data file instead (commands.rs) — keyring has no mobile backend.
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 # Dev-tooling bridge for UI automation (screenshots, DOM inspection) from
-# Claude Code's Tauri MCP server. Registered only in debug builds (lib.rs),
-# so release binaries never start its WebSocket server.
+# Claude Code's Tauri MCP server. Registered only in desktop debug builds
+# (lib.rs), so release binaries never start its WebSocket server.
 tauri-plugin-mcp-bridge = "0.12"
-
 # Auto-update from GitHub Releases (latest.json) + relaunch after install.
 # Desktop-only: the updater has no mobile implementation.
-[target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-window-state = "2"

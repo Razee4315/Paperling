@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { attachFocusTrap } from "../utils/focusTrap";
+import { IS_TOUCH } from "../utils/platform";
 
 export interface PaletteCommand {
     id: string;
@@ -94,6 +95,12 @@ function fuzzyScore(needle: string, haystack: string): number {
         hi = found + 1;
     }
     return 1000 + score; // worse than substring matches
+}
+
+/** Keyboard-shortcut hints (Ctrl+P, Alt+J, F11…) are desktop affordances;
+ *  touch devices hide them rather than advertise chords nobody can press. */
+function isShortcutHint(hint: string): boolean {
+    return /^(Ctrl|Alt|Shift|⌘|Meta)\+|^(Ctrl|Alt|Shift|⌘|Meta)$|^F\d{1,2}$/.test(hint.trim());
 }
 
 export function CommandPalette({ isOpen, items, onClose }: CommandPaletteProps) {
@@ -224,7 +231,9 @@ export function CommandPalette({ isOpen, items, onClose }: CommandPaletteProps) 
                         aria-label="Search commands"
                         className="flex-1 bg-transparent text-[var(--text-primary)] outline-none text-sm placeholder:text-[var(--text-muted)]"
                     />
-                    <kbd className="px-1.5 py-0.5 text-[11px] font-mono rounded border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-muted)]">Esc</kbd>
+                    {!IS_TOUCH && (
+                        <kbd className="px-1.5 py-0.5 text-[11px] font-mono rounded border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-muted)]">Esc</kbd>
+                    )}
                 </div>
 
                 <ul ref={listRef} className="max-h-[420px] overflow-y-auto py-1" role="listbox">
@@ -254,7 +263,7 @@ export function CommandPalette({ isOpen, items, onClose }: CommandPaletteProps) 
                                                     {cmd.icon ?? "chevron_right"}
                                                 </span>
                                                 <span className="flex-1 min-w-0 text-sm text-[var(--text-primary)] truncate">{highlightLabel(cmd.label, query)}</span>
-                                                {cmd.hint && (
+                                                {cmd.hint && !(IS_TOUCH && isShortcutHint(cmd.hint)) && (
                                                     <span className="text-[11px] text-[var(--text-muted)] tabular-nums truncate ml-2 shrink-0">
                                                         {cmd.hint}
                                                     </span>
@@ -269,8 +278,14 @@ export function CommandPalette({ isOpen, items, onClose }: CommandPaletteProps) 
                 </ul>
 
                 <div className="px-4 py-1.5 text-[10px] text-[var(--text-muted)] border-t border-[var(--border-subtle)] bg-[var(--bg-titlebar)] flex items-center gap-3">
-                    <span><kbd className="px-1 font-mono rounded border border-[var(--border)] bg-[var(--bg-input)]">↑↓</kbd> navigate</span>
-                    <span><kbd className="px-1 font-mono rounded border border-[var(--border)] bg-[var(--bg-input)]">↵</kbd> run</span>
+                    {/* ↑↓/↵ hint chips are keyboard affordances; touch users
+                        navigate by tapping, so only the count stays. */}
+                    {!IS_TOUCH && (
+                        <span className="flex items-center gap-3">
+                            <span><kbd className="px-1 font-mono rounded border border-[var(--border)] bg-[var(--bg-input)]">↑↓</kbd> navigate</span>
+                            <span><kbd className="px-1 font-mono rounded border border-[var(--border)] bg-[var(--bg-input)]">↵</kbd> run</span>
+                        </span>
+                    )}
                     <span className="ml-auto">{ranked.length} {ranked.length === 1 ? "result" : "results"}</span>
                 </div>
             </div>

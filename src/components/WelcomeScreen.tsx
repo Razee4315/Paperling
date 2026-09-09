@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, TauriEvent } from "@tauri-apps/api/event";
 import { clearRecentFiles, getRecentFiles, removeRecentFile, type RecentFile } from "../utils/persistence";
+import { IS_MOBILE } from "../utils/platform";
 import { MascotIdle } from "./MascotIdle";
 
 interface WelcomeScreenProps {
@@ -153,18 +154,18 @@ export function WelcomeScreen({ onOpenFile, onNewFile, onOpenSettings, onFileDro
                 <div className="flex gap-2 items-center">
                     <button
                         onClick={onOpenFile}
-                        className="btn-press flex items-center gap-2 bg-[var(--accent)] hover:opacity-90 text-[var(--accent-text)] font-medium text-sm px-5 py-2.5 rounded-[var(--radius-md)] transition-all duration-200"
+                        className="btn-press whitespace-nowrap flex items-center gap-2 bg-[var(--accent)] hover:opacity-90 text-[var(--accent-text)] font-medium text-sm px-5 py-2.5 rounded-[var(--radius-md)] transition-all duration-200"
                     >
                         <span className="material-symbols-outlined text-[20px]">folder_open</span>
-                        <span>Open File</span>
+                        <span>{IS_MOBILE ? "Open" : "Open File"}</span>
                     </button>
                     {onNewFile && (
                         <button
                             onClick={onNewFile}
-                            className="btn-press flex items-center gap-2 bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border)] font-medium text-sm px-5 py-2.5 rounded-[var(--radius-md)] transition-all duration-200"
+                            className="btn-press whitespace-nowrap flex items-center gap-2 bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border)] font-medium text-sm px-5 py-2.5 rounded-[var(--radius-md)] transition-all duration-200"
                         >
                             <span className="material-symbols-outlined text-[20px]">edit_note</span>
-                            <span>New File</span>
+                            <span>{IS_MOBILE ? "New" : "New File"}</span>
                         </button>
                     )}
                     {onOpenSettings && (
@@ -180,7 +181,15 @@ export function WelcomeScreen({ onOpenFile, onNewFile, onOpenSettings, onFileDro
                 </div>
 
                 <p className="text-xs text-[var(--text-muted)]">
-                    drag a <code className="bg-[var(--bg-secondary)] px-1.5 py-0.5 rounded text-[var(--text-secondary)] border border-[var(--border)]">.md</code> file · press <kbd className="px-1 py-0.5 font-mono rounded border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">Ctrl+P</kbd> for commands · <kbd className="px-1 py-0.5 font-mono rounded border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">?</kbd> for shortcuts
+                    {IS_MOBILE ? (
+                        <>
+                            Notes are stored <strong>on this device</strong>. Tap a recent file below, or use <span className="font-medium">Open</span> to browse.
+                        </>
+                    ) : (
+                        <>
+                            drag a <code className="bg-[var(--bg-secondary)] px-1.5 py-0.5 rounded text-[var(--text-secondary)] border border-[var(--border)]">.md</code> file · press <kbd className="px-1 py-0.5 font-mono rounded border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">Ctrl+P</kbd> for commands · <kbd className="px-1 py-0.5 font-mono rounded border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">?</kbd> for shortcuts
+                        </>
+                    )}
                 </p>
 
                 {recents.length > 0 && onOpenRecent && (
@@ -230,7 +239,10 @@ export function WelcomeScreen({ onOpenFile, onNewFile, onOpenSettings, onFileDro
                                         aria-label={`Remove ${f.name} from recents`}
                                         title="Remove from recents"
                                         onClick={(e) => handleRemoveRecent(e, f.path)}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--danger)] transition-opacity flex items-center justify-center"
+                                        className={`absolute right-2 top-1/2 -translate-y-1/2 focus-visible:opacity-100 w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--danger)] transition-opacity flex items-center justify-center ${
+                                            // A hover-only remove is unreachable on touch.
+                                            IS_MOBILE ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                                        }`}
                                     >
                                         <span className="material-symbols-outlined text-[14px]">close</span>
                                     </button>

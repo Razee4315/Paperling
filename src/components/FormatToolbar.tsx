@@ -107,7 +107,10 @@ export function FormatToolbar({ getState, apply, insert, onAIAssist }: FormatToo
     const insertHr = () => insert("\n\n---\n\n");
 
     return (
-        <div className="flex items-center gap-0.5 px-2 h-9 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] no-select shrink-0">
+        // `.format-toolbar` becomes a horizontal scroll strip with ≥40px
+        // buttons under html.mobile (15 buttons can't fit 360px; wrapping
+        // would eat the editor).
+        <div className="format-toolbar flex items-center gap-0.5 px-2 h-9 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] no-select shrink-0">
             <ToolButton icon="format_h1" title="Heading 1" onClick={heading(1)} />
             <ToolButton icon="format_h2" title="Heading 2" onClick={heading(2)} />
             <ToolButton icon="format_h3" title="Heading 3" onClick={heading(3)} />

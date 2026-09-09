@@ -30,7 +30,7 @@ export function UnsavedChangesDialog({
             role="alertdialog"
             labelledBy="unsaved-dialog-title"
             initialFocusRef={saveButtonRef}
-            panelClassName="w-[380px]"
+            panelClassName="w-[min(380px,calc(100vw-1.5rem))]"
         >
             {/* Header */}
             <div className="px-5 pt-5 pb-3">

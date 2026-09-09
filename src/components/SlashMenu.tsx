@@ -23,7 +23,7 @@ const commands: SlashCommand[] = [
     { id: "table", label: "Table", description: "| h | h |\\n| - | - |", snippet: "| Header 1 | Header 2 |\n| --- | --- |\n| Cell | Cell |\n", caretOffset: 11, icon: "table_chart" },
     { id: "hr", label: "Divider", description: "Horizontal rule", snippet: "\n---\n\n", caretOffset: 6, icon: "horizontal_rule" },
     { id: "math", label: "Math block", description: "$$ ... $$", snippet: "$$\n\n$$\n", caretOffset: 3, icon: "function" },
-    { id: "chem", label: "Chemistry equation", description: "$\\ce{...}$ — mhchem", snippet: "$\\ce{}$", caretOffset: 5, icon: "science" },
+    { id: "chem", label: "Chemistry equation", description: "$\\ce{...}$ (mhchem)", snippet: "$\\ce{}$", caretOffset: 5, icon: "science" },
     { id: "mermaid", label: "Mermaid diagram", description: "```mermaid", snippet: "```mermaid\ngraph LR\n  A --> B\n```\n", caretOffset: 11, icon: "schema" },
     { id: "callout", label: "Callout", description: "> [!NOTE]", snippet: "> [!NOTE]\n> ", caretOffset: 12, icon: "info" },
 ];

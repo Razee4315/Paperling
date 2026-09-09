@@ -113,9 +113,64 @@ fn mtime_ms(metadata: &std::fs::Metadata) -> u64 {
         .unwrap_or(0)
 }
 
-/// Read a markdown file from disk
+// ===== Mobile path containment (SECURITY-02) =====
+//
+// On the phone every path the frontend legitimately holds comes from one of
+// two app-private roots: the notes folder under the app data dir, or the
+// "open with" / document-picker copies under the cache dir. Enforcing that
+// boundary HERE (Rust — the webview is not a trust boundary) keeps a
+// compromised webview from aiming read_file / save_file at arbitrary
+// locations. Desktop is a full-capability editor and deliberately has no such
+// restriction; there the boundary is the OS user account (documented accepted
+// risk).
+//
+// Canonicalization resolves symlinks before the containment check, so a
+// symlink planted inside the notes folder can't smuggle a path out either.
+
+/// The canonical form of `path`, when it resolves inside one of the app's
+/// private roots; an error string describing the violation otherwise.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn ensure_mobile_path_allowed(
+    app: &tauri::AppHandle,
+    path: &std::path::Path,
+) -> Result<PathBuf, String> {
+    use tauri::Manager;
+
+    // Resolve the deepest ancestor that exists: the file itself when present,
+    // otherwise its parent directory (save targets are commonly new files).
+    let resolved = if path.exists() {
+        std::fs::canonicalize(path)
+    } else {
+        let parent = path.parent().ok_or("Invalid path")?;
+        let name = path.file_name().ok_or("Invalid path")?;
+        std::fs::canonicalize(parent).map(|p| p.join(name))
+    }
+    .map_err(|e| e.to_string())?;
+
+    for root in [app.path().app_data_dir(), app.path().app_cache_dir()] {
+        let root = root.map_err(|e| e.to_string())?;
+        if let Ok(canon_root) = std::fs::canonicalize(&root) {
+            if resolved.starts_with(&canon_root) {
+                return Ok(resolved);
+            }
+        }
+    }
+    Err("Path is outside the app's private storage".to_string())
+}
+
+/// Read a markdown file from disk. Mobile builds first confine `path` to the
+/// app's private storage (SECURITY-02); desktop accepts any path (by design).
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
 #[tauri::command]
-pub async fn read_file(path: String) -> Result<FileData, CommandError> {
+pub async fn read_file(app: tauri::AppHandle, path: String) -> Result<FileData, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&path)).map_err(CommandError::ReadError)?;
+    read_file_inner(path).await
+}
+
+/// The read_file body, app-handle-free so the unit tests can drive it without
+/// a Tauri harness.
+async fn read_file_inner(path: String) -> Result<FileData, CommandError> {
     let file_path = PathBuf::from(&path);
 
     if !file_path.exists() {
@@ -174,8 +229,25 @@ pub async fn read_file(path: String) -> Result<FileData, CommandError> {
 /// no longer truncate the user's document — the worst case is a leftover
 /// `.paperling-tmp` file. (std/tokio rename replaces the target on Windows
 /// via MoveFileEx + MOVEFILE_REPLACE_EXISTING, and is atomic on POSIX.)
+///
+/// Mobile builds first confine `path` to the app's private storage
+/// (SECURITY-02); desktop accepts any path (by design).
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
 #[tauri::command]
-pub async fn save_file(path: String, content: String) -> Result<u64, CommandError> {
+pub async fn save_file(
+    app: tauri::AppHandle,
+    path: String,
+    content: String,
+) -> Result<u64, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&path))
+        .map_err(CommandError::WriteError)?;
+    save_file_inner(path, content).await
+}
+
+/// The save_file body, app-handle-free so the unit tests can drive it without
+/// a Tauri harness.
+async fn save_file_inner(path: String, content: String) -> Result<u64, CommandError> {
     // Mirror the read-side limit. Refusing to write a >50 MB markdown file
     // protects the user from accidentally truncating something pasted from
     // another tool, and matches what `read_file` would refuse to load back.
@@ -235,9 +307,15 @@ pub async fn save_file(path: String, content: String) -> Result<u64, CommandErro
     Ok(mtime_ms(&metadata))
 }
 
-/// Get just the file info without content (for status bar)
+/// Get just the file info without content (for status bar). Mobile builds
+/// confine `path` to the app's private storage (SECURITY-02).
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
 #[tauri::command]
-pub async fn get_file_info(path: String) -> Result<FileInfo, CommandError> {
+pub async fn get_file_info(app: tauri::AppHandle, path: String) -> Result<FileInfo, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&path))
+        .map_err(CommandError::ReadError)?;
+
     let file_path = PathBuf::from(&path);
 
     if !file_path.exists() {
@@ -279,9 +357,18 @@ pub struct FileEntry {
     pub is_dir: bool,
 }
 
-/// List all markdown files in a directory
+/// List all markdown files in a directory. Mobile builds confine `directory`
+/// to the app's private storage (SECURITY-02).
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
 #[tauri::command]
-pub async fn list_directory_files(directory: String) -> Result<Vec<FileEntry>, CommandError> {
+pub async fn list_directory_files(
+    app: tauri::AppHandle,
+    directory: String,
+) -> Result<Vec<FileEntry>, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&directory))
+        .map_err(CommandError::ReadError)?;
+
     let dir_path = PathBuf::from(&directory);
 
     if !dir_path.exists() {
@@ -378,12 +465,19 @@ const SEARCH_SNIPPET_CHARS: usize = 240; // truncate long matching lines
 /// `query`. Case-insensitive unless `case_sensitive`. Returns per-file matches
 /// with 1-based line numbers so the UI can jump straight to a hit. Skips hidden
 /// directories plus `node_modules` / `target`, and is bounded by the caps above.
+/// Mobile builds confine `directory` to the app's private storage (SECURITY-02).
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
 #[tauri::command]
 pub async fn search_files(
+    app: tauri::AppHandle,
     directory: String,
     query: String,
     case_sensitive: bool,
 ) -> Result<Vec<FileSearchResult>, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&directory))
+        .map_err(CommandError::ReadError)?;
+
     let q = query.trim().to_string();
     if q.is_empty() {
         return Ok(Vec::new());
@@ -403,11 +497,19 @@ pub async fn search_files(
 /// either Paperling wikilinks (`[[Note]]`) or relative markdown links
 /// (`[label](Note.md)`). Both paths are canonicalized before the scan so the
 /// command cannot be used to inspect files outside the open document folder.
+/// Mobile builds additionally confine `directory` to the app's private
+/// storage (SECURITY-02).
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
 #[tauri::command]
 pub async fn find_backlinks(
+    app: tauri::AppHandle,
     directory: String,
     target_file: String,
 ) -> Result<Vec<FileSearchResult>, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&directory))
+        .map_err(CommandError::ReadError)?;
+
     let root = tokio::fs::canonicalize(&directory)
         .await
         .map_err(|e| CommandError::ReadError(e.to_string()))?;
@@ -793,9 +895,14 @@ fn sanitize_image_name(name: &str) -> Result<String, CommandError> {
 }
 
 /// Save image data to a file in the images subdirectory
-/// Returns the relative path to use in markdown
+/// Returns the relative path to use in markdown. Mobile builds confine the
+/// document's directory to the app's private storage BEFORE creating the
+/// images subfolder, so no directories are ever created outside it
+/// (SECURITY-02).
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
 #[tauri::command]
 pub async fn save_image(
+    app: tauri::AppHandle,
     md_file_path: String,
     image_data: Vec<u8>,
     image_name: String,
@@ -808,6 +915,9 @@ pub async fn save_image(
         )));
     }
     let safe_name = sanitize_image_name(&image_name)?;
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&md_file_path))
+        .map_err(CommandError::WriteError)?;
     let md_path = PathBuf::from(&md_file_path);
 
     // Get the directory containing the markdown file
@@ -877,10 +987,22 @@ fn validate_rel_path(rel: &str) -> Result<(), CommandError> {
 /// no longer need a broad `fs:allow-read **` capability (SECURITY-02). Validates
 /// the relative path, enforces the image size cap, and canonicalizes both base
 /// and target to guarantee the resolved file is still inside `base_dir` — which
-/// also blocks symlinked escapes (SECURITY-05). Bytes are returned via
-/// `tauri::ipc::Response` so large images skip JSON-array serialization.
+/// also blocks symlinked escapes (SECURITY-05). Mobile builds additionally
+/// confine `base_dir` itself to the app's private storage, so even a
+/// hand-crafted IPC call can't aim the base at a folder outside the sandbox.
+/// Bytes are returned via `tauri::ipc::Response` so large images skip
+/// JSON-array serialization.
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
 #[tauri::command]
-pub async fn read_image_file(base_dir: String, rel_path: String) -> Result<Response, CommandError> {
+pub async fn read_image_file(
+    app: tauri::AppHandle,
+    base_dir: String,
+    rel_path: String,
+) -> Result<Response, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&base_dir))
+        .map_err(CommandError::ReadError)?;
+
     validate_rel_path(&rel_path)?;
     let base = PathBuf::from(&base_dir);
     let full = base.join(&rel_path);
@@ -918,7 +1040,12 @@ pub async fn read_image_file(base_dir: String, rel_path: String) -> Result<Respo
 
 // ===== AI API key — OS keychain (SECURITY-01) =====
 //
-// Stored in the platform credential store instead of plaintext localStorage.
+// Desktop: stored in the platform credential store instead of plaintext
+// localStorage. Mobile (Android/iOS): keyring has no backend there, so the key
+// lives in an app-private data file with an atomic temp+rename write — inside
+// the app sandbox this is the same threat class as the localStorage the app
+// already uses for every non-secret setting.
+//
 // The front end keeps endpoint + model in localStorage (non-secret) and routes
 // only the key through these commands, with a localStorage fallback on the JS
 // side when no keychain is available (e.g. a headless Linux box).
@@ -926,9 +1053,12 @@ pub async fn read_image_file(base_dir: String, rel_path: String) -> Result<Respo
 // NOTE: the service name stays "marklite" (the app's pre-rename name) on
 // purpose — changing it would orphan every existing user's stored API key.
 // Same reasoning as the bundle identifier in tauri.conf.json.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const AI_KEY_SERVICE: &str = "marklite";
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const AI_KEY_ACCOUNT: &str = "ai-api-key";
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub fn get_ai_key() -> Result<String, String> {
     let entry = keyring::Entry::new(AI_KEY_SERVICE, AI_KEY_ACCOUNT).map_err(|e| e.to_string())?;
@@ -939,6 +1069,7 @@ pub fn get_ai_key() -> Result<String, String> {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub fn set_ai_key(key: String) -> Result<(), String> {
     let entry = keyring::Entry::new(AI_KEY_SERVICE, AI_KEY_ACCOUNT).map_err(|e| e.to_string())?;
@@ -954,10 +1085,187 @@ pub fn set_ai_key(key: String) -> Result<(), String> {
     }
 }
 
+// --- Mobile variants: app-private file, no keyring. Same JS contract. ---
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_key_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not resolve app data dir: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("ai-key"))
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+pub fn get_ai_key(app: tauri::AppHandle) -> Result<String, String> {
+    let path = mobile_key_path(&app)?;
+    match std::fs::read_to_string(&path) {
+        Ok(key) => Ok(key.trim().to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+pub fn set_ai_key(app: tauri::AppHandle, key: String) -> Result<(), String> {
+    let path = mobile_key_path(&app)?;
+    if key.is_empty() {
+        // Empty key == "clear it". A missing file is already the desired state.
+        return match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        };
+    }
+    // Atomic write (SAVE-02 discipline): a kill mid-write must never leave a
+    // truncated secret file — temp + rename keeps the previous key readable.
+    let tmp = path.with_extension("paperling-tmp");
+    std::fs::write(&tmp, &key).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+// ===== "Open with" handoff (Android intent → frontend) =====
+//
+// The Kotlin side (CI patch: scripts/patch-android-open-with.mjs) copies a
+// file opened from another app into the app cache and writes incoming.json
+// there. The frontend pulls it once through this command — the marker is
+// deleted on read, mirroring get_cli_file's take semantics so a webview
+// reload doesn't re-open the same file.
+
+/// The pending intent-opened file handed over by the Android side.
+/// Deserialize: the command also parses the incoming.json marker into it.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IncomingFile {
+    pub path: String,
+    pub name: String,
+}
+
+#[tauri::command]
+pub async fn get_incoming_file(app: tauri::AppHandle) -> Result<Option<IncomingFile>, String> {
+    use tauri::Manager;
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("Could not resolve the cache dir: {e}"))?;
+    let marker = cache.join("incoming.json");
+    if !marker.exists() {
+        return Ok(None);
+    }
+    let raw = tokio::fs::read_to_string(&marker)
+        .await
+        .map_err(|e| format!("Could not read the handoff marker: {e}"))?;
+    // Take semantics: delete the marker before parsing so a malformed file
+    // can't wedge every future launch into the same error.
+    let _ = tokio::fs::remove_file(&marker).await;
+    let parsed: IncomingFile = serde_json::from_str(&raw)
+        .map_err(|e| format!("Corrupted handoff marker: {e}"))?;
+    Ok(Some(parsed))
+}
+
+// ===== Mobile notes root =====
+//
+// Android scoped storage makes OS-picked files untrustworthy for std::fs
+// (SAF hands back URI-form identifiers), so the mobile shell works inside one
+// app-private folder. This command resolves and creates it, seeding a first
+// note so a brand-new install has something to tap. Desktop ignores it.
+
+/// The notes root returned by `get_notes_dir`.
+#[derive(Debug, Serialize)]
+pub struct NotesDir {
+    pub path: String,
+    /// True when the folder had to be created (first launch).
+    pub created: bool,
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+const NOTES_WELCOME_MD: &str = r#"# Welcome to Paperling
+
+This is your notes folder. Everything here lives **on this device**, in the
+app's private storage. No account, no sync, works offline.
+
+## Try it
+- Tap **Edit** in the bottom bar to write, **Read** to preview
+- Open **Files** in the bottom bar to browse, or **New** to create a note
+- Use the **menu (top left)** for save, find, export and more
+- Add an AI endpoint in **Settings** to chat about your notes
+
+## Markdown in 30 seconds
+**bold**, *italic*, `inline code`, and [links](https://github.com/Razee4315/Paperling)
+
+- bullet lists
+- [x] and task lists
+
+```rust
+fn main() {
+    println!("code blocks render too");
+}
+```
+
+> Quotes, tables, math like $x^2$, and mermaid diagrams all render in Read mode.
+
+Delete or rewrite this note whenever you like. It is yours.
+"#;
+
+#[tauri::command]
+pub async fn get_notes_dir(app: tauri::AppHandle) -> Result<NotesDir, String> {
+    use tauri::Manager;
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not resolve app data dir: {e}"))?;
+    let dir = base.join("notes");
+    let created = !dir.exists();
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| format!("Could not create notes folder: {e}"))?;
+
+    // Seed a first note only on a genuinely fresh folder, mobile only — the
+    // command exists cross-platform, but desktop sessions never call it.
+    // This MUST be a #[cfg] attribute block, not `if created && cfg!(...)`:
+    // cfg!() compiles BOTH branches at runtime-bool cost, so the desktop build
+    // would reference the mobile-only NOTES_WELCOME_MD and fail E0425 (exactly
+    // what desktop CI caught after the merge, hidden from android CI, which
+    // compiles only the mobile cfg).
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    if created {
+        let welcome = dir.join("Welcome.md");
+        if !welcome.exists() {
+            tokio::fs::write(&welcome, NOTES_WELCOME_MD)
+                .await
+                .map_err(|e| format!("Could not write the welcome note: {e}"))?;
+        }
+    }
+
+    Ok(NotesDir {
+        path: dir.to_string_lossy().into_owned(),
+        created,
+    })
+}
+
+// ===== Leave the app (mobile close flow) =====
+//
+// The unsaved-changes dialog's "discard / save and close" outcomes have no
+// window to destroy on a phone: window controls are OS chrome there and the
+// window capability is intentionally absent from mobile.json, so the frontend
+// needs one guaranteed way out once the user has made an explicit choice
+// (buffers were either saved or consciously abandoned). Desktop destroys the
+// window instead and never calls this; the command is defined (and
+// registered) cross-platform because the handler list is shared.
+
+/// Terminate the process. Only the mobile shell invokes it.
+#[tauri::command]
+pub fn exit_app() {
+    std::process::exit(0);
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_eol, find_backlinks_in_tree, read_file, sanitize_image_name, save_file,
+        apply_eol, find_backlinks_in_tree, read_file_inner, sanitize_image_name, save_file_inner,
         search_markdown_tree, validate_rel_path, Eol,
     };
 
@@ -1059,12 +1367,12 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             let path = dir.join("doc.md").to_string_lossy().to_string();
 
-            let mtime = save_file(path.clone(), "hello".into()).await.unwrap();
+            let mtime = save_file_inner(path.clone(), "hello".into()).await.unwrap();
             assert!(mtime > 0);
             assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello");
 
             // Overwrite must replace the existing file (rename-over semantics).
-            let mtime2 = save_file(path.clone(), "world".into()).await.unwrap();
+            let mtime2 = save_file_inner(path.clone(), "world".into()).await.unwrap();
             assert!(mtime2 >= mtime);
             assert_eq!(std::fs::read_to_string(&path).unwrap(), "world");
 
@@ -1106,7 +1414,7 @@ mod tests {
             // A CRLF file must come back LF-only, matching what CodeMirror
             // will hold — otherwise a freshly opened file reads as dirty.
             std::fs::write(&path, "one\r\ntwo\r\n").unwrap();
-            let fd = read_file(path).await.unwrap();
+            let fd = read_file_inner(path).await.unwrap();
             assert_eq!(fd.content, "one\ntwo\n");
 
             std::fs::remove_dir_all(&dir).ok();
@@ -1127,7 +1435,7 @@ mod tests {
             // Seed a CRLF file, then "edit" it with LF-only content (as the editor
             // would hand us) and confirm the CRLF convention survives the save.
             std::fs::write(&path, "one\r\ntwo\r\n").unwrap();
-            save_file(path.clone(), "one\ntwo\nthree".into())
+            save_file_inner(path.clone(), "one\ntwo\nthree".into())
                 .await
                 .unwrap();
             assert_eq!(
@@ -1137,7 +1445,7 @@ mod tests {
 
             // A brand-new file keeps the editor's LF.
             let lf_path = dir.join("new.md").to_string_lossy().to_string();
-            save_file(lf_path.clone(), "a\nb".into()).await.unwrap();
+            save_file_inner(lf_path.clone(), "a\nb".into()).await.unwrap();
             assert_eq!(std::fs::read_to_string(&lf_path).unwrap(), "a\nb");
 
             std::fs::remove_dir_all(&dir).ok();
