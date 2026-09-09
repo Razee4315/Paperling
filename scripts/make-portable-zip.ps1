@@ -18,7 +18,8 @@ if (-not (Test-Path $exe)) {
     throw "Paperling.exe not found in $ExeDir"
 }
 
-$staging = New-Item -ItemType Directory -Path (Join-Path $env:TEMP "paperling-portable-$(Guid::NewGuid().ToString('N'))") -Force
+$stagingName = "paperling-portable-" + [guid]::NewGuid().ToString('N')
+$staging = New-Item -ItemType Directory -Path (Join-Path $env:TEMP $stagingName) -Force
 try {
     # The exe is self-contained for daily use (WebView2 ships with Windows);
     # any runtime DLLs the build emitted go along for the ride, just in case.
