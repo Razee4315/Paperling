@@ -18,9 +18,46 @@
         pname = "paperling";
         version = "1.0.49";
 
+        # Hashes of the sandboxed bun dependency fetch, per platform (Nix
+        # fixed-output derivation: network access is allowed here and the
+        # result is pinned by hash). Add a platform by building once and
+        # copying the `got: sha256-...` line nix prints.
+        bunDepsHashes = {
+          x86_64-linux = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        };
+
+        # Dependency fetch (fixed-output, so the sandbox grants network).
+        # Runs `bun install --frozen-lockfile` against the checked-in
+        # bun.lock and exposes the resulting node_modules tree.
+        bunDeps = pkgs.stdenvNoCC.mkDerivation {
+          pname = "${pname}-bun-deps";
+          inherit version;
+          src = ./.;
+
+          nativeBuildInputs = [ pkgs.bun ];
+
+          buildPhase = ''
+            export BUN_INSTALL_CACHE_DIR=$TMPDIR/bun-cache
+            bun install --frozen-lockfile
+          '';
+          installPhase = ''
+            cp -r node_modules "$out"
+          '';
+          dontFixup = true;
+
+          outputHashAlgo = "sha256";
+          outputHashMode = "recursive";
+          outputHash = bunDepsHashes.${system} or (throw ''
+            paperling: no bun dependency hash for ${system}.
+            Run `nix build` once and copy the `got: sha256-...` hash into
+            bunDepsHashes in flake.nix.
+          '');
+        };
+
         # The webview frontend. Tauri's build.rs embeds the assets from
         # `frontendDist` (../dist) at compile time, so the Rust build needs
-        # this directory in place before cargo runs.
+        # this directory in place before cargo runs. Offline: node_modules
+        # comes from the pinned bunDeps output above.
         frontend = pkgs.stdenvNoCC.mkDerivation {
           name = "${pname}-frontend-${version}";
           src = ./.;
@@ -29,13 +66,13 @@
 
           configurePhase = ''
             runHook preConfigure
-            export BUN_INSTALL_CACHE_DIR=$TMPDIR/bun-cache
+            cp -a ${bunDeps}/node_modules ./node_modules
+            chmod -R u+w node_modules
             runHook postConfigure
           '';
 
           buildPhase = ''
             runHook preBuild
-            bun install --frozen-lockfile
             bun run build
             runHook postBuild
           '';
@@ -46,7 +83,7 @@
             runHook postInstall
           '';
 
-          # No ELF artifacts to patch; bun.lock pins the exact dependency tree.
+          # No ELF artifacts to patch; the lockfile pinned the deps.
           dontFixup = true;
         };
       in
