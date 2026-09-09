@@ -20,7 +20,7 @@ jobs:
       notes: ${{ steps.notes.outputs.notes }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -138,7 +138,7 @@ jobs:
 
     steps:
       - name: Checkout repository (with bumped version)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
 
