@@ -14,6 +14,17 @@ function FontControls() {
     );
 }
 
+function AccentControls() {
+    const { accent, setAccent } = useTheme();
+    return (
+        <>
+            <span data-testid="accent">{accent}</span>
+            <button onClick={() => setAccent("green")}>Use green</button>
+            <button onClick={() => setAccent("default")}>Use default</button>
+        </>
+    );
+}
+
 describe("ThemeProvider custom font", () => {
     beforeEach(() => {
         localStorage.clear();
@@ -35,5 +46,53 @@ describe("ThemeProvider custom font", () => {
             expect(document.documentElement.style.getPropertyValue("--font-custom"))
                 .toBe('"Atkinson color red", \'Inter\'');
         });
+    });
+});
+
+describe("ThemeProvider accent", () => {
+    beforeEach(() => {
+        localStorage.clear();
+        document.documentElement.removeAttribute("data-theme");
+        ["--accent", "--accent-hover", "--accent-text"].forEach((p) =>
+            document.documentElement.style.removeProperty(p)
+        );
+    });
+
+    it("persists the choice and overrides the accent variables", async () => {
+        render(<ThemeProvider><AccentControls /></ThemeProvider>);
+
+        fireEvent.click(screen.getByText("Use green"));
+
+        expect(screen.getByTestId("accent")).toHaveTextContent("green");
+        expect(localStorage.getItem("paperling-accent")).toBe("green");
+        await waitFor(() => {
+            expect(document.documentElement.style.getPropertyValue("--accent")).toBe("#22c55e");
+            // Hover keeps the same hue at reduced opacity.
+            expect(document.documentElement.style.getPropertyValue("--accent-hover"))
+                .toBe("rgba(34, 197, 94, 0.85)");
+            // Green's luminance is below the 0.35 threshold, so ink is white.
+            expect(document.documentElement.style.getPropertyValue("--accent-text")).toBe("#ffffff");
+        });
+    });
+
+    it("removes the overrides when returning to the theme default", async () => {
+        localStorage.setItem("paperling-accent", "amber");
+        render(<ThemeProvider><AccentControls /></ThemeProvider>);
+
+        await waitFor(() => {
+            expect(document.documentElement.style.getPropertyValue("--accent")).toBe("#f59e0b");
+        });
+
+        fireEvent.click(screen.getByText("Use default"));
+        await waitFor(() => {
+            expect(document.documentElement.style.getPropertyValue("--accent")).toBe("");
+        });
+        expect(localStorage.getItem("paperling-accent")).toBe("default");
+    });
+
+    it("ignores a corrupted stored accent and falls back to default", () => {
+        localStorage.setItem("paperling-accent", "chartreuse");
+        render(<ThemeProvider><AccentControls /></ThemeProvider>);
+        expect(screen.getByTestId("accent")).toHaveTextContent("default");
     });
 });

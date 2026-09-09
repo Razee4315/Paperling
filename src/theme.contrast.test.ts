@@ -44,6 +44,9 @@ const THEMES = [
     ['[data-theme="light"]', "light"],
     ['[data-theme="paper"]', "paper"],
     ['[data-theme="dracula"]', "dracula"],
+    ['[data-theme="graphite"]', "graphite"],
+    ['[data-theme="nord"]', "nord"],
+    ['[data-theme="midnight"]', "midnight"],
 ] as const;
 
 describe("theme selection contrast", () => {

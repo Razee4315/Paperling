@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useTheme, type Theme, type FontFamily, type FontSize } from "../context/ThemeContext";
+import { useTheme, ACCENT_CHOICES, type Theme, type FontFamily, type FontSize } from "../context/ThemeContext";
 import { IS_MOBILE } from "../utils/platform";
 import {
     getTypewriterMode, setTypewriterMode,
@@ -41,6 +41,9 @@ const sections: Array<{ id: Section; label: string; icon: string }> = [
 
 const themes: Array<{ id: Theme; name: string; colors: [string, string]; textColor: string; icon?: string }> = [
     { id: "dark", name: "Dark", colors: ["#0a0a0a", "#141414"], textColor: "#ffffff" },
+    { id: "graphite", name: "Graphite", colors: ["#1c1917", "#262220"], textColor: "#e7e5e4" },
+    { id: "nord", name: "Nord", colors: ["#2e3440", "#3b4252"], textColor: "#eceff4" },
+    { id: "midnight", name: "Midnight", colors: ["#0f172a", "#1e293b"], textColor: "#e2e8f0" },
     { id: "light", name: "Light", colors: ["#ffffff", "#f4f2ee"], textColor: "#171717" },
     { id: "paper", name: "Paper", colors: ["#f5f0e6", "#ebe5d8"], textColor: "#3d3d3d" },
     { id: "dracula", name: "Dracula", colors: ["#282a36", "#44475a"], textColor: "#f8f8f2",},
@@ -97,7 +100,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
     const [section, setSection] = useState<Section>("appearance");
     const [filter, setFilter] = useState("");
-    const { theme, setTheme, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
+    const { theme, setTheme, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
 
     const [typewriter, setTypewriterLocal] = useState(getTypewriterMode);
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
@@ -282,6 +285,32 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                         <div className="w-1/2 h-full" style={{ backgroundColor: t.colors[1] }}></div>
                                                     </div>
                                                     <span className="text-[11px] text-[var(--text-primary)]">{t.name}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </section>
+                                )}
+                                {matches("theme") && (
+                                    <section>
+                                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Accent color</h3>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            {ACCENT_CHOICES.map((a) => (
+                                                <button
+                                                    key={a.id}
+                                                    onClick={() => setAccent(a.id)}
+                                                    aria-pressed={accent === a.id}
+                                                    title={a.name}
+                                                    aria-label={`Accent color: ${a.name}`}
+                                                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+                                                        accent === a.id
+                                                            ? "ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-primary)]"
+                                                            : "hover:scale-110"
+                                                    }`}
+                                                    style={{ backgroundColor: a.color ?? "var(--accent)" }}
+                                                >
+                                                    {a.id === "default" && (
+                                                        <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--text-secondary)" }}>close</span>
+                                                    )}
                                                 </button>
                                             ))}
                                         </div>
