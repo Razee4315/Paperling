@@ -41,7 +41,8 @@
             bun install --frozen-lockfile
           '';
           installPhase = ''
-            cp -r node_modules "$out"
+            mkdir -p "$out/node_modules"
+            cp -r node_modules/. "$out/node_modules/"
           '';
           dontFixup = true;
 
