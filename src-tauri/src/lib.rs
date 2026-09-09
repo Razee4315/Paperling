@@ -131,6 +131,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_file,
             save_file,
+            write_export_file,
             get_file_info,
             list_directory_files,
             search_files,

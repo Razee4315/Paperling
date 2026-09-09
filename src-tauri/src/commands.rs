@@ -158,6 +158,78 @@ fn ensure_mobile_path_allowed(
     Err("Path is outside the app's private storage".to_string())
 }
 
+/// Upper bound on a single export write. An HTML export with embedded images
+/// or an image-heavy DOCX can legitimately reach tens of MB, so this is set
+/// well above the document limit — it only exists so a future bug can't turn
+/// the export path into an unbounded disk fill.
+const MAX_EXPORT_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Write export output (standalone HTML text, or DOCX/PDF bytes) to the exact
+/// path the user picked in a save dialog. This command replaces the webview's
+/// blanket `fs:scope **` write grant (issue #91, item 1): the capability file
+/// now grants the fs plugin NOTHING, so a compromised renderer cannot read,
+/// enumerate, rename, or delete files — the only export surface left is this
+/// one create-or-overwrite write of dialog-chosen paths.
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
+#[tauri::command]
+pub async fn write_export_file(
+    app: tauri::AppHandle,
+    path: String,
+    data: Vec<u8>,
+) -> Result<(), CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&path))
+        .map_err(CommandError::WriteError)?;
+    write_export_file_inner(path, data).await
+}
+
+/// The write_export_file body, app-handle-free so the unit tests can drive it
+/// without a Tauri harness.
+async fn write_export_file_inner(path: String, data: Vec<u8>) -> Result<(), CommandError> {
+    // A dialog-produced path is never empty and never contains NUL; refuse
+    // anything else instead of reinterpreting it.
+    if path.is_empty() {
+        return Err(CommandError::WriteError("Export path is empty".into()));
+    }
+    if path.as_bytes().contains(&0) {
+        return Err(CommandError::WriteError(
+            "Export path contains NUL bytes".into(),
+        ));
+    }
+    if data.len() as u64 > MAX_EXPORT_BYTES {
+        return Err(CommandError::TooLarge(format!(
+            "Export is {} MB; maximum is {} MB",
+            data.len() / (1024 * 1024),
+            MAX_EXPORT_BYTES / (1024 * 1024),
+        )));
+    }
+
+    // Atomic write, same scheme as `save_file`: temp file in the target's
+    // directory (so the rename never crosses a filesystem boundary), fsync
+    // before the rename, no temp left behind on failure. A crash mid-export
+    // can leave a `.paperling-export-tmp` file, never a truncated export.
+    let tmp = format!("{}.{}.paperling-export-tmp", path, std::process::id());
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut f = tokio::fs::File::create(&tmp)
+            .await
+            .map_err(|e| CommandError::WriteError(e.to_string()))?;
+        if let Err(e) = f.write_all(&data).await {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(CommandError::WriteError(e.to_string()));
+        }
+        if let Err(e) = f.sync_all().await {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(CommandError::WriteError(e.to_string()));
+        }
+    }
+    if let Err(e) = tokio::fs::rename(&tmp, &path).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(CommandError::WriteError(e.to_string()));
+    }
+    Ok(())
+}
+
 /// Read a markdown file from disk. Mobile builds first confine `path` to the
 /// app's private storage (SECURITY-02); desktop accepts any path (by design).
 #[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
@@ -1266,7 +1338,7 @@ pub fn exit_app() {
 mod tests {
     use super::{
         apply_eol, find_backlinks_in_tree, read_file_inner, sanitize_image_name, save_file_inner,
-        search_markdown_tree, validate_rel_path, Eol,
+        search_markdown_tree, validate_rel_path, write_export_file_inner, Eol,
     };
 
     #[test]
@@ -1509,5 +1581,84 @@ mod tests {
             let name = format!("img.{}", ext);
             assert!(sanitize_image_name(&name).is_ok(), "rejected {}", name);
         }
+    }
+
+    #[test]
+    fn write_export_file_writes_bytes_atomically() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let dir = std::env::temp_dir()
+                .join(format!("paperling-export-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("out.html").to_string_lossy().to_string();
+
+            write_export_file_inner(path.clone(), b"<html>hi</html>".to_vec())
+                .await
+                .unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), b"<html>hi</html>");
+
+            // Overwrite must replace the existing file (rename-over semantics).
+            write_export_file_inner(path.clone(), b"v2".to_vec())
+                .await
+                .unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), b"v2");
+
+            // No temp file left behind.
+            let leftovers: Vec<_> = std::fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().contains("paperling-export-tmp"))
+                .collect();
+            assert!(leftovers.is_empty());
+
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn write_export_file_rejects_bad_paths_and_oversize() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            // Empty and NUL-containing paths are refused outright.
+            assert!(write_export_file_inner(String::new(), b"x".to_vec())
+                .await
+                .is_err());
+            assert!(write_export_file_inner("out\0.html".into(), b"x".to_vec())
+                .await
+                .is_err());
+
+            // A write that fails (target dir doesn't exist) must not leave a
+            // tmp file behind in a surprising place, and must error.
+            let missing =
+                std::env::temp_dir().join(format!("no-such-dir-{}", std::process::id()));
+            let path = missing.join("out.html").to_string_lossy().to_string();
+            assert!(write_export_file_inner(path, b"x".to_vec()).await.is_err());
+        });
+    }
+
+    #[test]
+    fn write_export_file_writes_empty_payload() {
+        // Zero-byte exports (an empty DOCX edge case) must still produce the
+        // file, not error — validation is about the PATH and the SIZE CAP,
+        // not about demanding content.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let dir = std::env::temp_dir()
+                .join(format!("paperling-export-empty-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("out.docx").to_string_lossy().to_string();
+            write_export_file_inner(path.clone(), Vec::new()).await.unwrap();
+            assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
+            std::fs::remove_dir_all(&dir).ok();
+        });
     }
 }

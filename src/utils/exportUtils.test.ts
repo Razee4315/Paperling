@@ -2,14 +2,17 @@ import { describe, it, expect, vi, type Mock } from "vitest";
 
 // exportUtils imports Tauri plugins at module load; stub them so the pure
 // HTML-generation helpers can be tested without a Tauri runtime. The functions
-// under test (generateHTML, prepareExportHtml) never call these.
+// under test (generateHTML, prepareExportHtml) never call these. Exports write
+// through the Rust command `write_export_file` via invoke (issue #91, item 1) —
+// the fs plugin no longer participates at all.
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
-vi.mock("@tauri-apps/plugin-fs", () => ({ writeTextFile: vi.fn(), writeFile: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import { exportToDocx, generateHTML, prepareExportHtml } from "./exportUtils";
+
+const invokeMock = invoke as Mock;
 
 describe("generateHTML", () => {
     it("wraps the content in a standalone HTML document", () => {
@@ -109,29 +112,31 @@ describe("prepareExportHtml", () => {
 describe("exportToDocx", () => {
     it("returns false and writes nothing when the save dialog is cancelled", async () => {
         (save as Mock).mockResolvedValueOnce(null);
-        (writeFile as Mock).mockClear();
+        invokeMock.mockClear();
         const ok = await exportToDocx("<h1>Hi</h1>", "doc.md", "dark", "inter", "medium");
         expect(ok).toBe(false);
-        expect(writeFile).not.toHaveBeenCalled();
+        expect(invokeMock).not.toHaveBeenCalled();
     });
 
     it("converts the HTML and writes a valid OOXML .docx to the chosen path", async () => {
         (save as Mock).mockResolvedValueOnce("C:/tmp/out.docx");
-        (writeFile as Mock).mockClear();
+        invokeMock.mockClear();
         const ok = await exportToDocx(
             "<h1>Title</h1><p>Hello <strong>world</strong></p><ul><li>a</li><li>b</li></ul>",
             "doc.md",
             "dark", "inter", "medium"
         );
         expect(ok).toBe(true);
-        expect(writeFile).toHaveBeenCalledOnce();
-        const [path, bytes] = (writeFile as Mock).mock.calls[0];
+        expect(invokeMock).toHaveBeenCalledOnce();
+        // Export writes go through the validated Rust command, not the fs plugin.
+        expect(invokeMock.mock.calls[0][0]).toBe("write_export_file");
+        const { path, data } = invokeMock.mock.calls[0][1];
         expect(path).toBe("C:/tmp/out.docx");
-        expect(bytes).toBeInstanceOf(Uint8Array);
+        expect(data).toBeInstanceOf(Array);
         // A .docx is a ZIP archive — it must start with the local-file-header
         // magic bytes "PK\x03\x04". This proves we wrote a real Office document,
         // not an HTML blob with a .docx extension.
-        expect(Array.from(bytes.slice(0, 4))).toEqual([0x50, 0x4b, 0x03, 0x04]);
+        expect(data.slice(0, 4)).toEqual([0x50, 0x4b, 0x03, 0x04]);
     }, 20000);
 
     // NOTE (EXPORT-05): the webview provides no Node globals, and the
