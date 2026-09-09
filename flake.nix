@@ -104,7 +104,8 @@
           pname = pname;
           inherit version;
 
-          src = ./.;
+          # Named "source" so sourceRoot can address source/src-tauri.
+          src = builtins.path { path = ./.; name = "source"; };
           # The Rust crate lives in src-tauri with its own Cargo.lock.
           sourceRoot = "source/src-tauri";
           cargoLock.lockFile = ./src-tauri/Cargo.lock;
