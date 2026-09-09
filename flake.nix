@@ -81,7 +81,11 @@
 
           buildPhase = ''
             runHook preBuild
-            bun run build
+            # Equivalent to `bun run build` (= tsc && vite build), but calling
+            # the real entry points: the .bin shims are symlinks with
+            # /usr/bin/env shebangs that patchShebangs cannot rewrite.
+            node node_modules/typescript/bin/tsc
+            node node_modules/vite/bin/vite.js build
             runHook postBuild
           '';
 
