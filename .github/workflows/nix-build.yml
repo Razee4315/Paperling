@@ -10,6 +10,7 @@ on:
     branches: ["issue-117-nix-flake", "main"]
     paths:
       - "flake.nix"
+      - ".github/workflows/nix-build.yml"
       - "flake.lock"
       - "src-tauri/Cargo.lock"
 

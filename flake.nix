@@ -1,5 +1,5 @@
 {
-  description = "Paperling — a minimal, distraction-free Markdown editor with live preview, math, diagrams, and an optional AI assistant";
+  description = "Paperling — the minimal, distraction-free Markdown editor with live preview, math, diagrams, and an optional AI assistant";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
