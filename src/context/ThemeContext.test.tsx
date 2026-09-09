@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ThemeProvider, useTheme } from "./ThemeContext";
 
@@ -51,6 +51,7 @@ describe("ThemeProvider custom font", () => {
 
 describe("ThemeProvider accent", () => {
     beforeEach(() => {
+        cleanup();
         localStorage.clear();
         document.documentElement.removeAttribute("data-theme");
         ["--accent", "--accent-hover", "--accent-text"].forEach((p) =>
@@ -70,8 +71,9 @@ describe("ThemeProvider accent", () => {
             // Hover keeps the same hue at reduced opacity.
             expect(document.documentElement.style.getPropertyValue("--accent-hover"))
                 .toBe("rgba(34, 197, 94, 0.85)");
-            // Green's luminance is below the 0.35 threshold, so ink is white.
-            expect(document.documentElement.style.getPropertyValue("--accent-text")).toBe("#ffffff");
+            // Green's WCAG luminance (~0.41) is above the 0.35 threshold,
+            // so ink on accent-filled buttons is dark, like Material's.
+            expect(document.documentElement.style.getPropertyValue("--accent-text")).toBe("#0a0a0a");
         });
     });
 
