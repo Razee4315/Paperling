@@ -99,7 +99,7 @@
           meta = with pkgs.lib; {
             description = "A minimal, distraction-free Markdown editor";
             homepage = "https://github.com/Razee4315/Paperling";
-            license = licenses.unfree;
+            license = licenses.asl20;
             mainProgram = pname;
             platforms = platforms.linux ++ platforms.darwin;
           };
