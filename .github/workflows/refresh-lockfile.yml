@@ -2,7 +2,7 @@ name: Refresh lockfile
 
 # One-off maintenance workflow (not part of CI): runs `bun install` so bun.lock
 # picks up any package.json changes made off-machine (e.g. adding
-# @codemirror/vim for the vim-mode branch), and pushes the result back.
+# @replit/codemirror-vim for the vim-mode branch), and pushes the result back.
 #
 # Triggers on pushes that touch package.json or this file. Remove this
 # workflow (or the push trigger) once every machine contributing package.json

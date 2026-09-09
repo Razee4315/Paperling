@@ -14,7 +14,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { autocompletion, closeBrackets, closeBracketsKeymap, type CompletionContext, type CompletionResult, type Completion } from "@codemirror/autocomplete";
 import { unifiedMergeView, getChunks, getOriginalDoc } from "@codemirror/merge";
-import { vim } from "@codemirror/vim";
+import { vim } from "@replit/codemirror-vim";
 import { tags as t } from "@lezer/highlight";
 import { getImageFromClipboard, saveImageToFile, createMarkdownImage } from "../utils/imageUtils";
 import {
@@ -70,7 +70,7 @@ interface CodeEditorProps {
     wordWrap?: boolean;
     spellCheck?: boolean;
     /** Optional vim modal editing (issue #119): h/j/k/l, modes, operators —
-     *  the official @codemirror/vim implementation. Off by default. */
+     *  the official @replit/codemirror-vim implementation. Off by default. */
     vimMode?: boolean;
     aiConfig?: { endpoint: string; model: string; apiKey: string };
     /** When non-null, show this proposed document as an inline diff (CodeMirror
