@@ -137,8 +137,10 @@
 
           # Tauri's build script embeds the frontend assets at compile time;
           # place the prebuilt dist where tauri.conf.json's `frontendDist`
-          # (../dist, relative to src-tauri) points.
+          # (../dist, relative to src-tauri) points. The unpacked source tree
+          # is read-only, so make it writable first.
           preBuild = ''
+            chmod -R u+w ..
             cp -r ${frontend} ../dist
             chmod -R u+w ../dist
           '';
