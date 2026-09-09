@@ -95,7 +95,7 @@ export async function runAIAction(
     cfg: AIConfig,
     signal?: AbortSignal
 ): Promise<string> {
-    if (!cfg.endpoint) throw new Error("AI endpoint not configured. Open Settings → AI to set one up.");
+    if (!cfg.endpoint) throw new Error("AI endpoint not configured. Open Settings, AI section, to set one up.");
     if (!isValidEndpoint(cfg.endpoint)) {
         throw new Error("AI endpoint must be a valid http:// or https:// URL.");
     }
@@ -138,11 +138,11 @@ export async function runAIAction(
         const detail = res.body.trim().slice(0, 200);
         let msg: string;
         if (res.status === 401 || res.status === 403) {
-            msg = "API key invalid or unauthorized — check Settings → AI.";
+            msg = "API key invalid or unauthorized. Check Settings, AI section.";
         } else if (res.status === 404) {
-            msg = "Endpoint not found (404) — check the URL in Settings → AI.";
+            msg = "Endpoint not found (404). Check the URL in Settings, AI section.";
         } else if (res.status === 429) {
-            msg = "Rate limited (429) — wait a moment and try again.";
+            msg = "Rate limited (429). Wait a moment and try again.";
         } else if (res.status >= 500) {
             msg = `AI service unavailable (${res.status}). Try again later.`;
         } else {

@@ -258,7 +258,10 @@ export function Tour({ onClose, onOpenTutorial }: TourProps) {
                         ))}
                     </div>
 
-                    <div className="w-full flex items-center justify-between gap-2">
+                    {/* flex-wrap: on a narrow viewport the three buttons of the
+                        final step cannot share one row; wrapping must beat
+                        clipping out of the screen. */}
+                    <div className="w-full flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
                         <button
                             onClick={onClose}
                             className="btn-press whitespace-nowrap text-sm font-medium px-4 py-2 rounded-[var(--radius-md)] bg-[var(--bg-primary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border)] transition-all duration-200"

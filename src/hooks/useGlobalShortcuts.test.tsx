@@ -15,6 +15,7 @@ function makeHandlers(over: Partial<ShortcutHandlers> = {}): ShortcutHandlers {
         handleToggleMode: vi.fn(),
         handleToggleSplit: vi.fn(),
         toggleFullscreen: vi.fn(),
+        toggleZen: vi.fn(),
         handleToggleFileExplorer: vi.fn(),
         handleToggleTOC: vi.fn(),
         openCheatsheet: vi.fn(),
@@ -83,6 +84,11 @@ describe("useGlobalShortcuts", () => {
     it("F11 toggles fullscreen", () => {
         press({ key: "F11" });
         expect(h.toggleFullscreen).toHaveBeenCalledTimes(1);
+    });
+
+    it("F9 toggles Zen mode, with or without a file open", () => {
+        press({ key: "F9" });
+        expect(h.toggleZen).toHaveBeenCalledTimes(1);
     });
 
     it("Alt+J dispatches the AI-assist event", () => {

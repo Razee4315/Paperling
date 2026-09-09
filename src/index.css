@@ -413,6 +413,237 @@ select:focus-visible,
   color: var(--selection-text);
 }
 
+/* ===== Mobile / touch shell =====
+   `html.mobile` / `html.touch` are stamped ONCE at boot by utils/platform.ts
+   (user agent + coarse pointer, with a ?mobile= query override). Everything
+   below is presentation only; behavior branches live in the components via
+   the IS_MOBILE/IS_TOUCH constants so tests and desktop stay deterministic. */
+
+:root {
+  --keyboard-inset: 0px;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  /* The mobile app bar is 48dp tall plus whatever the status bar claims
+     (viewport-fit=cover means we draw under it). Fixed panels offset from this
+     same variable, so bar and panels always agree. */
+  --mobile-topbar-h: calc(48px + env(safe-area-inset-top, 0px));
+}
+
+/* While the on-screen keyboard is up (html.kb-open, set by useKeyboardInset)
+   the bottom nav would sit behind the IME; hide it — the standard mobile
+   pattern when composing. */
+html.mobile.kb-open .mobile-bottomnav {
+  display: none;
+}
+
+html.touch,
+html.touch button,
+html.touch a,
+html.touch label,
+html.touch [role="button"],
+html.touch [role="tab"],
+html.touch [role="option"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* 100dvh with a 100vh fallback: the shell must track the visual viewport on
+   devices where the URL/gesture bars collapse. Never subtract the keyboard
+   here — the keyboard is applied as padding via --keyboard-inset. */
+html.mobile {
+  height: 100vh;
+  height: 100dvh;
+  overscroll-behavior: none;
+}
+
+/* The app shell: same height treatment as the root element, plus the keyboard
+   inset applied as PADDING (never height). On overlay-keyboard devices the
+   inset is exactly the covered region; on devices that resize the layout
+   viewport, 100dvh already shrank and the measured inset is 0 — the padding
+   approach cannot double-count. */
+html.mobile .app-shell {
+  height: 100vh;
+  height: 100dvh;
+  padding-bottom: var(--keyboard-inset);
+}
+
+/* Safety net for "controls off the edge of the screen": every surface is
+   sized to fit its viewport individually (find-bar rows, tour card, toolbar
+   strip…), but one stray wide element must never turn the whole app into a
+   sideways-pannable page. `clip` kills horizontal panning without creating a
+   scroll container; `hidden` is the fallback for older WebViews. */
+html.mobile body {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+/* Below 16px, focusing a form field makes the Android WebView zoom the page —
+   a jarring viewport jump on every tap into a text box. 16px is the threshold
+   Chrome respects. (CodeMirror content is not a form field and keeps the
+   user's chosen editor font size.) */
+html.mobile input,
+html.mobile textarea,
+html.mobile select {
+  font-size: 16px !important;
+}
+
+/* Panels become full-screen sheets on the phone. The desktop classes reserve
+   288px sidebars / a 400px AI column; a 360px viewport cannot spare either.
+   !important is required only where the component sets an inline width
+   (AIPanel). */
+html.mobile [data-panel="left"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  top: var(--mobile-topbar-h) !important;
+  bottom: 0 !important;
+  border-right: none;
+  box-shadow: none;
+}
+
+html.mobile [data-panel="right"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  top: var(--mobile-topbar-h) !important;
+  bottom: 0 !important;
+  border-left: none;
+  box-shadow: none;
+  /* The composer must stay above the on-screen keyboard. The panel's flex
+     column squeezes the message list, which is exactly what should happen. */
+  padding-bottom: var(--keyboard-inset);
+}
+
+/* Comfortable touch targets inside panels. Rows (w-full) get padding instead
+   so the full-width tap area is ≥44px tall without distorting layout. */
+html.mobile [data-panel] button:not(.w-full) {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+html.mobile [data-panel] [role="option"],
+html.mobile [data-panel] [role="menuitem"],
+html.mobile .mobile-menu [role="menuitem"] {
+  min-height: 44px;
+}
+
+/* The find bar is absolutely positioned top-right on desktop with a 360px
+   min-width — it would overflow a phone. Stretch it edge to edge instead. */
+html.mobile .find-bar {
+  left: 0.5rem;
+  right: 0.5rem;
+  top: 0.5rem;
+  min-width: 0 !important;
+}
+
+html.mobile .find-bar button {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+/* Formatting toolbar: one horizontally scrollable strip of ≥40px buttons —
+   15 buttons don't fit 360px, and wrapping would eat the editor. */
+html.mobile .format-toolbar {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: auto;
+  min-height: 44px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+html.mobile .format-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+html.mobile .format-toolbar button {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+}
+
+/* Preview column: full-bleed-ish reading on a phone instead of the desktop
+   800px centered column's 32px/48px gutters. */
+html.mobile .preview-column {
+  padding: 1rem !important;
+}
+
+html.mobile .preview-column button {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+/* Settings: the fixed 820×600 two-pane modal becomes a full-screen sheet —
+   stacked column, section nav as a horizontal scrollable pill row under the
+   search box. Padding-top keeps the search box clear of the status bar
+   (feedback round 1: it was half-covered). */
+html.mobile .settings-shell {
+  flex-direction: column;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: 100vw !important;
+  max-height: 100dvh !important;
+  border-radius: 0;
+  border: none;
+  padding-top: var(--safe-area-top);
+}
+
+html.mobile .settings-nav {
+  width: 100% !important;
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+}
+
+html.mobile .settings-nav nav {
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  gap: 4px;
+  scrollbar-width: none;
+}
+
+html.mobile .settings-nav nav::-webkit-scrollbar {
+  display: none;
+}
+
+/* Compact section tabs so every section (Appearance / Editor / AI / About) is
+   visible or one swipe away — the desktop full-width rows stacked three of
+   them off-screen. Gently rounded rectangles (full pills read as ambiguous
+   round chips in on-device feedback). */
+html.mobile .settings-nav nav button {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+html.mobile .settings-nav nav button[data-active="true"] {
+  border-color: var(--accent);
+}
+
+/* Wide fixed-width dialogs clamp to the viewport. */
+html.mobile .cheatsheet-shell {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  max-height: 100dvh !important;
+  height: 100dvh;
+  border-radius: 0;
+  border: none;
+  padding-top: var(--safe-area-top);
+}
+
+/* The status bar is replaced by the bottom nav on mobile, and the floating
+   mode pill by the nav's Read/Edit button — both are simply not rendered
+   (App.tsx). Hiding the desktop scrollbars on touch avoids a hover-styled
+   strip with nothing to hover; scrolling is by touch anyway. */
+html.touch ::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
 /* ===== Material Icons ===== */
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -690,6 +921,23 @@ select:focus-visible,
   line-height: var(--line-height);
   font-family: var(--font-body);
   font-size: var(--font-size-base);
+  /* No wide child may pan the document sideways — wide tables scroll inside
+     .table-scroll, code blocks inside their pre, math inside .katex-display;
+     this is the last-resort clip (visible+clip is the legal pair that does
+     NOT turn the element into a scroll container, so vertical flow and the
+     scroll-sync fraction are untouched). */
+  overflow-x: clip;
+}
+
+/* Wide tables: the table keeps its natural width and the WRAPPER scrolls, so
+   the page's vertical reading scroll stays the only page-level scroll (the
+   wrapper is rendered by the preview's table renderer). */
+.markdown-body .table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  /* Reaching the table's right edge must not fling the page itself. */
+  overscroll-behavior-x: contain;
 }
 
 .markdown-body h1 {

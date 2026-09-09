@@ -54,6 +54,7 @@ const groups: ShortcutGroup[] = [
         items: [
             { keys: formatShortcut("toggleMode"), description: "Toggle Reader / Code" },
             { keys: formatShortcut("toggleSplit"), description: "Toggle split view" },
+            { keys: formatShortcut("zenMode"), description: "Toggle Zen mode (reading canvas only)" },
             { keys: formatShortcut("fullscreen"), description: "Toggle fullscreen" },
             { keys: formatShortcut("toggleFileExplorer"), description: "Toggle file explorer" },
             { keys: formatShortcut("searchInFolder"), description: "Search across files" },
@@ -70,7 +71,7 @@ const groups: ShortcutGroup[] = [
         ],
     },
     {
-        title: "Editor — Formatting",
+        title: "Editor: Formatting",
         items: [
             { keys: formatShortcut("bold"), description: "Bold (toggle)" },
             { keys: formatShortcut("italic"), description: "Italic (toggle)" },
@@ -79,7 +80,7 @@ const groups: ShortcutGroup[] = [
         ],
     },
     {
-        title: "Editor — Navigation",
+        title: "Editor: Navigation",
         items: [
             { keys: "Tab", description: "Indent line / selection" },
             { keys: "Shift+Tab", description: "Outdent line / selection" },
@@ -89,7 +90,7 @@ const groups: ShortcutGroup[] = [
         ],
     },
     {
-        title: "Editor — Auto-pair",
+        title: "Editor: Auto-pair",
         items: [
             { keys: "( [ { ` \" '", description: "Wrap selection or insert pair" },
             { keys: ") ] } ` \" '", description: "Type past matching closer" },
@@ -163,7 +164,7 @@ export function ShortcutCheatsheet({ isOpen, onClose }: ShortcutCheatsheetProps)
 
             <div
                 ref={dialogRef}
-                className="relative z-10 w-[640px] max-h-[80vh] flex flex-col bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-lg)] shadow-2xl overflow-hidden animate-fade-in"
+                className="cheatsheet-shell relative z-10 w-[min(640px,calc(100vw-1.5rem))] max-h-[80vh] flex flex-col bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-lg)] shadow-2xl overflow-hidden animate-fade-in"
             >
                 <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--border)]">
                     <img src={iconKeyboard} alt="" aria-hidden="true" draggable={false} className="w-8 h-8 object-contain select-none" />

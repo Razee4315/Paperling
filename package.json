@@ -63,7 +63,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^4.7.0",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.1",
     "sharp": "^0.35.3",
     "typescript": "~7.0.2",
     "vite": "^8.1.5",

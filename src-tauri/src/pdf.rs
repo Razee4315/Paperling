@@ -34,9 +34,63 @@ pub async fn export_pdf(app: tauri::AppHandle, html: String, path: String) -> Re
     // editor UI. A data: URL would blow past WebView2's ~2 MB navigation cap
     // once images are inlined as base64, so stage the HTML in a temp file and
     // load that instead (macOS follows the same route for symmetry).
-    let mut temp = std::env::temp_dir();
-    temp.push(format!("paperling-export-{}-{}.html", std::process::id(), seq));
-    std::fs::write(&temp, &html).map_err(|e| format!("Failed to stage export HTML: {e}"))?;
+    //
+    // The staging name is unguessable and claimed with create_new: a
+    // predictable path in a shared temp directory would let a local process
+    // pre-create or swap the HTML between write and load. The export webview
+    // holds no IPC capabilities (its label is in no capability file), but it
+    // still renders whatever is in that file — don't make planting content
+    // cheap.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mut staged: Option<std::path::PathBuf> = None;
+    let mut stage_err: Option<std::io::Error> = None;
+    for attempt in 0u8..3 {
+        let mut candidate = std::env::temp_dir();
+        candidate.push(format!(
+            "paperling-export-{}-{}-{}-{attempt:x}.html",
+            std::process::id(),
+            seq,
+            nanos,
+        ));
+        match std::fs::File::options()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(mut file) => {
+                use std::io::Write as _;
+                match file.write_all(html.as_bytes()) {
+                    Ok(()) => {
+                        staged = Some(candidate);
+                        break;
+                    }
+                    Err(e) => {
+                        let _ = std::fs::remove_file(&candidate);
+                        stage_err = Some(e);
+                    }
+                }
+            }
+            // Nanosecond collisions are vanishingly rare; retry with a new name.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                stage_err = Some(e);
+            }
+            Err(e) => {
+                stage_err = Some(e);
+                break;
+            }
+        }
+    }
+    let temp = staged.ok_or_else(|| {
+        format!(
+            "Failed to stage export HTML: {}",
+            stage_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "no writable name found".to_string())
+        )
+    })?;
 
     let url = tauri::Url::from_file_path(&temp)
         .map_err(|_| "Failed to build a URL for the export file".to_string())?;

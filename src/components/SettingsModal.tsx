@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme, type Theme, type FontFamily, type FontSize } from "../context/ThemeContext";
+import { IS_MOBILE } from "../utils/platform";
 import {
     getTypewriterMode, setTypewriterMode,
     getToolbarEnabled, setToolbarEnabled,
@@ -9,11 +10,13 @@ import {
     getSpellCheck, setSpellCheck,
     getAutoSave, setAutoSave,
     getOpenInReader, setOpenInReader,
+    getZenMode, setZenMode,
     getAIHistoryTurns, setAIHistoryTurns, AI_HISTORY_TURNS_MAX,
     getAIIconAnimation, setAIIconAnimation,
 } from "../utils/persistence";
 import { AI_PROVIDERS, matchProvider, type AIProvider } from "../utils/aiProviders";
 import { attachFocusTrap } from "../utils/focusTrap";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { isValidEndpoint, endpointLeaksKey, runAIAction } from "../utils/aiAssist";
 import mascotWave from "../assets/mascot/mascot-wave.png";
 
@@ -102,6 +105,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [spellCheck, setSpellCheckLocal] = useState(getSpellCheck);
     const [autoSave, setAutoSaveLocal] = useState(getAutoSave);
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
+    const [zenMode, setZenModeLocal] = useState(getZenMode);
 
     // The running app's version for the About panel (#148). Read from the Tauri
     // core API rather than a build-time constant so it always reflects the
@@ -205,11 +209,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
             <div
                 ref={dialogRef}
-                className="relative z-10 w-[820px] max-w-[95vw] h-[600px] max-h-[90vh] flex bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-lg)] shadow-2xl overflow-hidden animate-fade-in"
+                className="settings-shell relative z-10 w-[min(820px,95vw)] h-[min(600px,90dvh)] flex bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-lg)] shadow-2xl overflow-hidden animate-fade-in"
             >
                 {/* Sidebar — narrower below `sm` so the content pane keeps a
-                    usable width when the 95vw modal shrinks on small screens. */}
-                <aside className="w-36 sm:w-48 shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col">
+                    usable width when the 95vw modal shrinks on small screens.
+                    On mobile the shell CSS turns this into a horizontal icon
+                    rail (full-screen sheet layout). */}
+                <aside className="settings-nav w-36 sm:w-48 shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col">
                     <div className="px-4 py-3 border-b border-[var(--border)]">
                         <input
                             type="text"
@@ -221,9 +227,15 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         />
                     </div>
                     <nav className="flex-1 py-2">
-                        {sections.map((s) => (
+                        {/* AI needs an endpoint configured on a keyboard and is
+                            switched off by default; on the phone it's just a
+                            dead section, so it isn't offered. */}
+                        {sections
+                            .filter((s) => !IS_MOBILE || s.id !== "ai")
+                            .map((s) => (
                             <button
                                 key={s.id}
+                                data-active={section === s.id}
                                 onClick={() => setSection(s.id)}
                                 className={`w-full flex items-center gap-2 px-4 py-2 text-sm text-left transition-colors ${section === s.id
                                     ? "bg-[var(--bg-hover)] text-[var(--text-primary)] font-medium"
@@ -358,11 +370,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                         {section === "editor" && (
                             <div className="rounded-[var(--radius-lg)] border border-[var(--border)] divide-y divide-[var(--border-subtle)] overflow-hidden">
-                                {matches("typewriter") && (
+                                {/* Typewriter scrolling orbits a physical
+                                    keyboard's caret line; on touch it's a
+                                    solution without a problem. */}
+                                {matches("typewriter") && !IS_MOBILE && (
                                     <ToggleRow label="Typewriter mode" description="Keep caret vertically centered" checked={typewriter}
                                         onChange={(v) => { setTypewriterLocal(v); setTypewriterMode(v); fire("paperling:typewriter-toggle", v); }} />
                                 )}
-                                {matches("toolbar") && (
+                                {/* Not offered on mobile: the toolbar is the
+                                    phone's only formatting surface, always on. */}
+                                {matches("toolbar") && !IS_MOBILE && (
                                     <ToggleRow label="Show formatting toolbar" description="Toolbar above the editor" checked={toolbar}
                                         onChange={(v) => { setToolbarLocal(v); setToolbarEnabled(v); fire("paperling:toolbar-toggle", v); }} />
                                 )}
@@ -384,10 +401,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     <ToggleRow label="Open files in reader mode" description="Every file opens read-first; editing stays one click away" checked={openInReader}
                                         onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
                                 )}
+                                {matches("zen mode") && (
+                                    <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}
+                                        onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
+                                )}
                             </div>
                         )}
 
-                        {section === "ai" && (
+                        {section === "ai" && !IS_MOBILE && (
                             <>
                                 <div className="rounded-[var(--radius-lg)] border border-[var(--border)] divide-y divide-[var(--border-subtle)] overflow-hidden">
                                     <ToggleRow label="Enable AI" description="Show the AI button and assistant in the editor" checked={aiEnabled}
@@ -555,25 +576,68 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     </div>
                                 </div>
                                 <p>Built with Tauri + React + TypeScript.</p>
-                                <p>Press <kbd className="px-1 font-mono rounded border border-[var(--border)] bg-[var(--bg-input)]">?</kbd> to view all keyboard shortcuts.</p>
+
+                                {/* The maker. Links open in the system browser
+                                    via the opener plugin (granted on desktop
+                                    and mobile); fall back to a plain anchor in
+                                    plain-browser dev mode. */}
+                                <div className="pt-3 border-t border-[var(--border-subtle)] text-xs space-y-2">
+                                    <div className="text-[var(--text-muted)] uppercase tracking-wider text-[10px] font-semibold">Created by</div>
+                                    <div className="text-sm font-medium text-[var(--text-primary)]">Saqlain Razee</div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                openUrl("https://github.com/Razee4315").catch(() => {
+                                                    window.open("https://github.com/Razee4315", "_blank");
+                                                });
+                                            }}
+                                            className="btn-press flex items-center gap-2 w-fit text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                                        >
+                                            <span className="material-symbols-outlined text-[16px]">code</span>
+                                            <span>GitHub — Razee4315</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                openUrl("https://www.linkedin.com/in/saqlainrazee/").catch(() => {
+                                                    window.open("https://www.linkedin.com/in/saqlainrazee/", "_blank");
+                                                });
+                                            }}
+                                            className="btn-press flex items-center gap-2 w-fit text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                                        >
+                                            <span className="material-symbols-outlined text-[16px]">work</span>
+                                            <span>LinkedIn — saqlainrazee</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Keyboard tour steps don't exist on the touch shell. */}
+                                {!IS_MOBILE && (
+                                    <p>Press <kbd className="px-1 font-mono rounded border border-[var(--border)] bg-[var(--bg-input)]">?</kbd> to view all keyboard shortcuts.</p>
+                                )}
 
                                 {/* Replay the first-run tour. The mascot makes the row instantly
-                                    recognizable as "that welcome thing". App.tsx listens for the event. */}
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        onClose();
-                                        window.dispatchEvent(new CustomEvent("paperling:replay-tour"));
-                                    }}
-                                    className="btn-press mt-3 w-full flex items-center gap-3 px-3.5 py-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] transition-colors text-left"
-                                >
-                                    <img src={mascotWave} alt="" aria-hidden="true" draggable={false} className="w-10 h-10 object-contain select-none shrink-0" />
-                                    <span className="flex flex-col items-start min-w-0">
-                                        <span className="text-sm font-medium text-[var(--text-primary)]">Replay the welcome tour</span>
-                                        <span className="text-[11px] text-[var(--text-muted)] mt-0.5">A 30-second walkthrough of the editor, views, and shortcuts</span>
-                                    </span>
-                                    <span className="material-symbols-outlined ml-auto text-[18px] text-[var(--text-muted)]">arrow_forward</span>
-                                </button>
+                                    recognizable as "that welcome thing". App.tsx listens for the event.
+                                    Desktop only: the tour spotlights title-bar/status-bar chrome the
+                                    phone shell doesn't have, and its card overflowed narrow screens. */}
+                                {!IS_MOBILE && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            onClose();
+                                            window.dispatchEvent(new CustomEvent("paperling:replay-tour"));
+                                        }}
+                                        className="btn-press mt-3 w-full flex items-center gap-3 px-3.5 py-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] transition-colors text-left"
+                                    >
+                                        <img src={mascotWave} alt="" aria-hidden="true" draggable={false} className="w-10 h-10 object-contain select-none shrink-0" />
+                                        <span className="flex flex-col items-start min-w-0">
+                                            <span className="text-sm font-medium text-[var(--text-primary)]">Replay the welcome tour</span>
+                                            <span className="text-[11px] text-[var(--text-muted)] mt-0.5">A 30-second walkthrough of the editor, views, and shortcuts</span>
+                                        </span>
+                                        <span className="material-symbols-outlined ml-auto text-[18px] text-[var(--text-muted)]">arrow_forward</span>
+                                    </button>
+                                )}
                             </div>
                         )}
                     </div>

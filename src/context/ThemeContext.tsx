@@ -37,23 +37,15 @@ function getValidated<T extends string>(key: string, validValues: T[], fallback:
     return fallback;
 }
 
-/** True when the OS reports a light color scheme. Guarded for non-browser
- *  contexts (SSR/tests) where matchMedia is absent. */
-function prefersLight(): boolean {
-    return typeof window !== 'undefined'
-        && typeof window.matchMedia === 'function'
-        && window.matchMedia('(prefers-color-scheme: light)').matches;
-}
-
-/** Theme to start with: a previously saved choice wins; otherwise match the OS
- *  so a first launch doesn't blast a dark UI at someone on a light desktop (or
- *  vice versa). Falls back to dark when the preference can't be read. */
+/** Theme to start with: a previously saved choice wins; otherwise Paper —
+ *  the brand default for first runs (must mirror the inline pre-paint script
+ *  in index.html). */
 function getInitialTheme(): Theme {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
     if (stored && VALID_THEMES.includes(stored as Theme)) {
         return stored as Theme;
     }
-    return prefersLight() ? 'light' : 'dark';
+    return 'paper';
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -103,21 +95,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         el.setAttribute('data-font-size', fontSize);
         el.style.setProperty('--font-custom', getFontStack('custom', customFont));
     }, [theme, font, fontSize, customFont]);
-
-    // Track the OS theme until the user picks one explicitly. The handler
-    // re-checks storage each time so flipping the OS appearance never overrides
-    // a deliberate choice the user made earlier in the session.
-    useEffect(() => {
-        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-        const mq = window.matchMedia('(prefers-color-scheme: light)');
-        const onChange = (e: MediaQueryListEvent) => {
-            if (!localStorage.getItem(THEME_STORAGE_KEY)) {
-                setThemeState(e.matches ? 'light' : 'dark');
-            }
-        };
-        mq.addEventListener('change', onChange);
-        return () => mq.removeEventListener('change', onChange);
-    }, []);
 
     return (
         <ThemeContext.Provider value={{ theme, setTheme, font, setFont, customFont, setCustomFont, fontSize, setFontSize }}>

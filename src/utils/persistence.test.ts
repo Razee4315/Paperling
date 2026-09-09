@@ -6,6 +6,7 @@ import {
     getWordWrap,
     migrateLegacyKeys, getLastFile,
     getOpenInReader, setOpenInReader,
+    getZenMode, setZenMode,
     getAIHistoryTurns, setAIHistoryTurns, AI_HISTORY_TURNS_DEFAULT, AI_HISTORY_TURNS_MAX,
 } from "./persistence";
 
@@ -63,6 +64,18 @@ describe("open in reader", () => {
     it("treats a malformed stored value as the default", () => {
         localStorage.setItem("paperling:openInReader", "{not json");
         expect(getOpenInReader()).toBe(false);
+    });
+});
+
+describe("zen mode", () => {
+    it("defaults off and round-trips", () => {
+        expect(getZenMode()).toBe(false);
+        setZenMode(true);
+        expect(getZenMode()).toBe(true);
+    });
+    it("treats a malformed stored value as the default", () => {
+        localStorage.setItem("paperling:zenMode", "{not json");
+        expect(getZenMode()).toBe(false);
     });
 });
 

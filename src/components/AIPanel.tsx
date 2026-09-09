@@ -19,6 +19,7 @@ import {
     type ChatSession,
 } from "../utils/chatSessions";
 import { PanelResizeHandle } from "./PanelResizeHandle";
+import { IS_MOBILE } from "../utils/platform";
 import mascotWizard from "../assets/mascot/mascot-wizard.png";
 
 interface AIPanelProps {
@@ -151,7 +152,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                     let summary: string;
                     if (res.applied > 0) {
                         onProposeEdit?.(res.proposedDoc);
-                        summary = `${res.explanation ? res.explanation + "\n\n" : ""}**Proposed ${res.applied} change${res.applied !== 1 ? "s" : ""}.** Review and Accept/Reject them in the editor.${res.failed ? `\n\n⚠️ ${res.failed} change${res.failed !== 1 ? "s" : ""} couldn't be applied — the text may have shifted. Try again.` : ""}`;
+                        summary = `${res.explanation ? res.explanation + "\n\n" : ""}**Proposed ${res.applied} change${res.applied !== 1 ? "s" : ""}.** Review and Accept/Reject them in the editor.${res.failed ? `\n\n⚠️ ${res.failed} change${res.failed !== 1 ? "s" : ""} couldn't be applied, the text may have shifted. Try again.` : ""}`;
                     } else {
                         summary = "I drafted changes but none matched the current document (it may have changed since). Please try again.";
                     }
@@ -256,8 +257,12 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
 
     if (!isOpen) return null;
 
+    // Enter-to-send is a desktop convention. On a phone the return key is where
+    // newline lives (there is no Shift to hold), and Enter-that-sends posts
+    // half a thought repeatedly — so on mobile Enter inserts a newline and the
+    // always-visible send button is the send path.
     const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === "Enter" && !e.shiftKey) {
+        if (!IS_MOBILE && e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             send();
         }
@@ -267,19 +272,24 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
         <aside
             role="complementary"
             aria-label="AI assistant"
+            data-panel="right"
             // Width is a persisted user setting dragged from the left edge (#111).
             // max-w keeps it on screen if the window is narrower than the stored px.
+            // On mobile the shell CSS overrides this to a full-screen sheet
+            // (100% width, no resize handle).
             style={{ width: `${width}px` }}
             className="fixed right-0 top-12 bottom-7 max-w-[90vw] z-50 flex flex-col bg-[var(--bg-secondary)] border-l border-[var(--border)] shadow-2xl"
         >
-            <PanelResizeHandle
-                width={width}
-                min={AI_PANEL_WIDTH_MIN}
-                max={AI_PANEL_WIDTH_MAX}
-                onResize={onWidthChange}
-                onCommit={setAIPanelWidth}
-                label="Resize AI panel"
-            />
+            {!IS_MOBILE && (
+                <PanelResizeHandle
+                    width={width}
+                    min={AI_PANEL_WIDTH_MIN}
+                    max={AI_PANEL_WIDTH_MAX}
+                    onResize={onWidthChange}
+                    onCommit={setAIPanelWidth}
+                    label="Resize AI panel"
+                />
+            )}
 
             {/* Header */}
             <div className="h-10 shrink-0 px-3 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-titlebar)]">
@@ -324,7 +334,11 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                                             onClick={() => deleteSession(s.id)}
                                             title="Delete chat"
                                             aria-label={`Delete chat: ${s.title}`}
-                                            className="shrink-0 w-6 h-6 rounded-[var(--radius-sm)] text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                                            className={`shrink-0 w-6 h-6 rounded-[var(--radius-sm)] text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 flex items-center justify-center focus:opacity-100 transition-opacity ${
+                                                // A hover-only delete is unreachable on
+                                                // touch — keep it permanently visible there.
+                                                IS_MOBILE ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                                            }`}
                                         >
                                             <span className="material-symbols-outlined text-[15px]">delete</span>
                                         </button>
@@ -393,7 +407,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                         <p className="text-xs text-[var(--text-muted)] leading-relaxed">
                             {mode === "agent"
                                 ? "I'll propose edits you can review and accept."
-                                : "Summaries, questions, suggestions — anything."}
+                                : "Summaries, questions, suggestions, anything."}
                         </p>
                     </div>
                 ) : (
@@ -454,7 +468,13 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                         )}
                     </div>
                     <p className="px-1 pt-1.5 text-[10px] text-[var(--text-muted)] no-select">
-                        <kbd className="font-sans">Enter</kbd> to send · <kbd className="font-sans">Shift+Enter</kbd> for newline
+                        {IS_MOBILE ? (
+                            "Tap ➤ to send"
+                        ) : (
+                            <>
+                                <kbd className="font-sans">Enter</kbd> to send · <kbd className="font-sans">Shift+Enter</kbd> for newline
+                            </>
+                        )}
                     </p>
                 </div>
             )}

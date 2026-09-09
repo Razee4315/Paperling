@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { IS_MOBILE } from "../utils/platform";
 
 /**
  * The one find-in-document mechanism (FIND-01). A single bar UI + behaviour
@@ -164,11 +165,46 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
             ? (query.trim() ? "No results" : "")
             : `${activeIdx + 1} of ${count}`;
 
+    // Two desktop/mobile shapes from one component. The desktop single row
+    // (input + count + prev/next + toggles + close) needs ~420px; on a phone
+    // the row used to overflow the viewport and pushed the close button (and
+    // the whole Replace row) off-screen — the bar became impossible to close.
+    // Mobile therefore wraps the controls onto their own second row and every
+    // input gets min-w-0 so flex can actually shrink it.
+    const navButtons = (
+        <>
+            <button onClick={prev} title="Previous (Shift+Enter)" aria-label="Previous match" className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
+                <span className="material-symbols-outlined text-[16px]">keyboard_arrow_up</span>
+            </button>
+            <button onClick={next} title="Next (Enter)" aria-label="Next match" className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
+                <span className="material-symbols-outlined text-[16px]">keyboard_arrow_down</span>
+            </button>
+            <button
+                onClick={() => setCaseSensitive((v) => !v)}
+                aria-pressed={caseSensitive}
+                title="Match case"
+                className={`w-6 h-6 rounded text-[12px] font-bold flex items-center justify-center ${caseSensitive ? "bg-[var(--accent)] text-[var(--accent-text)]" : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"}`}
+            >
+                Aa
+            </button>
+            {controller.supportsRegex && (
+                <button
+                    onClick={() => setRegex((v) => !v)}
+                    aria-pressed={regex}
+                    title="Regex"
+                    className={`w-6 h-6 rounded text-[12px] font-mono flex items-center justify-center ${regex ? "bg-[var(--accent)] text-[var(--accent-text)]" : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"}`}
+                >
+                    .*
+                </button>
+            )}
+        </>
+    );
+
     return (
         <div
             role="dialog"
             aria-label={controller.supportsReplace ? "Find and replace" : "Find in document"}
-            className="absolute top-2 right-4 z-40 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl px-2 py-2 flex flex-col gap-2 animate-fade-in-down"
+            className="find-bar absolute top-2 right-4 z-40 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl px-2 py-2 flex flex-col gap-2 animate-fade-in-down"
             style={{ minWidth: controller.supportsReplace ? 360 : 300 }}
             onKeyDown={handleKey}
         >
@@ -191,62 +227,49 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Find in document"
-                    className="flex-1 px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+                    enterKeyHint="search"
+                    className="flex-1 min-w-0 px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                     aria-label="Find text"
                 />
                 <span className={`text-[11px] tabular-nums whitespace-nowrap min-w-[80px] text-right ${invalid ? "text-[var(--danger)]" : "text-[var(--text-secondary)]"}`}>
                     {totalLabel}
                 </span>
-                <button onClick={prev} title="Previous (Shift+Enter)" aria-label="Previous match" className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
-                    <span className="material-symbols-outlined text-[16px]">keyboard_arrow_up</span>
-                </button>
-                <button onClick={next} title="Next (Enter)" aria-label="Next match" className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
-                    <span className="material-symbols-outlined text-[16px]">keyboard_arrow_down</span>
-                </button>
-                <button
-                    onClick={() => setCaseSensitive((v) => !v)}
-                    aria-pressed={caseSensitive}
-                    title="Match case"
-                    className={`w-6 h-6 rounded text-[12px] font-bold flex items-center justify-center ${caseSensitive ? "bg-[var(--accent)] text-[var(--accent-text)]" : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"}`}
-                >
-                    Aa
-                </button>
-                {controller.supportsRegex && (
-                    <button
-                        onClick={() => setRegex((v) => !v)}
-                        aria-pressed={regex}
-                        title="Regex"
-                        className={`w-6 h-6 rounded text-[12px] font-mono flex items-center justify-center ${regex ? "bg-[var(--accent)] text-[var(--accent-text)]" : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"}`}
-                    >
-                        .*
-                    </button>
-                )}
+                {/* Keep close beside the input on mobile — navigation/toggles
+                    wrap to the row below (see FindNavRow). */}
+                {!IS_MOBILE && navButtons}
                 <button onClick={onClose} title="Close (Esc)" aria-label="Close find" className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
                     <span className="material-symbols-outlined text-[16px]">close</span>
                 </button>
             </div>
 
+            {IS_MOBILE && (
+                <div className="flex items-center gap-2">
+                    {navButtons}
+                </div>
+            )}
+
             {controller.supportsReplace && showReplace && (
-                <div className="flex items-center gap-2 pl-8">
+                <div className={`flex items-center gap-2 ${IS_MOBILE ? "" : "pl-8"}`}>
                     <input
                         type="text"
                         value={replacement}
                         onChange={(e) => setReplacement(e.target.value)}
                         placeholder="Replace"
-                        className="flex-1 px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+                        enterKeyHint="done"
+                        className="flex-1 min-w-0 px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                         aria-label="Replace with"
                     />
                     <button
                         onClick={replaceCurrent}
                         disabled={activeIdx < 0}
-                        className="px-2 py-1 text-xs rounded bg-[var(--bg-input)] border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="px-2 py-1 text-xs rounded bg-[var(--bg-input)] border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
                     >
                         Replace
                     </button>
                     <button
                         onClick={replaceAll}
                         disabled={count === 0}
-                        className="px-2 py-1 text-xs rounded bg-[var(--bg-input)] border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="px-2 py-1 text-xs rounded bg-[var(--bg-input)] border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
                     >
                         Replace All
                     </button>

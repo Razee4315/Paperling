@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { IS_TOUCH } from "../utils/platform";
 
 export interface TabBarItem {
     id: string;
@@ -17,15 +18,26 @@ interface TabBarProps {
     onNewTab: () => void;
     /** Drag-reorder: move the tab at fromIndex to toIndex. TABS-10. */
     onReorder?: (fromIndex: number, toIndex: number) => void;
-    /** Right-click context menu on a tab. TABS-12. */
+    /** Right-click (or long-press) context menu on a tab. TABS-12. */
     onContextMenu?: (id: string, x: number, y: number) => void;
 }
+
+// Long-press guards (the lessons-doc pair): cancel past ~10px of movement or
+// every flick down the strip opens the menu, and the click that follows a
+// fired long-press is swallowed or the tab would BOTH open its menu and
+// activate.
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_PX = 10;
 
 function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, onContextMenu }: TabBarProps) {
     const listRef = useRef<HTMLDivElement>(null);
     const tabRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const [dragIndex, setDragIndex] = useState<number | null>(null);
     const [overIndex, setOverIndex] = useState<number | null>(null);
+    const longPressRef = useRef<{ timer: number; x: number; y: number; fired: boolean } | null>(null);
+    // Set when a long-press fires; consumed by the next click. pointerup runs
+    // BEFORE click, so the click can't read the (already cleared) press state.
+    const suppressClickRef = useRef(false);
 
     // Keep the active tab scrolled into view when it changes (e.g. Ctrl+Tab to a
     // tab that's currently off-screen in an overflowing bar). TABS-13.
@@ -39,6 +51,38 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
         const el = listRef.current;
         if (!el || e.deltaY === 0) return;
         el.scrollLeft += e.deltaY;
+    };
+
+    const clearLongPress = () => {
+        if (longPressRef.current) {
+            window.clearTimeout(longPressRef.current.timer);
+            longPressRef.current = null;
+        }
+    };
+
+    // Touch-only: a held tab opens the same context menu a right-click does on
+    // desktop. HTML5 drag-and-drop never fires on touch, so this is the phone's
+    // route to the reorder actions ("Move left/right" in the menu).
+    const onPointerDown = (e: React.PointerEvent, id: string) => {
+        if (e.pointerType !== "touch" || !onContextMenu) return;
+        clearLongPress();
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const state = { timer: 0, x: startX, y: startY, fired: false };
+        state.timer = window.setTimeout(() => {
+            state.fired = true;
+            suppressClickRef.current = true;
+            onContextMenu(id, startX, startY);
+            longPressRef.current = state;
+        }, LONG_PRESS_MS);
+        longPressRef.current = state;
+    };
+    const onPointerMove = (e: React.PointerEvent) => {
+        const st = longPressRef.current;
+        if (!st || st.fired) return;
+        if (Math.abs(e.clientX - st.x) > LONG_PRESS_MOVE_PX || Math.abs(e.clientY - st.y) > LONG_PRESS_MOVE_PX) {
+            clearLongPress();
+        }
     };
 
     // Roving-tabindex keyboard navigation across the tablist. TABS-14.
@@ -92,8 +136,25 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                         aria-selected={isActive}
                         tabIndex={isActive ? 0 : -1}
                         title={tab.name}
-                        draggable={!!onReorder}
+                        // HTML5 drag-and-drop does not fire on touch at all —
+                        // not degraded, absent. Reordering on a phone goes
+                        // through the long-press menu instead, so the
+                        // draggable attribute (which also fights touch
+                        // scrolling when present) is desktop-only.
+                        draggable={!!onReorder && !IS_TOUCH}
                         onKeyDown={(e) => onKeyDown(e, index)}
+                        onPointerDown={(e) => onPointerDown(e, tab.id)}
+                        onPointerMove={onPointerMove}
+                        onPointerUp={clearLongPress}
+                        onPointerCancel={clearLongPress}
+                        onClick={() => {
+                            // Swallow the tap that follows a fired long-press.
+                            if (suppressClickRef.current) {
+                                suppressClickRef.current = false;
+                                return;
+                            }
+                            onSelect(tab.id);
+                        }}
                         onDragStart={(e) => {
                             setDragIndex(index);
                             e.dataTransfer.effectAllowed = "move";
@@ -116,7 +177,6 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                         onMouseDown={(e) => {
                             // Middle-click closes, like a browser.
                             if (e.button === 1) { e.preventDefault(); onClose(tab.id); }
-                            else if (e.button === 0) onSelect(tab.id);
                         }}
                         onContextMenu={(e) => {
                             if (!onContextMenu) return;
@@ -137,26 +197,33 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                             button. When the tab has unsaved edits and isn't
                             hovered, it shows a small "unsaved" dot instead —
                             same colour as the status bar's unsaved indicator, so
-                            the meaning is consistent across the app. The dot is a
-                            plain filled circle (not the Material `circle` glyph,
-                            which renders as a hollow ring under FILL 0). */}
+                            the meaning is consistent across the app. On touch
+                            there is no hover, so a hover-hidden control would be
+                            UNREACHABLE, not just awkward: the dot and the × are
+                            both permanently visible and the × grows to a real
+                            tap target. */}
                         <button
                             onMouseDown={(e) => { e.stopPropagation(); }}
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
                             tabIndex={-1}
                             aria-label={`Close ${tab.name}`}
                             title={tab.dirty ? "Unsaved changes — click to close" : "Close"}
-                            className="shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                            className={`shrink-0 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] ${
+                                IS_TOUCH ? "w-7 h-7" : "w-4 h-4"
+                            }`}
                         >
                             {tab.dirty && (
                                 <span
-                                    className="w-1.5 h-1.5 rounded-full bg-[var(--status-unsaved)] group-hover/tab:hidden"
+                                    className={`w-1.5 h-1.5 rounded-full bg-[var(--status-unsaved)] ${IS_TOUCH ? "" : "group-hover/tab:hidden"}`}
                                     aria-hidden="true"
                                 />
                             )}
                             <span
                                 className={`material-symbols-outlined text-[16px] leading-none ${
-                                    tab.dirty ? "hidden group-hover/tab:inline" : "opacity-0 group-hover/tab:opacity-100"
+                                    tab.dirty
+                                        ? IS_TOUCH ? "inline" : "hidden group-hover/tab:inline"
+                                        : IS_TOUCH ? "opacity-100" : "opacity-0 group-hover/tab:opacity-100"
                                 }`}
                                 aria-hidden="true"
                             >close</span>
@@ -170,7 +237,9 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                 onClick={onNewTab}
                 aria-label="New tab"
                 title="New tab (Ctrl+N)"
-                className="shrink-0 flex items-center justify-center w-9 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+                className={`shrink-0 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors ${
+                    IS_TOUCH ? "w-11" : "w-9"
+                }`}
             >
                 <span className="material-symbols-outlined text-[18px]">add</span>
             </button>

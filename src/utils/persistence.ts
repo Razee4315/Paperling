@@ -4,6 +4,10 @@
  */
 
 import { sanitizeSessions, pruneSessions, type ChatSession } from "./chatSessions";
+// Boot-time shell decision — used only to pick sensible DEFAULTS for
+// touch-first users (e.g. the formatting toolbar ships on, because a phone
+// has no Ctrl+B). Explicit stored choices always win over these defaults.
+import { IS_MOBILE } from "./platform";
 
 // One-time migration from the app's pre-rename key prefix. The bundle
 // identifier (and therefore the WebView2 storage location) is unchanged, so
@@ -122,7 +126,9 @@ const KEY_WORD_WRAP = "paperling:wordWrap";
 const KEY_SPELL_CHECK = "paperling:spellCheck";
 export const getTypewriterMode = (): boolean => safeGet<boolean>(KEY_TYPEWRITER_MODE, false);
 export const setTypewriterMode = (v: boolean): void => safeSet(KEY_TYPEWRITER_MODE, v);
-export const getToolbarEnabled = (): boolean => safeGet<boolean>(KEY_TOOLBAR, false);
+// Default ON on mobile: the toolbar is the only formatting entry point a
+// touch user has (no Ctrl+B/I/K). Desktop keeps its opt-in default.
+export const getToolbarEnabled = (): boolean => safeGet<boolean>(KEY_TOOLBAR, IS_MOBILE);
 export const setToolbarEnabled = (v: boolean): void => safeSet(KEY_TOOLBAR, v);
 export const getWordWrap = (): boolean => safeGet<boolean>(KEY_WORD_WRAP, true);
 export const setWordWrap = (v: boolean): void => safeSet(KEY_WORD_WRAP, v);
@@ -140,10 +146,20 @@ const KEY_OPEN_IN_READER = "paperling:openInReader";
 export const getOpenInReader = (): boolean => safeGet<boolean>(KEY_OPEN_IN_READER, false);
 export const setOpenInReader = (v: boolean): void => safeSet(KEY_OPEN_IN_READER, v);
 
+// Zen mode: distraction-free reading canvas. Hides the title bar, tab bar,
+// mode toggle, status bar, and all side panels, leaving only the rendered
+// markdown. Toggled via F9, the command palette, or Settings → Editor; the
+// flag persists so read-mostly users stay in zen across restarts. ZEN-01.
+const KEY_ZEN_MODE = "paperling:zenMode";
+export const getZenMode = (): boolean => safeGet<boolean>(KEY_ZEN_MODE, false);
+export const setZenMode = (v: boolean): void => safeSet(KEY_ZEN_MODE, v);
+
 // Master switch for every AI surface (title-bar button, side panel, toolbar
-// sparkle, Alt+J, command palette entry). On by default; flipped in Settings.
+// sparkle, Alt+J, command palette entry). OFF by default — AI needs an
+// endpoint the user has to configure anyway, and an enabled-by-default
+// feature that can't work yet is just noise in the UI (owner request).
 const KEY_AI_ENABLED = "paperling:aiEnabled";
-export const getAIEnabled = (): boolean => safeGet<boolean>(KEY_AI_ENABLED, true);
+export const getAIEnabled = (): boolean => safeGet<boolean>(KEY_AI_ENABLED, false);
 export const setAIEnabled = (v: boolean): void => safeSet(KEY_AI_ENABLED, v);
 
 // How many previous chat turns (user + assistant pairs) accompany each AI
@@ -250,10 +266,15 @@ export const setAIConfig = (cfg: { endpoint: string; model: string; apiKey: stri
     safeSet(KEY_AI_ENDPOINT, cfg.endpoint);
     safeSet(KEY_AI_MODEL, cfg.model);
     cachedAIKey = cfg.apiKey;
-    // Persist the key to the OS keychain; on failure fall back to localStorage so
-    // the setting still survives a restart.
+    // Persist the key to the OS keychain (desktop) or the app-private key
+    // file (mobile). If that fails we deliberately do NOT fall back to
+    // localStorage: a cleartext secret on disk outlives the session and
+    // survives even a later keychain cleanup. The key stays in memory for
+    // this session; the failure is logged so "it didn't save" is visible.
+    // (The one-time legacy MIGRATION read in initAIKey is unaffected — it
+    // moves an existing plaintext key into secure storage and deletes it.)
     import("@tauri-apps/api/core")
         .then(({ invoke }) => invoke("set_ai_key", { key: cfg.apiKey }))
         .then(() => { try { localStorage.removeItem(KEY_AI_API_KEY); } catch {/* ignore */} })
-        .catch(() => safeSet(KEY_AI_API_KEY, cfg.apiKey));
+        .catch((err) => console.error("Could not securely persist the AI API key:", err));
 };

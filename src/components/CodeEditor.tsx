@@ -306,7 +306,7 @@ function CodeEditorImpl({
         const view = viewRef.current;
         if (!view) return;
         if (!aiConfigRef.current?.endpoint) {
-            onNoticeRef.current?.("AI isn't set up yet — add an endpoint in Settings → AI to enable AI assist.");
+            onNoticeRef.current?.("AI isn't set up yet: add an endpoint in Settings, AI section, to enable AI assist.");
             return;
         }
         const sel = view.state.selection.main;
@@ -770,7 +770,8 @@ function CodeEditorImpl({
     // Open the find / find-and-replace bar from outside the editor (the Edit
     // menu and command palette), mirroring the internal Mod-f / Mod-h keymap.
     // The editor's find bar has no other external trigger; this is the same
-    // outside→editor idiom as paperling:goto-line above.
+    // outside→editor idiom as paperling:goto-line above. The matching
+    // paperling:close-find is the Android back handler's way in (see App.tsx).
     useEffect(() => {
         const openFind = () => {
             setFindMode("find");
@@ -780,13 +781,26 @@ function CodeEditorImpl({
             setFindMode("replace");
             setFindOpen(true);
         };
+        const closeFind = () => setFindOpen(false);
         window.addEventListener("paperling:open-find", openFind);
         window.addEventListener("paperling:open-replace", openReplace);
+        window.addEventListener("paperling:close-find", closeFind);
         return () => {
             window.removeEventListener("paperling:open-find", openFind);
             window.removeEventListener("paperling:open-replace", openReplace);
+            window.removeEventListener("paperling:close-find", closeFind);
         };
     }, []);
+
+    // Mirror the find bar's open state onto `window` so the Android back
+    // handler (App.tsx) can tell whether "close find" is a meaningful step
+    // without owning this internal state. Cleanup covers unmount (which also
+    // closes the bar — highlights are dropped by FindBar's own unmount effect).
+    useEffect(() => {
+        const w = window as unknown as { __paperlingEditorFindOpen?: boolean };
+        w.__paperlingEditorFindOpen = findOpen;
+        return () => { w.__paperlingEditorFindOpen = false; };
+    }, [findOpen]);
 
     // Snap the caret and viewport to the start when a different file opens, so
     // you don't begin a new file at the previous file's cursor/scroll. NAV-04.

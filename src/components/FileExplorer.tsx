@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { attachFocusTrap } from "../utils/focusTrap";
+import { IS_MOBILE } from "../utils/platform";
+import { openSystemFilePicker } from "../utils/nativePicker";
 import mascotCarry from "../assets/mascot/mascot-carry.png";
 import mascotShrug from "../assets/mascot/mascot-shrug.png";
 
@@ -13,6 +15,8 @@ interface FileEntry {
 interface FileExplorerProps {
     isOpen: boolean;
     currentFilePath: string | null;
+    /** Directory to browse when no file is open (the mobile notes root). */
+    fallbackDirectory?: string | null;
     onFileSelect: (path: string) => void;
     onClose: () => void;
 }
@@ -20,6 +24,7 @@ interface FileExplorerProps {
 export function FileExplorer({
     isOpen,
     currentFilePath,
+    fallbackDirectory,
     onFileSelect,
     onClose,
 }: FileExplorerProps) {
@@ -39,14 +44,16 @@ export function FileExplorer({
 
     // Initialize the view directory when opening the panel
     useEffect(() => {
-        if (isOpen && currentFilePath) {
-            // Keep the current view if the user already navigated somewhere
-            setCurrentViewDir((prev) => prev ?? getDirectory(currentFilePath));
-        } else if (!isOpen) {
+        if (isOpen) {
+            // Keep the current view if the user already navigated somewhere.
+            // Falls back to the provided root (e.g. the mobile notes folder)
+            // when there is no open file to derive a directory from.
+            setCurrentViewDir((prev) => prev ?? getDirectory(currentFilePath) ?? fallbackDirectory ?? null);
+        } else {
             // Reset view when closed so it snaps back to the active file next time
             setCurrentViewDir(null);
         }
-    }, [isOpen, currentFilePath]);
+    }, [isOpen, currentFilePath, fallbackDirectory]);
 
     // Load files whenever the currentViewDir changes
     useEffect(() => {
@@ -119,6 +126,16 @@ export function FileExplorer({
         if (parentDir) setCurrentViewDir(parentDir);
     };
 
+    // System document picker (mobile): the in-app browser is rooted where the
+    // Rust file commands can read — on Android that's the app-private notes
+    // area — so "go up" dead-ends in app data. Opening a note from anywhere
+    // else on the phone goes through the SAF bridge (see nativePicker.ts).
+    const handleOpenFromDevice = () => {
+        if (!openSystemFilePicker()) {
+            setError("System file picker isn't available in this build");
+        }
+    };
+
     const directoryName = currentViewDir
         ? currentViewDir.replace(/\\/g, "/").split("/").pop()
         : "Files";
@@ -129,6 +146,7 @@ export function FileExplorer({
             role="navigation"
             aria-label="File explorer"
             tabIndex={-1}
+            data-panel="left"
             className={`fixed left-0 top-12 bottom-7 w-72 bg-[var(--bg-secondary)] border-r border-[var(--border)] z-50 shadow-2xl flex flex-col overflow-hidden transition-transform duration-200 ease-out ${
                 isOpen ? "translate-x-0" : "-translate-x-full"
             }`}
@@ -177,6 +195,21 @@ export function FileExplorer({
 
             {/* Content */}
             <div className="flex-1 min-h-0 overflow-y-auto">
+                {/* System document picker (mobile). A labeled row, not a header
+                    icon — on-device testing showed an ambiguous icon got
+                    confused with the folder browser itself. The in-app list is
+                    rooted where the Rust file commands can read (the notes
+                    folder / the open file's directory); this reaches the rest
+                    of the device through the SAF bridge. */}
+                {IS_MOBILE && (
+                    <button
+                        onClick={handleOpenFromDevice}
+                        className="btn-press w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] border-b border-[var(--border-subtle)] transition-colors"
+                    >
+                        <span className="material-symbols-outlined text-[18px]">drive_file_move</span>
+                        Open from device…
+                    </button>
+                )}
                 {isLoading ? (
                     <div className="flex items-center justify-center h-32 text-[var(--text-secondary)] text-sm">
                         Loading...

@@ -31,3 +31,6 @@ docs/package-lock.json
 
 # Claude Code session state
 .claude/
+
+# ZCode session state
+.zcode/

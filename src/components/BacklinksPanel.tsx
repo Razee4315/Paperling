@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import mascotMagnify from "../assets/mascot/mascot-magnify.png";
 import mascotReading from "../assets/mascot/mascot-reading.png";
 import { attachFocusTrap } from "../utils/focusTrap";
+import { IS_MOBILE } from "../utils/platform";
 
 interface BacklinkMatch {
     line: number;
@@ -82,12 +83,20 @@ export function BacklinksPanel({
 
     const matchCount = results.reduce((count, result) => count + result.matches.length, 0);
 
+    // On the phone the backlinks panel is a full-screen sheet: once a result
+    // is opened it must step aside so the user actually sees the note.
+    const handleResultClick = (path: string, line: number) => {
+        onFileSelect(path, line);
+        if (IS_MOBILE) onClose();
+    };
+
     return (
         <aside
             ref={panelRef}
             role="navigation"
             aria-label="Backlinks"
             tabIndex={-1}
+            data-panel="left"
             className={`fixed left-0 top-12 bottom-7 w-72 bg-[var(--bg-secondary)] border-r border-[var(--border)] z-50 shadow-2xl flex flex-col overflow-hidden transition-transform duration-200 ease-out ${isOpen ? "translate-x-0" : "-translate-x-full"}`}
         >
             <div className="h-10 shrink-0 px-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-titlebar)]">
@@ -141,7 +150,7 @@ export function BacklinksPanel({
                                     {result.matches.map((match) => (
                                         <li key={`${result.path}:${match.line}`}>
                                             <button
-                                                onClick={() => onFileSelect(result.path, match.line)}
+                                                onClick={() => handleResultClick(result.path, match.line)}
                                                 className="btn-press w-full px-4 py-1.5 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
                                                 aria-label={`Open ${result.name} at line ${match.line}`}
                                             >

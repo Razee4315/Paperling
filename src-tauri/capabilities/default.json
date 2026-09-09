@@ -1,7 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main-window capability. The fs plugin is granted WRITE permissions only (used by HTML/PDF export to a user-chosen dialog path); the broad fs:scope is required because export targets can be anywhere the user picks. Markdown reads and image reads go through validated Rust commands (read_file / read_image_file), so no broad plugin READ grant is exposed to the webview. SECURITY-02.",
+  "description": "Main-window capability. The fs plugin is granted WRITE permissions ONLY (used by HTML/DOCX export to a user-chosen dialog path); fs:default is deliberately ABSENT because it is itself a READ grant (read-file/read-dir/exists/stat within scope), and its removal means the plugin exposes no read commands to the webview at all. Markdown reads and image reads go through validated Rust commands (read_file / read_image_file). The broad fs:scope exists so export can write wherever the user's save dialog picked. SECURITY-02. Desktop-scoped: mobile builds validate capabilities against the plugins that are actually compiled there (see mobile.json).",
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
   "windows": [
     "main"
   ],
@@ -21,7 +26,6 @@
     "opener:default",
     "opener:allow-open-url",
     "opener:allow-reveal-item-in-dir",
-    "fs:default",
     "fs:allow-write-text-file",
     "fs:allow-write-file",
     "dialog:default",

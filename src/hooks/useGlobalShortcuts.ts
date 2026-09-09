@@ -10,6 +10,8 @@ export interface ShortcutHandlers {
     handleNewFile: () => void;
     handleToggleMode: () => void;
     handleToggleSplit: () => void;
+    /** Toggle Zen mode (F9). Works with or without a file open. */
+    toggleZen: () => void;
     /** Toggle OS fullscreen (F11). Cross-platform via the Tauri window API. */
     toggleFullscreen: () => void;
     handleToggleFileExplorer: () => void;
@@ -111,6 +113,14 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
             if (matchesBinding(e, "toggleSplit")) {
                 e.preventDefault();
                 if (s.hasFile) s.handleToggleSplit();
+                return;
+            }
+            // F9 - Toggle Zen mode (distraction-free reading canvas). No
+            // hasFile gate: the flag persists, so enabling it on the welcome
+            // screen still takes effect when the next file opens. ZEN-01.
+            if (matchesBinding(e, "zenMode")) {
+                e.preventDefault();
+                s.toggleZen();
                 return;
             }
             // mod+W - close the active tab (falls back to the welcome screen
