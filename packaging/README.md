@@ -49,26 +49,20 @@ wingetcreate update Razee4315.Paperling -u "https://github.com/Razee4315/Paperli
 
 ---
 
-## 2. Scoop (Windows) — experimental ⚠️
+## 2. Scoop (Windows)
 
 File: [`scoop/paperling.json`](./scoop/paperling.json).
 
-Scoop prefers *portable* apps, but Paperling currently ships only an NSIS
-installer. This manifest uses Scoop's `#/dl.7z` trick to extract the installer
-with 7-Zip. **Test it before publishing** — depending on the NSIS layout the
-`bin` / `extract_dir` may need adjusting:
-
-```powershell
-scoop install ./packaging/scoop/paperling.json
-```
+Releases now include a **portable zip** — `Paperling_<version>_x64-portable.zip`,
+built by `scripts/make-portable-zip.ps1` in `release.yml` (the unpacked
+`Paperling.exe` plus any runtime DLLs). The manifest's pinned version still
+points at the legacy NSIS-installer extraction (the `#/dl.7z` trick) because a
+hash can only be pinned for an existing file; `autoupdate` points at the
+portable zip, so every new release installs the clean portable way — no
+extraction hacks — which makes it eligible for the Scoop `extras` bucket.
 
 To publish: create a bucket repo (e.g. `Razee4315/scoop-bucket`), drop the JSON
 in, then `scoop bucket add paperling https://github.com/Razee4315/scoop-bucket`.
-
-**Cleaner long-term fix:** add a portable `.zip` artifact to the release (zip the
-unpacked `Paperling.exe` + resources). Then the Scoop manifest points straight at
-the zip — no extraction hacks — and it's eligible for the official `extras`
-bucket.
 
 ---
 

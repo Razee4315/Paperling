@@ -187,3 +187,17 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+
+      - name: Package portable zip (Scoop)
+        # Portable zip of the unpacked app for Scoop and direct download
+        # (issue #48). Only the x64 Windows leg — that's what Scoop targets.
+        if: matrix.args == '--target x86_64-pc-windows-msvc'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.check-and-bump.outputs.version }}
+        shell: pwsh
+        run: |
+          pwsh scripts/make-portable-zip.ps1 `
+            -ExeDir "src-tauri/target/x86_64-pc-windows-msvc/release" `
+            -OutFile "dist/Paperling_${env:VERSION}_x64-portable.zip"
+          gh release upload "v${env:VERSION}" "dist/Paperling_${env:VERSION}_x64-portable.zip" --clobber
