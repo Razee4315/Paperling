@@ -77,7 +77,6 @@
               gtk3
               libsoup_3
               webkitgtk_4_1
-              javascriptcoregtk_4_1
               cairo
               pango
               gdk-pixbuf
