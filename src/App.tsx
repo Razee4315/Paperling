@@ -72,6 +72,9 @@ const ShortcutCheatsheet = lazy(() =>
 const UnsavedChangesDialog = lazy(() =>
     import("./components/UnsavedChangesDialog").then((m) => ({ default: m.UnsavedChangesDialog }))
 );
+const ConflictDialog = lazy(() =>
+    import("./components/ConflictDialog").then((m) => ({ default: m.ConflictDialog }))
+);
 const AIPanel = lazy(() =>
     import("./components/AIPanel").then((m) => ({ default: m.AIPanel }))
 );
@@ -347,6 +350,9 @@ function AppContent() {
     hasFile,
     closeTabPrompt,
     cancelCloseTab,
+    conflictPrompt,
+    handleConflictKeepMine,
+    handleConflictLoadFromDisk,
     collectDirtyTabs,
     activateTab,
     cycleTab,
@@ -1874,6 +1880,21 @@ function AppContent() {
             onDiscard={handleDiscardCloseTab}
             onSave={handleSaveCloseTab}
             dirtyNames={[closeTabPrompt.fileName]}
+          />
+        </Suspense>
+      )}
+
+      {/* Disk-conflict prompt: the open file changed on disk while the buffer
+          had unsaved edits. Autosave and manual save stay paused until the user
+          picks a version. Dismissing resolves as keep-mine. EXT-02. */}
+      {conflictPrompt && (
+        <Suspense fallback={null}>
+          <ConflictDialog
+            isOpen={!!conflictPrompt}
+            fileName={conflictPrompt.fileName}
+            onKeepMine={handleConflictKeepMine}
+            onLoadFromDisk={handleConflictLoadFromDisk}
+            onClose={handleConflictKeepMine}
           />
         </Suspense>
       )}

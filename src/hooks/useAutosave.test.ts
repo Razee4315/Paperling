@@ -11,6 +11,7 @@ const base = (over: Partial<UseAutosaveOptions> = {}): UseAutosaveOptions => ({
   content: "new",
   originalContent: "old",
   isReviewActive: false,
+  conflictPending: false,
   onSaved: vi.fn(),
   onError: vi.fn(),
   ...over,
@@ -49,6 +50,22 @@ describe("useAutosave", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(invoke).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("does NOT save while a disk conflict is pending, and resumes after it resolves (EXT-02)", async () => {
+    const onSaved = vi.fn();
+    const { rerender } = renderHook((p: UseAutosaveOptions) => useAutosave(p), {
+      initialProps: base({ conflictPending: true, onSaved }),
+    });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(invoke).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+
+    // Resolving the conflict (dialog answered) re-arms the debounce normally.
+    rerender(base({ conflictPending: false, onSaved }));
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/doc.md", content: "new" });
+    expect(onSaved).toHaveBeenCalledWith(1700000000000, "new");
   });
 
   it("saves after the debounce and reports the new mtime + saved content", async () => {

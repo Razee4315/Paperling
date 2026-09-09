@@ -16,6 +16,13 @@ export interface UseAutosaveOptions {
    * edits the user explicitly rejected, so autosave must stay parked. AI-01.
    */
   isReviewActive: boolean;
+  /**
+   * True while a disk-conflict dialog is pending (the file changed on disk under
+   * a dirty buffer). Autosaving would answer the dialog's question by silently
+   * overwriting the external changes, so autosave stays parked until the user
+   * picks a side. EXT-02.
+   */
+  conflictPending: boolean;
   /** Called after a successful write with the new mtime and the saved content. */
   onSaved: (mtime: number, content: string) => void;
   /** Called when a write fails (already throttled to at most once per 30s). */
@@ -43,13 +50,14 @@ export function useAutosave({
   content,
   originalContent,
   isReviewActive,
+  conflictPending,
   onSaved,
   onError,
 }: UseAutosaveOptions): void {
   const lastErrorRef = useRef(0);
 
   useEffect(() => {
-    if (!enabled || !filePath || content === originalContent || isReviewActive) return;
+    if (!enabled || !filePath || content === originalContent || isReviewActive || conflictPending) return;
     const id = window.setTimeout(async () => {
       try {
         const mtime = await invoke<number>("save_file", { path: filePath, content });
@@ -65,5 +73,5 @@ export function useAutosave({
       }
     }, AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(id);
-  }, [enabled, filePath, content, originalContent, isReviewActive, onSaved, onError]);
+  }, [enabled, filePath, content, originalContent, isReviewActive, conflictPending, onSaved, onError]);
 }

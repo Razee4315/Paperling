@@ -98,6 +98,9 @@ export function useFileSession({
   const [isLoading, setIsLoading] = useState(false);
   // Pending dirty-tab close, awaiting the Save/Discard/Cancel dialog. TABS-05.
   const [closeTabPrompt, setCloseTabPrompt] = useState<{ id: string; fileName: string } | null>(null);
+  // Pending disk-conflict choice: the open file changed on disk while the buffer
+  // had unsaved edits, and we're awaiting Keep-mine / Load-from-disk. EXT-02.
+  const [conflictPrompt, setConflictPrompt] = useState<{ fileName: string } | null>(null);
 
   // === Tabs (snapshot-swap) ===
   // The live state (filePath/content/…) IS the active tab. `tabsRef`/`liveRef`
@@ -190,6 +193,10 @@ export function useFileSession({
   const applyTabToLive = useCallback(
     (tab: TabState) => {
       clearReview();
+      // Switching away from a file with a pending disk conflict resolves it as
+      // "keep mine": the watcher already absorbed the new mtime, so the choice
+      // only mattered while that buffer was on screen. EXT-02.
+      setConflictPrompt(null);
       bumpDocSwap();
       setFilePath(tab.filePath);
       setFileName(tab.fileName);
@@ -624,6 +631,10 @@ export function useFileSession({
       await handleSaveAs();
       return;
     }
+    // A disk conflict is pending: saving now would silently overwrite the
+    // external changes the dialog is asking about. Save As stays allowed —
+    // it writes to a different path. EXT-02.
+    if (conflictPrompt) return;
     try {
       knownMtimeRef.current = await invoke<number>("save_file", { path: filePath, content });
       setOriginalContent(content);
@@ -632,19 +643,30 @@ export function useFileSession({
       console.error("Failed to save file:", error);
       showToast(errMessage(error) || "Failed to save file", "error");
     }
-  }, [content, filePath, handleSaveAs, showToast]);
+  }, [conflictPrompt, content, filePath, handleSaveAs, showToast]);
 
   // External-change detection: on window focus, stat the open file and reload
-  // a clean buffer or warn for a dirty buffer. EXT-01. Callbacks are memoised so
-  // the focus listener stays registered across renders.
+  // a clean buffer or prompt for a dirty buffer. EXT-01. Callbacks are memoised
+  // so the focus listener stays registered across renders.
   const handleExternalReloaded = useCallback(
     () => showToast("File changed on disk, reloaded the latest version", "info"),
     [showToast],
   );
   const handleExternalConflict = useCallback(
-    () => showToast("This file changed on disk. Saving will overwrite those changes.", "error"),
-    [showToast],
+    () => setConflictPrompt({ fileName: liveRef.current.fileName ?? "Untitled.md" }),
+    [],
   );
+  // Resolution for the disk-conflict dialog. "Keep mine" changes nothing on
+  // disk: the watcher already absorbed the new mtime, so the next save (manual
+  // or autosave) deliberately overwrites the external version. "Load from disk"
+  // reuses the watcher's reload path, which resets content/originalContent and
+  // the known mtime. EXT-02.
+  const handleConflictKeepMine = useCallback(() => setConflictPrompt(null), []);
+  const handleConflictLoadFromDisk = useCallback(() => {
+    const path = filePathRef.current;
+    setConflictPrompt(null);
+    if (path) void loadFileDirect(path);
+  }, [loadFileDirect]);
   useExternalChangeWatcher({
     filePathRef,
     contentRef,
@@ -657,7 +679,9 @@ export function useFileSession({
   });
 
   // Autosave 1.5s after the last edit. See useAutosave for throttling and the
-  // AI-review guard (AI-01); memoised callbacks keep the timer stable.
+  // AI-review guard (AI-01); memoised callbacks keep the timer stable. A pending
+  // disk conflict parks autosave too — saving is exactly what the dialog is
+  // asking about. EXT-02.
   const handleAutosaved = useCallback((mtime: number, saved: string) => {
     knownMtimeRef.current = mtime;
     setOriginalContent(saved);
@@ -669,6 +693,7 @@ export function useFileSession({
     content,
     originalContent,
     isReviewActive,
+    conflictPending: conflictPrompt != null,
     onSaved: handleAutosaved,
     onError: handleAutosaveError,
   });
@@ -949,6 +974,9 @@ export function useFileSession({
     hasFile,
     closeTabPrompt,
     cancelCloseTab,
+    conflictPrompt,
+    handleConflictKeepMine,
+    handleConflictLoadFromDisk,
     collectDirtyTabs,
     activateTab,
     cycleTab,
