@@ -101,3 +101,25 @@ packaging/
 └── scoop/
     └── paperling.json
 ```
+
+---
+
+## 9. Nix
+
+File: [`flake.nix`](../flake.nix) (issue #117).
+
+Builds the full app (frontend via `bun`, Rust crate via
+`rustPlatform.buildRustPackage`) against the GTK/WebKit stack from nixpkgs.
+Verified in CI by `.github/workflows/nix-build.yml` on every `flake.nix` or
+Cargo lock change.
+
+```sh
+# run it
+nix run github:Razee4315/Paperling
+
+# or build
+nix build github:Razee4315/Paperling#paperling
+```
+
+A `flake.lock` is intentionally not committed; Nix generates one on first
+use. Pin by setting an input URL with a rev if you need reproducibility.

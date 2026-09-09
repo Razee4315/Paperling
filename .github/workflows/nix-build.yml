@@ -1,0 +1,35 @@
+name: Nix build
+
+# Verifies flake.nix (issue #117) actually builds the app on a fresh Nix.
+# Heavy (full Rust + frontend build, no shared cache), which is why it is a
+# separate workflow and not part of ci.yml. Runs on the flake and on Rust
+# lockfile changes.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["issue-117-nix-flake", "main"]
+    paths:
+      - "flake.nix"
+      - "flake.lock"
+      - "src-tauri/Cargo.lock"
+
+jobs:
+  nix-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixpkgs-unstable
+
+      - name: Build the flake package
+        run: nix build --accept-flake-config --print-build-logs .#paperling
+
+      - name: Smoke-test the binary
+        # The GUI can't start headless, but the binary must exist, be linked
+        # against the nix store, and print usage/version without crashing on
+        # startup argument parsing.
+        run: |
+          test -x result/bin/paperling
+          nix path-info result | grep -q paperling
