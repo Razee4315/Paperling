@@ -91,6 +91,8 @@ import {
   initAIKey,
   getSavedViewMode,
   getSpellCheck,
+  getVimMode,
+  setVimMode,
   getSplitRatio,
   getToolbarEnabled,
   getTourDone,
@@ -177,6 +179,8 @@ function AppContent() {
   zenModeRef.current = zenMode;
   const zenToggleRef = useRef<() => void>(() => {});
   const [spellCheckEnabled, setSpellCheckEnabled] = usePersistedState<boolean>(getSpellCheck, setSpellCheck);
+  // Optional vim modal editing (issue #119). Toggled in Settings → Editor.
+  const [vimModeEnabled, setVimModeEnabled] = usePersistedState<boolean>(getVimMode, setVimMode);
   const [cursorPosition, setCursorPosition] = useState({ line: 1, col: 1 });
   // Editor selection range. Collapsed (start === end) means no selection;
   // when start < end we surface a "N words selected" chip in the status bar.
@@ -522,6 +526,7 @@ function AppContent() {
       ["paperling:toolbar-toggle", (e) => setToolbarVisible(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:wordwrap-toggle", (e) => setWordWrapEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:spellcheck-toggle", (e) => setSpellCheckEnabled(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:vim-toggle", (e) => setVimModeEnabled(!!(e as CustomEvent).detail?.enabled)],
       // Settings → Editor toggle for Zen mode. Routed through the shared
       // toggle (a no-op when already in the desired state) so entering via
       // Settings parks/restores the view mode exactly like F9 does. ZEN-01.
@@ -1698,6 +1703,7 @@ function AppContent() {
                 showToolbar={IS_MOBILE || toolbarVisible}
                 wordWrap={wordWrapEnabled}
                 spellCheck={spellCheckEnabled}
+                vimMode={vimModeEnabled}
                 aiConfig={aiConfig}
                 reviewDoc={proposedDoc}
                 onReviewResolve={handleReviewResolve}

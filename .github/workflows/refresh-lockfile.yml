@@ -1,0 +1,36 @@
+name: Refresh lockfile
+
+# One-off maintenance workflow (not part of CI): checks out a branch, runs
+# `bun install` so bun.lock picks up any package.json changes made off-machine
+# (e.g. adding @codemirror/vim for the vim-mode branch), and pushes the result
+# back to the same branch. Dispatched via the API/UI with ref=<branch>.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install (updates bun.lock)
+        run: bun install --no-progress
+
+      - name: Commit updated lockfile
+        run: |
+          if git diff --quiet bun.lock; then
+            echo "bun.lock already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bun.lock
+          git commit -m "chore(deps): refresh bun.lock [skip ci]"
+          git push

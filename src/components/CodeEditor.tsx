@@ -14,6 +14,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { autocompletion, closeBrackets, closeBracketsKeymap, type CompletionContext, type CompletionResult, type Completion } from "@codemirror/autocomplete";
 import { unifiedMergeView, getChunks, getOriginalDoc } from "@codemirror/merge";
+import { vim } from "@codemirror/vim";
 import { tags as t } from "@lezer/highlight";
 import { getImageFromClipboard, saveImageToFile, createMarkdownImage } from "../utils/imageUtils";
 import {
@@ -68,6 +69,9 @@ interface CodeEditorProps {
     showToolbar?: boolean;
     wordWrap?: boolean;
     spellCheck?: boolean;
+    /** Optional vim modal editing (issue #119): h/j/k/l, modes, operators —
+     *  the official @codemirror/vim implementation. Off by default. */
+    vimMode?: boolean;
     aiConfig?: { endpoint: string; model: string; apiKey: string };
     /** When non-null, show this proposed document as an inline diff (CodeMirror
      *  merge view) for the user to accept/reject. Null = no review in progress. */
@@ -188,6 +192,7 @@ function CodeEditorImpl({
     showToolbar,
     wordWrap = true,
     spellCheck = false,
+    vimMode = false,
     aiConfig,
     reviewDoc,
     onReviewResolve,
@@ -235,6 +240,8 @@ function CodeEditorImpl({
     // Reconfigurable extensions.
     const wrapCompRef = useRef(new Compartment());
     const spellCompRef = useRef(new Compartment());
+    // Vim modal editing (issue #119) — toggled live from Settings.
+    const vimCompRef = useRef(new Compartment());
     // history() lives in a compartment so a document swap can reset undo state
     // (reconfigure to [] then back) without rebuilding the whole editor. TABS-03.
     const historyCompRef = useRef(new Compartment());
@@ -329,6 +336,7 @@ function CodeEditorImpl({
 
         const wrapComp = wrapCompRef.current;
         const spellComp = spellCompRef.current;
+        const vimComp = vimCompRef.current;
         const mergeComp = mergeCompRef.current;
         const historyComp = historyCompRef.current;
 
@@ -448,6 +456,7 @@ function CodeEditorImpl({
                     editorTheme,
                     wrapComp.of(wordWrap ? EditorView.lineWrapping : []),
                     spellComp.of(EditorView.contentAttributes.of(spellAttrs(spellCheck))),
+                    vimComp.of(vimMode ? vim() : []),
                     mergeComp.of([]),
                     editingKeymap,
                     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap]),
@@ -623,13 +632,16 @@ function CodeEditorImpl({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [docSwapId]);
 
-    // Reconfigure word-wrap / spellcheck when their props change.
+    // Reconfigure word-wrap / spellcheck / vim when their props change.
     useEffect(() => {
         viewRef.current?.dispatch({ effects: wrapCompRef.current.reconfigure(wordWrap ? EditorView.lineWrapping : []) });
     }, [wordWrap]);
     useEffect(() => {
         viewRef.current?.dispatch({ effects: spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(spellCheck))) });
     }, [spellCheck]);
+    useEffect(() => {
+        viewRef.current?.dispatch({ effects: vimCompRef.current.reconfigure(vimMode ? vim() : []) });
+    }, [vimMode]);
 
     // Enter / refresh / exit the AI review (CodeMirror unified merge view). The
     // original side is the document as it was BEFORE the proposal; the editor doc

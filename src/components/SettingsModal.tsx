@@ -8,6 +8,7 @@ import {
     getAIEnabled, setAIEnabled,
     getWordWrap, setWordWrap,
     getSpellCheck, setSpellCheck,
+    getVimMode, setVimMode,
     getAutoSave, setAutoSave,
     getOpenInReader, setOpenInReader,
     getZenMode, setZenMode,
@@ -103,6 +104,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
     const [wordWrap, setWordWrapLocal] = useState(getWordWrap);
     const [spellCheck, setSpellCheckLocal] = useState(getSpellCheck);
+    const [vimMode, setVimModeLocal] = useState(getVimMode);
     const [autoSave, setAutoSaveLocal] = useState(getAutoSave);
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
     const [zenMode, setZenModeLocal] = useState(getZenMode);
@@ -390,6 +392,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 {matches("spell check") && (
                                     <ToggleRow label="Spell check" description="Underline misspelled words while you type" checked={spellCheck}
                                         onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
+                                )}
+                                {matches("vim") && (
+                                    <ToggleRow label="Vim mode" description="Modal editing in the editor: h/j/k/l, modes, operators (issue #119)" checked={vimMode}
+                                        onChange={(v) => { setVimModeLocal(v); setVimMode(v); fire("paperling:vim-toggle", v); }} />
                                 )}
                                 {matches("autosave") && (
                                     <ToggleRow label="Autosave" description="Save automatically a moment after you stop typing" checked={autoSave}
