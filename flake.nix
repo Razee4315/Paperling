@@ -63,12 +63,19 @@
           name = "${pname}-frontend-${version}";
           src = ./.;
 
-          nativeBuildInputs = [ pkgs.bun ];
+          nativeBuildInputs = [
+            pkgs.bun
+            # `bun run build` executes node_modules/.bin shims whose shebang
+            # is /usr/bin/env — absent in the sandbox. node provides the
+            # interpreter; patchShebangs rewrites the shim paths.
+            pkgs.nodejs
+          ];
 
           configurePhase = ''
             runHook preConfigure
             cp -a ${bunDeps}/node_modules ./node_modules
             chmod -R u+w node_modules
+            patchShebangs node_modules/.bin
             runHook postConfigure
           '';
 
