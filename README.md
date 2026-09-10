@@ -141,13 +141,24 @@ Download the latest release from the [Releases](https://github.com/Razee4315/Pap
 | Platform    | Formats                                    |
 | ----------- | ------------------------------------------ |
 | **Windows** | `.msi` installer · `.exe` (NSIS) installer |
-| **macOS**   | `.dmg` (Apple Silicon)                     |
+| **macOS**   | `.dmg` (Apple Silicon + Intel, universal)  |
 | **Linux**   | `.AppImage` · `.deb` · `.rpm`              |
 
 > **Note:** builds aren't code-signed yet, so Windows SmartScreen or macOS
-> Gatekeeper may warn on first launch. On Windows choose _More info → Run anyway_;
-> on macOS right-click the app and choose _Open_. Auto-update packages are signed
-> and verified before installing.
+> Gatekeeper may warn on first launch. On Windows choose _More info → Run anyway_.
+>
+> **macOS:** recent macOS versions report an unsigned app as _"damaged and
+> can't be opened"_ — right-click → _Open_ does **not** clear that message.
+> After copying the app to `/Applications`, run this once in Terminal and it
+> opens normally:
+>
+> ```sh
+> xattr -cr /Applications/Paperling.app
+> ```
+>
+> (Alternatively: System Settings → Privacy & Security → _Open Anyway_.) This
+> is a consequence of shipping without Apple's paid notarization, not a broken
+> download. Auto-update packages are signed and verified before installing.
 
 ## Development
 

@@ -111,7 +111,7 @@ jobs:
             echo "### Installation"
             echo "- **Windows:** \`.msi\` (recommended) or \`.exe\` (NSIS installer)"
             echo "- **Linux:** \`.deb\` or \`.AppImage\`"
-            echo "- **macOS:** \`.dmg\`"
+            echo "- **macOS:** \`.dmg\` (Apple Silicon + Intel, universal)"
             echo ""
             echo "See the [CHANGELOG](https://github.com/Razee4315/Paperling/blob/main/CHANGELOG.md) for the full history."
             echo "__PAPERLING_NOTES__"
@@ -131,8 +131,14 @@ jobs:
             args: '--target aarch64-pc-windows-msvc'
           - platform: ubuntu-24.04
             args: ''
+          # Universal macOS binary (Apple Silicon + Intel in one .dmg).
+          # macos-latest is an ARM runner; building universal-apple-darwin
+          # needs the x86_64-apple-darwin Rust target too (installed below).
+          # One universal .dmg means Intel Mac users no longer download a dmg
+          # that refuses to launch, and Apple Silicon users keep a native
+          # build. Issues #94 / #103.
           - platform: macos-latest
-            args: ''
+            args: '--target universal-apple-darwin'
 
     runs-on: ${{ matrix.platform }}
 
@@ -144,6 +150,10 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Add macOS cross-compile target
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add x86_64-apple-darwin
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
