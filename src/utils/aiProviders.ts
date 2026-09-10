@@ -20,7 +20,7 @@ export const AI_PROVIDERS: AIProvider[] = [
         id: "gemini",
         name: "Google Gemini",
         endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        defaultModel: "gemini-2.5-flash",
+        defaultModel: "gemini-3.6-flash",
         keyHint: "Get a free key at aistudio.google.com/apikey and paste it above.",
     },
     {
