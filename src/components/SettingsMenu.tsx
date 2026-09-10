@@ -4,6 +4,9 @@ import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
 
 const themes: { id: Theme; name: string; colors: [string, string] }[] = [
     { id: 'dark', name: 'Dark', colors: ['#0a0a0a', '#141414'] },
+    { id: 'graphite', name: 'Graphite', colors: ['#1c1917', '#262220'] },
+    { id: 'nord', name: 'Nord', colors: ['#2e3440', '#3b4252'] },
+    { id: 'midnight', name: 'Midnight', colors: ['#0f172a', '#1e293b'] },
     { id: 'light', name: 'Light', colors: ['#ffffff', '#f4f2ee'] },
     { id: 'paper', name: 'Paper', colors: ['#f5f0e6', '#ebe5d8'] },
     { id: 'dracula', name: 'Dracula', colors: ['#282a36', '#44475a'] },

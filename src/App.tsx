@@ -142,6 +142,9 @@ const SIDEBAR_WIDTH = 288;
 // Theme options for the command palette, in the same order as Settings.
 const THEME_CHOICES: { id: Theme; label: string }[] = [
   { id: "dark", label: "Dark" },
+  { id: "graphite", label: "Graphite" },
+  { id: "nord", label: "Nord" },
+  { id: "midnight", label: "Midnight" },
   { id: "light", label: "Light" },
   { id: "paper", label: "Paper" },
   { id: "dracula", label: "Dracula" },
@@ -1344,7 +1347,7 @@ function AppContent() {
         label: theme === t.id ? `Theme: ${t.label} (current)` : `Change theme to ${t.label}`,
         section: "Theme",
         icon: "palette",
-        keywords: "theme color appearance dark light paper dracula",
+        keywords: "theme color appearance dark light paper dracula graphite nord midnight",
         run: () => setTheme(t.id),
       });
     }

@@ -199,6 +199,153 @@
   --selection-text: #f8f8f2;
 }
 
+/* Graphite — a warm dark grey (issue #172). The stone family gives it the
+   same gentle character the Paper theme has on the light side, but for night
+   owls: surfaces are soft charcoal with a warm undertone, never pure black. */
+[data-theme="graphite"] {
+  --bg-primary: #1c1917;
+  --bg-secondary: #262220;
+  --bg-titlebar: #1c1917;
+  --bg-editor: #1c1917;
+  --bg-gutter: #211d1b;
+  --bg-hover: #2e2925;
+  --bg-input: #262220;
+
+  --text-primary: #e7e5e4;
+  --text-secondary: #a8a29e;
+  --text-muted: #78716c;
+
+  --accent: #e7e5e4;
+  --accent-hover: rgba(231, 229, 228, 0.9);
+  --accent-text: #1c1917;
+
+  --border: #38332e;
+  --border-subtle: #2a2622;
+
+  --code-bg: #262220;
+  --code-text: #a8a29e;
+  --blockquote-bg: rgba(38, 34, 32, 0.8);
+
+  --syntax-h1: #ffffff;
+  --syntax-h2: #e7e5e4;
+  --syntax-h3: #d6d3d1;
+  --syntax-link: #b8b0a8;
+  --syntax-bold: #ffffff;
+  --syntax-list: #a8a29e;
+  --syntax-number: #a8a29e;
+  --syntax-quote: #78716c;
+  --syntax-code: #a8a29e;
+
+  --status-saved: #22c55e;
+  --status-unsaved: #f59e0b;
+  --danger: #ef4444;
+
+  --scrollbar-track: #1c1917;
+  --scrollbar-thumb: #3a342e;
+  --scrollbar-hover: #57534e;
+
+  --selection-bg: #57534e;
+  --selection-text: #e7e5e4;
+}
+
+/* Nord — the arctic, blue-toned dark palette (issue #172). Polar Night
+   surfaces with Frost accents; muted text keeps the scan-quiet feel of the
+   flat dark theme while headings and links carry the familiar Nord blues. */
+[data-theme="nord"] {
+  --bg-primary: #2e3440;
+  --bg-secondary: #3b4252;
+  --bg-titlebar: #2e3440;
+  --bg-editor: #2e3440;
+  --bg-gutter: #353c4a;
+  --bg-hover: #434c5e;
+  --bg-input: #3b4252;
+
+  --text-primary: #eceff4;
+  --text-secondary: #b9c2d0;
+  --text-muted: #7b88a1;
+
+  --accent: #88c0d0;
+  --accent-hover: rgba(136, 192, 208, 0.85);
+  --accent-text: #2e3440;
+
+  --border: #434c5e;
+  --border-subtle: #3b4252;
+
+  --code-bg: #3b4252;
+  --code-text: #d8dee9;
+  --blockquote-bg: rgba(59, 66, 82, 0.8);
+
+  --syntax-h1: #eceff4;
+  --syntax-h2: #e5e9f0;
+  --syntax-h3: #d8dee9;
+  --syntax-link: #88c0d0;
+  --syntax-bold: #eceff4;
+  --syntax-list: #81a1c1;
+  --syntax-number: #81a1c1;
+  --syntax-quote: #7b88a1;
+  --syntax-code: #a9b6ca;
+
+  --status-saved: #a3be8c;
+  --status-unsaved: #ebcb8b;
+  --danger: #bf616a;
+
+  --scrollbar-track: #2e3440;
+  --scrollbar-thumb: #434c5e;
+  --scrollbar-hover: #4c566a;
+
+  --selection-bg: #4c566a;
+  --selection-text: #eceff4;
+}
+
+/* Midnight — a deep blue-slate dark (issue #172). Tailwind slate surfaces
+   with a sky accent: cooler and bluer than Dark, warmer than Nord, for
+   anyone who finds both pure black and Nord's grey-blue too quiet. */
+[data-theme="midnight"] {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-titlebar: #0f172a;
+  --bg-editor: #0f172a;
+  --bg-gutter: #172033;
+  --bg-hover: #273449;
+  --bg-input: #1e293b;
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --accent: #38bdf8;
+  --accent-hover: rgba(56, 189, 248, 0.85);
+  --accent-text: #0f172a;
+
+  --border: #334155;
+  --border-subtle: #1e293b;
+
+  --code-bg: #1e293b;
+  --code-text: #94a3b8;
+  --blockquote-bg: rgba(30, 41, 59, 0.8);
+
+  --syntax-h1: #f1f5f9;
+  --syntax-h2: #e2e8f0;
+  --syntax-h3: #cbd5e1;
+  --syntax-link: #7dd3fc;
+  --syntax-bold: #f1f5f9;
+  --syntax-list: #94a3b8;
+  --syntax-number: #94a3b8;
+  --syntax-quote: #64748b;
+  --syntax-code: #94a3b8;
+
+  --status-saved: #4ade80;
+  --status-unsaved: #fbbf24;
+  --danger: #f87171;
+
+  --scrollbar-track: #0f172a;
+  --scrollbar-thumb: #334155;
+  --scrollbar-hover: #475569;
+
+  --selection-bg: #334155;
+  --selection-text: #e2e8f0;
+}
+
 
 /* ===== Design Tokens ===== */
 :root {
