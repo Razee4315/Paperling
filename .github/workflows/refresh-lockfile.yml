@@ -1,0 +1,46 @@
+name: Refresh lockfile
+
+# One-off maintenance workflow (not part of CI): runs `bun install` so bun.lock
+# picks up any package.json changes made off-machine (e.g. adding
+# @replit/codemirror-vim for the vim-mode branch), and pushes the result back.
+#
+# Triggers on pushes that touch package.json or this file. Remove this
+# workflow (or the push trigger) once every machine contributing package.json
+# edits has bun available.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "package.json"
+      - ".github/workflows/refresh-lockfile.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    # Only run on the feature branches that carry package.json changes —
+    # never on main, where Dependabot owns the lockfile.
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install (updates bun.lock)
+        run: bun install --no-progress
+
+      - name: Commit updated lockfile
+        run: |
+          if git diff --quiet bun.lock; then
+            echo "bun.lock already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bun.lock
+          git commit -m "chore(deps): refresh bun.lock [skip ci]"
+          git push

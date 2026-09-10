@@ -135,6 +135,12 @@ export const setWordWrap = (v: boolean): void => safeSet(KEY_WORD_WRAP, v);
 export const getSpellCheck = (): boolean => safeGet<boolean>(KEY_SPELL_CHECK, false);
 export const setSpellCheck = (v: boolean): void => safeSet(KEY_SPELL_CHECK, v);
 
+// Optional vim modal editing (issue #119). Off by default: the app must stay
+// fully usable by people who have never touched vim.
+const KEY_VIM_MODE = "paperling:vimMode";
+export const getVimMode = (): boolean => safeGet<boolean>(KEY_VIM_MODE, false);
+export const setVimMode = (v: boolean): void => safeSet(KEY_VIM_MODE, v);
+
 const KEY_AUTO_SAVE = "paperling:autoSave";
 export const getAutoSave = (): boolean => safeGet<boolean>(KEY_AUTO_SAVE, false);
 export const setAutoSave = (v: boolean): void => safeSet(KEY_AUTO_SAVE, v);
