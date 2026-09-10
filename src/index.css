@@ -429,6 +429,11 @@ select:focus-visible,
      (viewport-fit=cover means we draw under it). Fixed panels offset from this
      same variable, so bar and panels always agree. */
   --mobile-topbar-h: calc(48px + env(safe-area-inset-top, 0px));
+  /* The bottom nav is one 56dp row plus its safe-area padding. Left-side
+     sheets stop above this same variable so Files / Outline / Read stay
+     reachable while a sheet is open. Keep in sync with MobileBottomNav's
+     min-h-[56px] + paddingBottom. */
+  --mobile-bottomnav-h: calc(56px + max(env(safe-area-inset-bottom, 0px), 4px));
 }
 
 /* While the on-screen keyboard is up (html.kb-open, set by useKeyboardInset)
@@ -492,12 +497,16 @@ html.mobile select {
 /* Panels become full-screen sheets on the phone. The desktop classes reserve
    288px sidebars / a 400px AI column; a 360px viewport cannot spare either.
    !important is required only where the component sets an inline width
-   (AIPanel). */
+   (AIPanel). Left sheets stop above the bottom nav (--mobile-bottomnav-h) so
+   Files / Outline / Read stay on screen while a sheet is open: the user can
+   close the sheet from its ✕ or switch to Read/Edit without dismissing it
+   first. The right-side AI sheet still runs to the bottom — its composer has
+   its own keyboard handling and the nav has no slot there. */
 html.mobile [data-panel="left"] {
   width: 100% !important;
   max-width: 100% !important;
   top: var(--mobile-topbar-h) !important;
-  bottom: 0 !important;
+  bottom: var(--mobile-bottomnav-h) !important;
   border-right: none;
   box-shadow: none;
 }
