@@ -1,8 +1,14 @@
 import { Theme, FontFamily, FontSize } from '../context/ThemeContext';
 import { save } from '@tauri-apps/plugin-dialog';
-import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 import { getFontName, getFontStack } from './fontFamily';
+
+// All export writes go through the validated Rust command `write_export_file`
+// (dialog-chosen path, atomic write) instead of the fs plugin, so the webview
+// carries no filesystem permission at all. Issue #91, item 1.
+async function writeExportFile(path: string, data: Uint8Array): Promise<void> {
+    await invoke('write_export_file', { path, data: Array.from(data) });
+}
 
 // Theme color definitions for export
 const themeColors: Record<Theme, Record<string, string>> = {
@@ -472,7 +478,7 @@ export async function exportToHTML(
     });
 
     if (!filePath) return false;
-    await writeTextFile(filePath, fullHTML);
+    await writeExportFile(filePath, new TextEncoder().encode(fullHTML));
     return true;
 }
 
@@ -564,7 +570,7 @@ export async function exportToDocx(
         out instanceof Blob ? new Uint8Array(await out.arrayBuffer())
         : out instanceof Uint8Array ? out
         : new Uint8Array(out as ArrayBuffer);
-    await writeFile(filePath, bytes);
+    await writeExportFile(filePath, bytes);
     return true;
 }
 
