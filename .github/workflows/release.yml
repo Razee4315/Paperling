@@ -112,6 +112,7 @@ jobs:
             echo "- **Windows:** \`.msi\` (recommended) or \`.exe\` (NSIS installer)"
             echo "- **Linux:** \`.deb\` or \`.AppImage\`"
             echo "- **macOS:** \`.dmg\` (Apple Silicon + Intel, universal)"
+            echo "- **Android:** \`Paperling_${VERSION}_aarch64.apk\` attached below (arm64-v8a; allow \"install unknown apps\" once)"
             echo ""
             echo "See the [CHANGELOG](https://github.com/Razee4315/Paperling/blob/main/CHANGELOG.md) for the full history."
             echo "__PAPERLING_NOTES__"
@@ -211,3 +212,137 @@ jobs:
             -ExeDir "src-tauri/target/x86_64-pc-windows-msvc/release" `
             -OutFile "dist/Paperling_${env:VERSION}_x64-portable.zip"
           gh release upload "v${env:VERSION}" "dist/Paperling_${env:VERSION}_x64-portable.zip" --clobber
+
+  # ─── Job 3: Android APK ─────────────────────────────────────
+  # Launch build for the Android port (arm64-v8a). Runs AFTER the desktop
+  # matrix so the GitHub release already exists for `gh release upload`.
+  # Same recipe as android-build.yml, with one difference: instead of
+  # falling back to the debug key, the job generates a real release
+  # keystore on first run and caches it under a fixed cache key, so every
+  # future release APK shares one signature and can update in place. The
+  # keystore FILE is the secret (repo-scoped actions cache); the passwords
+  # below only guard a file an outsider never sees. If the cache entry is
+  # ever evicted, a new keystore is generated and existing installs need
+  # one uninstall — move to a repo-secret keystore before that matters.
+  android:
+    needs: [check-and-bump, release]
+    if: needs.check-and-bump.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.check-and-bump.outputs.version }}
+    steps:
+      - name: Checkout repository (with bumped version)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          workspaces: './src-tauri -> target'
+          key: aarch64-linux-android
+
+      - name: Setup Java 17 (Android Gradle Plugin requirement)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Restore the release keystore (stable APK signature)
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/paperling-release.keystore
+          key: paperling-android-release-keystore-v1
+
+      - name: Generate the release keystore on first run
+        run: |
+          KS="$HOME/.android/paperling-release.keystore"
+          if [ ! -f "$KS" ]; then
+            keytool -genkeypair -v \
+              -keystore "$KS" -alias paperling \
+              -keyalg RSA -keysize 2048 -validity 10950 \
+              -storepass paperling-release -keypass paperling-release \
+              -dname "CN=Paperling, OU=Paperling, O=Paperling, L=Internet, ST=Internet, C=US"
+          else
+            echo "Keystore restored from cache — signature stays stable"
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Locate the preinstalled Android NDK
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          NDK_DIR="$(ls -d "$SDK"/ndk/*/ 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$NDK_DIR" ]; then
+            echo "::error::No preinstalled Android NDK found under $SDK/ndk"
+            exit 1
+          fi
+          echo "NDK_HOME=${NDK_DIR%/}" >> "$GITHUB_ENV"
+
+      - name: Generate app icons (all densities, incl. Android mipmaps)
+        run: bun run tauri icon public/icon.svg --output .tauri-icons
+
+      - name: Initialize the Android project
+        run: bun run tauri android init
+
+      - name: Copy launcher icons into the generated project
+        run: |
+          SRC=".tauri-icons/android"
+          DEST="src-tauri/gen/android/app/src/main/res"
+          cp -r "$SRC"/mipmap-* "$DEST"/
+          if [ -d "$SRC/mipmap-anydpi-v26" ]; then
+            mkdir -p "$DEST/mipmap-anydpi-v26"
+            cp "$SRC"/mipmap-anydpi-v26/* "$DEST/mipmap-anydpi-v26"/
+            if [ -f "$DEST/mipmap-anydpi-v26/ic_launcher.xml" ]; then
+              cp "$DEST"/mipmap-anydpi-v26/ic_launcher.xml "$DEST/mipmap-anydpi-v26/ic_launcher_round.xml"
+            fi
+          fi
+          if [ -f "$SRC/values/ic_launcher_background.xml" ]; then
+            cp "$SRC"/values/ic_launcher_background.xml "$DEST"/values/
+          fi
+
+      - name: Write release signing (real keystore, not the debug key)
+        run: node scripts/patch-android-release-signing.mjs src-tauri/gen/android/app/build.gradle.kts
+        # keystore.properties goes to the Gradle ROOT (src-tauri/gen/android),
+        # which is where the injected signingConfig looks for it.
+      - name: Point signing at the release keystore
+        run: |
+          cat > src-tauri/gen/android/keystore.properties <<EOF
+          keyAlias=paperling
+          keyPassword=paperling-release
+          storeFile=$HOME/.android/paperling-release.keystore
+          storePassword=paperling-release
+          EOF
+
+      - name: Patch "Open with Paperling" file handling + system-bar insets
+        run: node scripts/patch-android-open-with.mjs src-tauri/gen/android
+
+      - name: Build APK (release, aarch64)
+        run: bun run tauri android build --target aarch64 --apk
+
+      - name: Upload APK to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-apk
+          APK="$(find src-tauri/gen/android/app/build/outputs/apk -name "*release*.apk" | head -1)"
+          if [ -z "$APK" ]; then
+            echo "::error::Build succeeded but no release APK was found"
+            find src-tauri/gen/android/app/build/outputs/apk -name "*.apk"
+            exit 1
+          fi
+          cp "$APK" "dist-apk/Paperling_${VERSION}_aarch64.apk"
+          gh release upload "v${VERSION}" "dist-apk/Paperling_${VERSION}_aarch64.apk" --clobber

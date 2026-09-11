@@ -15,7 +15,7 @@
   <a href="https://github.com/Razee4315/Paperling/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Razee4315/Paperling?color=2ea043&label=download"></a>
   <a href="https://github.com/Razee4315/Paperling/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/Razee4315/Paperling/total?color=2ea043"></a>
   <a href="https://github.com/Razee4315/Paperling/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/Razee4315/Paperling?style=flat"></a>
-  <img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555">
+  <img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-555">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue"></a>
   <img alt="Built with Tauri" src="https://img.shields.io/badge/built%20with-Tauri%20%2B%20Rust-FFC131">
 </p>
@@ -130,7 +130,7 @@ Dark, Light, Paper, and Dracula.
 ### <img src="images/art/icon-bolt.png" width="26" alt=""> Platform
 
 - **Native performance** — built with Tauri
-- **Cross-platform** — Windows, macOS, Linux
+- **Cross-platform** — Windows, macOS, Linux, and Android (arm64)
 
 ## <img src="images/art/icon-rocket.png" width="30" alt=""> Installation
 
@@ -143,6 +143,7 @@ Download the latest release from the [Releases](https://github.com/Razee4315/Pap
 | **Windows** | `.msi` installer · `.exe` (NSIS) installer |
 | **macOS**   | `.dmg` (Apple Silicon + Intel, universal)  |
 | **Linux**   | `.AppImage` · `.deb` · `.rpm`              |
+| **Android** | `.apk` (arm64-v8a; allow "install unknown apps" once when installing) |
 
 > **Note:** builds aren't code-signed yet, so Windows SmartScreen or macOS
 > Gatekeeper may warn on first launch. On Windows choose _More info → Run anyway_.

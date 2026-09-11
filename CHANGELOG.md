@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Paperling for Android.** The full app, rebuilt for touch: a paper-first
+  shell with Files / Outline / Read within thumb's reach, opening any `.md`
+  from the system document picker or straight from a file manager via
+  "Open with", saving back to your device's notes folder, Export as HTML into
+  Downloads, system back-button handling that never eats unsaved work, and
+  find-and-replace with proper mobile keyboard hints. The app menu carries
+  New / Open / Save / Export / Find / Statistics / AI / Settings, Zen mode
+  included. This first build is an `arm64-v8a` APK attached to the GitHub
+  release — install it by allowing "install unknown apps" for your browser
+  once. Modern Android phones only (Android 10+).
+- **Zen mode.** Press F9 (or pick it from the command palette) and everything
+  but the page melts away: just your document, centered, in the reading
+  typography. The canvas is editable in place with Ctrl+E, a top bar appears
+  when you hover the screen edge, and the choice is remembered across
+  launches.
+- **Backlinks panel.** The link icon in the status bar lists every note that
+  links to the one you are reading, so following the trail backwards no
+  longer means searching by hand.
+- **Save conflicts are caught.** If a file changed on disk after you opened
+  it — another editor, a sync tool — Paperling now asks before overwriting
+  instead of silently clobbering the newer copy, and can keep either side.
+- **Unsaved tabs are marked.** A tab holding unsubmitted changes shows a
+  bullet next to its name, matching the • in the window title, so a quick
+  glance tells you what still needs saving.
+- **Optional Vim mode.** Settings → Editor → "Vim mode" turns on modal
+  editing in the editor: h/j/k/l movement, the full normal/insert/visual
+  set, `:` commands. Everything else stays exactly as it was when it is
+  off. (#119)
+- **Three new themes and an accent color.** Graphite, Nord and Midnight join
+  Dark, Light, Paper and Dracula, and each theme's accent color can be
+  tuned in Appearance. (#172)
 - **Custom system fonts.** Enter an installed font family in Appearance to use
   it across the interface, Markdown preview and exports, with Inter as a safe
   fallback. (#113)
@@ -35,9 +66,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The AI icon animation can be turned off.** Settings → AI → "Animate the AI
   icon" switches the shimmer on the title-bar AI button off, leaving it as plain
   text. (#111)
+- **New ways to install.** Paperling is now packaged as a Nix flake (#117) and
+  a portable Windows zip for Scoop (#48), and the macOS download is a single
+  universal `.dmg` with honest Gatekeeper instructions (#94, #103).
 
 ### Fixed
 
+- **Wide tables no longer wreck the page.** A table wider than the window
+  used to push the whole document out sideways; wide tables now scroll
+  inside their own box, in the app and in exports.
+- **The Gemini preset points at a model that exists.** Google retired
+  `gemini-2.5-flash` for new API keys, so the preset's one-click setup
+  handed every new user a broken model; it now fills `gemini-3.6-flash`
+  (verified against the live API).
+- **The PDF print dialog on Linux behaves.** Exporting to PDF opened the
+  system print dialog twice, and cancelling left the Export button spinning
+  forever; it now opens once and the button frees up immediately.
+- **The find bar stays put.** Typing in Find used to bounce focus into the
+  document a moment later, so the next keystroke could overwrite your
+  matched text; focus now stays in the bar, and one find mechanism serves
+  both the editor and reader modes.
+- **The outline sheet respects the bottom bar on Android.** Opening the
+  table of contents used to cover the Files / Outline / Read bar; the bar
+  now stays reachable so you can jump to Read or close the sheet without
+  dismissing it first.
 - **Hard-to-see text selection.** In the Light and Paper themes, selecting text
   in the editor painted a dark block over dark text, so you could see what was
   selected but not read it; both themes now tint the selection instead. In every
@@ -64,6 +116,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in Settings, AI. Local servers keep working exactly as before: `http://` is
   still fine for `localhost` and `127.0.0.1`, and a keyless server on your home
   network is still allowed, since there is no key to expose. (#91)
+
+### Security
+
+- **The webview has no filesystem permissions at all.** Exports used to
+  carry a blanket write grant into every folder the save dialog could
+  reach; all export writes now go through one validated Rust command
+  (dialog-chosen path, size-capped, mobile-sandboxed), so a compromised
+  renderer cannot read, enumerate, rename or delete files. (#91, #188)
+- **The Android app is sandboxed by default.** File commands are confined
+  to the app's private storage, the JavaScript bridge only answers the
+  app's own origin, AI keys and notes are excluded from cloud backups,
+  PDF export staging files are unguessable, and the release content
+  security policy allows nothing remote.
 
 ## [1.0.49] - 2026-07-12
 
