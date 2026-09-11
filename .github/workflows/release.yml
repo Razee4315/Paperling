@@ -264,6 +264,9 @@ jobs:
       - name: Generate the release keystore on first run
         run: |
           KS="$HOME/.android/paperling-release.keystore"
+          # keytool does not create parent directories; a fresh runner has no
+          # ~/.android yet (this exact failure killed the first 1.0.50 run).
+          mkdir -p "$HOME/.android"
           if [ ! -f "$KS" ]; then
             keytool -genkeypair -v \
               -keystore "$KS" -alias paperling \
