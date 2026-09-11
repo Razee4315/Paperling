@@ -31,6 +31,12 @@
   <img src="images/split-view.png" width="860" alt="Paperling in split view — Markdown source on the left, live preview with a table, task list and callout on the right">
 </p>
 
+<p align="center">
+  <img src="images/mobile-reader.png" width="280" alt="Paperling on Android — Reader mode showing Field Notes with a task list and inline math">
+  <br>
+  <sub><strong>📱 Now on Android</strong> — get the APK from the <a href="https://github.com/Razee4315/Paperling/releases/latest">releases page</a>.</sub>
+</p>
+
 ## Why Paperling?
 
 <img src="images/art/scene-writing-desk.png" width="320" align="right" alt="The Paperling mascot typing at a cozy desk with a split-view monitor, coffee, and a plant">
