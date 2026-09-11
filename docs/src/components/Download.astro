@@ -2,14 +2,24 @@
 import { Image } from "astro:assets";
 import { Icon } from "astro-icon/components";
 import sceneCelebration from "../assets/scenes/scene-celebration.png";
+import qrDownload from "../assets/qr-download.svg";
+// Version for the APK filename shown in the install steps; same build-time
+// source as Base.astro (repo-root package.json), so it tracks the shipped
+// release automatically.
+import { readFileSync } from "node:fs";
+const pkg = JSON.parse(
+  readFileSync(`${process.cwd()}/../package.json`, "utf-8"),
+);
+
 const releases = "https://github.com/Razee4315/Paperling/releases/latest";
 const repo = "https://github.com/Razee4315/Paperling";
+const version = pkg.version;
 
 const platforms = [
   {
     icon: "simple-icons:windows10",
     os: "Windows",
-    note: "Windows 10 / 11 (64-bit).",
+    note: "Windows 10 / 11, 64-bit and ARM.",
     formats: ".exe installer · .msi",
     href: releases,
     cta: "Download for Windows",
@@ -27,11 +37,20 @@ const platforms = [
   {
     icon: "simple-icons:apple",
     os: "macOS",
-    note: "Apple Silicon (M1 and newer).",
+    note: "Apple Silicon and Intel, in one universal download.",
     formats: ".dmg",
     href: releases,
     cta: "Download for macOS",
     primary: true,
+  },
+  {
+    icon: "simple-icons:android",
+    os: "Android",
+    note: "Fresh out of the oven: the full editor, rebuilt for touch. Android 10+ (arm64) phones.",
+    formats: ".apk",
+    href: releases,
+    cta: "Get the Android APK",
+    primary: false,
   },
 ];
 ---
@@ -62,7 +81,7 @@ const platforms = [
       />
     </div>
 
-    <div class="mt-10 grid gap-4 md:grid-cols-3">
+    <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {platforms.map((p) => (
         <article class="card flex flex-col p-7" data-reveal>
           <div class="flex items-center gap-3">
@@ -83,5 +102,200 @@ const platforms = [
         </article>
       ))}
     </div>
+
+    <!-- Android launch band: phone mockup + install steps + QR.
+         The phone screen is a styled CSS mock of Reader mode; when a real
+         device screenshot is available, drop it in as
+         src/assets/screenshots/mobile-reader.png and replace the .phone-mock
+         div with an <Image> of it. -->
+    <div class="mt-16 grid items-center gap-10 lg:grid-cols-2" data-reveal>
+      <div class="mx-auto lg:mx-0">
+        <div class="phone-frame" aria-hidden="true">
+          <div class="phone-screen">
+            <div class="phone-topbar">
+              <span class="phone-menu"></span>
+              <span class="phone-title">Field Notes.md</span>
+              <span class="phone-dot"></span>
+            </div>
+            <div class="phone-body">
+              <h4>Field Notes</h4>
+              <p class="phone-lede">Write anywhere. Sync nothing.</p>
+              <ul>
+                <li class="is-done">Ship the Android app</li>
+                <li>Take better notes</li>
+                <li>Stay offline on purpose</li>
+              </ul>
+              <p class="phone-math">E = mc²</p>
+              <p class="phone-tail">No account · no cloud · no telemetry.</p>
+            </div>
+            <div class="phone-bottomnav">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="mono-label"><span class="tok-mark">></span> android</p>
+        <h3 class="font-serif-display mt-3 text-[clamp(1.9rem,4vw,2.8rem)]">
+          Now in your pocket.
+        </h3>
+        <p class="mt-4 text-[15px] leading-relaxed text-fg-muted">
+          The whole editor — live preview, split view, math, diagrams, the AI
+          panel, Zen mode — rebuilt around a thumb-first shell. Open
+          <code class="rounded bg-bg-input px-1">.md</code> files straight from
+          other apps with "Open with", export to HTML into your Downloads, and
+          rely on the back button to close sheets before it ever risks your
+          unsaved work.
+        </p>
+        <ol class="mt-6 space-y-2 text-[15px] text-fg-muted">
+          <li><strong class="text-fg">1.</strong> Tap <em>Get the Android APK</em> above and grab <code class="rounded bg-bg-input px-1">Paperling_{version}_aarch64.apk</code>.</li>
+          <li><strong class="text-fg">2.</strong> Allow "install unknown apps" for your browser once — normal for anything outside the Play Store.</li>
+          <li><strong class="text-fg">3.</strong> Install. Updates install straight over the old version.</li>
+        </ol>
+        <div class="mt-7 flex items-center gap-5">
+          <div class="qr-tile" title="Scan to download">
+            <Image
+              src={qrDownload}
+              alt="QR code linking to the latest Paperling release"
+              width={120}
+              height={120}
+              loading="lazy"
+              class="h-28 w-28"
+            />
+          </div>
+          <p class="max-w-[16rem] text-xs leading-relaxed text-fg-dim">
+            Scan this with your phone to open the latest release page — the
+            APK is attached under <strong>Assets</strong>.
+          </p>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
+
+<style>
+  /* Phone mockup: pure CSS so it works before a real device screenshot
+     lands. Proportions mimic a 390x844 phone at ~0.45 scale. */
+  .phone-frame {
+    width: 264px;
+    padding: 10px;
+    border-radius: 36px;
+    background: #2b2420;
+    box-shadow:
+      0 30px 60px -30px rgba(43, 36, 32, 0.55),
+      inset 0 0 0 2px rgba(255, 255, 255, 0.06);
+  }
+  .phone-screen {
+    display: flex;
+    flex-direction: column;
+    height: 540px;
+    overflow: hidden;
+    border-radius: 27px;
+    background: #fffdf9;
+  }
+  .phone-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: #f4efe6;
+    border-bottom: 1px solid rgba(43, 36, 32, 0.08);
+  }
+  .phone-menu,
+  .phone-dot {
+    width: 14px;
+    height: 2px;
+    border-radius: 2px;
+    background: rgba(43, 36, 32, 0.55);
+    box-shadow: 0 4px 0 rgba(43, 36, 32, 0.55), 0 -4px 0 rgba(43, 36, 32, 0.55);
+  }
+  .phone-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #b45309;
+    box-shadow: none;
+  }
+  .phone-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(43, 36, 32, 0.8);
+  }
+  .phone-body {
+    flex: 1;
+    padding: 18px 16px;
+    color: #2b2420;
+  }
+  .phone-body h4 {
+    font-family: var(--font-serif-display, Georgia, serif);
+    font-size: 20px;
+    font-weight: 700;
+  }
+  .phone-lede {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: rgba(43, 36, 32, 0.65);
+  }
+  .phone-body ul {
+    margin-top: 10px;
+    display: grid;
+    gap: 6px;
+    font-size: 11.5px;
+  }
+  .phone-body li {
+    padding-left: 18px;
+    position: relative;
+  }
+  .phone-body li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 1px;
+    width: 11px;
+    height: 11px;
+    border: 1.5px solid rgba(43, 36, 32, 0.45);
+    border-radius: 3px;
+  }
+  .phone-body li.is-done {
+    text-decoration: line-through;
+    opacity: 0.65;
+  }
+  .phone-body li.is-done::before {
+    background: var(--color-brand, #8b5e3c);
+    border-color: var(--color-brand, #8b5e3c);
+  }
+  .phone-math {
+    margin-top: 12px;
+    font-family: Georgia, serif;
+    font-style: italic;
+    font-size: 14px;
+    text-align: center;
+    color: rgba(43, 36, 32, 0.85);
+  }
+  .phone-tail {
+    margin-top: 12px;
+    font-size: 10px;
+    color: rgba(43, 36, 32, 0.5);
+  }
+  .phone-bottomnav {
+    display: flex;
+    justify-content: space-around;
+    padding: 9px 0 11px;
+    background: #f4efe6;
+    border-top: 1px solid rgba(43, 36, 32, 0.08);
+  }
+  .phone-bottomnav span {
+    width: 22px;
+    height: 4px;
+    border-radius: 4px;
+    background: rgba(43, 36, 32, 0.35);
+  }
+  .qr-tile {
+    display: inline-flex;
+    padding: 8px;
+    background: #fff;
+    border: 1px solid var(--color-line, #e5ded2);
+    border-radius: 14px;
+    box-shadow: 0 10px 24px -18px rgba(43, 36, 32, 0.4);
+  }
+</style>

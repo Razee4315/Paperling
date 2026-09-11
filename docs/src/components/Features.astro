@@ -9,12 +9,14 @@ import iconLinkPages from "../assets/mascot/icon-link-pages.png";
 import iconPalette from "../assets/mascot/icon-command-palette.png";
 import iconMoonSun from "../assets/mascot/icon-moon-sun.png";
 import iconBolt from "../assets/mascot/icon-bolt.png";
-
+import iconBook from "../assets/mascot/icon-book.png";
+import iconCheckBadge from "../assets/mascot/icon-check-badge.png";
+import iconKeyboard from "../assets/mascot/icon-keyboard.png";
 const rows = [
   {
     img: iconSparkles,
     title: "AI: Ask & Agent",
-    desc: "Chat about your document, or let Agent propose edits as an inline diff you accept or reject. Bring your own model.",
+    desc: "Chat that remembers past conversations, or Agent edits proposed as an inline diff you accept or reject. Bring your own model — Gemini, OpenAI, Ollama, LM Studio.",
     kbd: "Agent",
     accent: "cyan",
   },
@@ -23,6 +25,12 @@ const rows = [
     title: "Reader · Code · Split",
     desc: "Rendered reading, raw source, or both side by side with bidirectional scroll sync.",
     kbd: "Ctrl+\\",
+  },
+  {
+    img: iconBook,
+    title: "Zen mode",
+    desc: "F9 melts everything but the page away: centered reading typography, editable in place, remembered across launches.",
+    kbd: "F9",
   },
   {
     img: iconMath,
@@ -44,8 +52,8 @@ const rows = [
   },
   {
     img: iconLinkPages,
-    title: "Wikilinks & outline",
-    desc: "[[other-file]] links resolve in the folder, with an outline pane that follows your cursor.",
+    title: "Wikilinks, outline & backlinks",
+    desc: "[[other-file]] links resolve in the folder, an outline follows your cursor, and a backlinks panel shows every note pointing here.",
     kbd: "[[ ]]",
   },
   {
@@ -55,10 +63,22 @@ const rows = [
     kbd: "Ctrl+P",
   },
   {
+    img: iconCheckBadge,
+    title: "Safe saves",
+    desc: "Unsaved tabs carry a • marker, and if a file changed on disk behind your back, Paperling asks before overwriting instead of clobbering it.",
+    kbd: "• saved",
+  },
+  {
+    img: iconKeyboard,
+    title: "Optional Vim mode",
+    desc: "Modal editing with the full normal/insert/visual set, off by default, one toggle in Settings.",
+    kbd: ":wq",
+  },
+  {
     img: iconMoonSun,
     title: "Themes & typography",
-    desc: "Four themes, five fonts, three sizes, plus focus and typewriter modes.",
-    kbd: "4 themes",
+    desc: "Seven themes, five built-in fonts plus any custom system font, three sizes, focus and typewriter modes.",
+    kbd: "7 themes",
   },
   {
     img: iconBolt,

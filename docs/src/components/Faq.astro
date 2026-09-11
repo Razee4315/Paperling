@@ -8,7 +8,15 @@ const faqs = [
   },
   {
     q: "Which platforms are supported?",
-    a: "Prebuilt binaries ship for Windows (10/11) and Linux (.deb, .rpm, .AppImage). macOS isn't prebuilt yet, but Tauri supports it, you can build from source in a couple of commands.",
+    a: "Windows (10/11, 64-bit and ARM), macOS (one universal .dmg for Apple Silicon and Intel), Linux (.deb, .rpm, .AppImage), and Android (arm64 phones, Android 10 or newer) as an APK download.",
+  },
+  {
+    q: "How do I install the Android app?",
+    a: "Download the APK from the releases page on your phone and open it. Android asks you to allow installs from your browser once — that's normal for apps outside the Play Store. The build targets arm64-v8a, which is what virtually every phone sold since 2019 uses.",
+  },
+  {
+    q: "How do Android updates work?",
+    a: "The app checks nothing on its own: when a new version lands on the releases page, download the new APK and install it straight over the old one — your notes stay where they are. All releases use the same signing key, so updates install in place.",
   },
   {
     q: "Does it send my notes anywhere?",
@@ -16,11 +24,11 @@ const faqs = [
   },
   {
     q: "Do I need an API key to use the AI features?",
-    a: "Only if you want them. The AI assistant is optional and bring-your-own-model: point it at any OpenAI-compatible endpoint (OpenAI, Gemini, Ollama, llama.cpp). Your key is stored in the OS keychain. Everything else works without it.",
+    a: "Only if you want them. The AI assistant is optional and bring-your-own-model: point it at any OpenAI-compatible endpoint (OpenAI, Gemini, Ollama, LM Studio, llama.cpp). Your key is stored in the OS keychain, never in a plaintext file. Everything else works without it.",
   },
   {
     q: "What Markdown features does it support?",
-    a: "GitHub Flavored Markdown, KaTeX math, mhchem chemistry, Mermaid diagrams, syntax-highlighted code, task lists, tables, wikilinks, slash commands, and frontmatter, all rendered live as you type.",
+    a: "GitHub Flavored Markdown, KaTeX math, mhchem chemistry, Mermaid diagrams, syntax-highlighted code, task lists, tables, wikilinks with a backlinks panel, slash commands, and frontmatter, all rendered live as you type.",
   },
   {
     q: "How is it so small and fast?",

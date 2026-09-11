@@ -3,9 +3,16 @@ import { Image } from "astro:assets";
 import { Icon } from "astro-icon/components";
 import splitDark from "../assets/screenshots/split-dark.png";
 import mascotWave from "../assets/mascot/mascot-wave.png";
+// Same build-time source as Base.astro: the badge can never show a stale
+// version, because package.json is bumped before every release publishes.
+import { readFileSync } from "node:fs";
+const pkg = JSON.parse(
+  readFileSync(`${process.cwd()}/../package.json`, "utf-8"),
+);
 
 const repo = "https://github.com/Razee4315/Paperling";
 const releases = "https://github.com/Razee4315/Paperling/releases/latest";
+const version = pkg.version;
 ---
 
 <header id="top" class="relative overflow-hidden pt-28 pb-16 md:pt-36 md:pb-24">
@@ -17,7 +24,7 @@ const releases = "https://github.com/Razee4315/Paperling/releases/latest";
     <div class="mx-auto max-w-3xl text-center">
       <a href={releases} rel="noopener" class="pill mb-7 hover:border-fg/30" data-reveal>
         <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-ok)]"></span>
-        v1.0.0 is out · Free &amp; open source
+        v{version} is out · Windows, macOS, Linux &amp; Android
         <Icon name="lucide:arrow-right" class="h-3.5 w-3.5 opacity-60" />
       </a>
 

@@ -5,6 +5,14 @@ import "@fontsource/instrument-serif/400-italic.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "../styles/global.css";
+// The app version, read straight from the repo-root package.json at build
+// time so the site can never drift behind the releases. The Release workflow
+// bumps package.json on main before publishing, and deploy-docs re-runs on
+// `release: published`, so this tracks the shipped version automatically.
+import { readFileSync } from "node:fs";
+const pkg = JSON.parse(
+  readFileSync(`${process.cwd()}/../package.json`, "utf-8"),
+);
 
 interface Props {
   title?: string;
@@ -13,13 +21,13 @@ interface Props {
 
 const {
   title = "Paperling: the no-setup Markdown editor with live preview and AI",
-  description = "A fast, native, open-source Markdown editor with live preview, split view, KaTeX math, chemistry equations, Mermaid diagrams, slash commands, and an optional AI assistant. Free for Windows & Linux. Built with Tauri + Rust + React.",
+  description = "A fast, native, open-source Markdown editor with live preview, split view, KaTeX math, chemistry equations, Mermaid diagrams, slash commands, and an optional AI assistant. Free for Windows, macOS, Linux and Android. Built with Tauri + Rust + React.",
 } = Astro.props;
 
 const base = import.meta.env.BASE_URL; // "/Paperling/"
 const ogImage = new URL(`${base}og.png`, Astro.site).href;
 const canonical = new URL(base, Astro.site).href;
-const version = "1.0.0";
+const version = pkg.version;
 ---
 
 <!doctype html>
@@ -39,7 +47,7 @@ const version = "1.0.0";
     <meta name="description" content={description} />
     <meta
       name="keywords"
-      content="markdown editor, open source markdown editor, free markdown editor, lightweight markdown editor, tauri markdown editor, markdown editor windows, markdown editor linux, markdown editor with live preview, markdown editor with AI, markdown editor chemistry equations, KaTeX, Mermaid, Paperling"
+      content="markdown editor, open source markdown editor, free markdown editor, lightweight markdown editor, tauri markdown editor, markdown editor windows, markdown editor macos, markdown editor linux, markdown editor android, markdown app for android, markdown editor with live preview, markdown editor with AI, markdown editor vim mode, markdown editor chemistry equations, KaTeX, Mermaid, Paperling"
     />
     <meta name="author" content="Saqlain Abbas" />
     <meta name="theme-color" content="#f7f1e5" />
@@ -70,7 +78,7 @@ const version = "1.0.0";
       name: "Paperling",
       applicationCategory: "DeveloperApplication",
       applicationSubCategory: "Markdown Editor",
-      operatingSystem: "Windows, Linux",
+      operatingSystem: "Windows, macOS, Linux, Android",
       softwareVersion: version,
       description:
         "A fast, no-setup, open-source Markdown editor with live preview, split view, syntax highlighting, KaTeX math, chemistry equations, Mermaid diagrams, slash commands, wikilinks, and an optional AI assistant. Built with Tauri, Rust, and React.",

@@ -2,12 +2,18 @@ name: Deploy docs to Pages
 
 # Builds the Astro marketing site in docs/ and publishes it to GitHub Pages.
 # Requires repo Settings → Pages → Source = "GitHub Actions" (one-time switch).
+# Also re-runs when a release is published: the site reads the app version
+# from package.json at build time, so every release refreshes the version
+# badge and download claims without a manual docs commit.
 on:
   push:
     branches: [main]
     paths:
       - "docs/**"
       - ".github/workflows/deploy-docs.yml"
+      - "package.json"
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
