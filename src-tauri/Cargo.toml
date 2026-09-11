@@ -1,6 +1,6 @@
 [package]
 name = "paperling"
-version = "1.0.49"
+version = "1.0.50"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
