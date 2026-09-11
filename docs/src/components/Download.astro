@@ -3,6 +3,7 @@ import { Image } from "astro:assets";
 import { Icon } from "astro-icon/components";
 import sceneCelebration from "../assets/scenes/scene-celebration.png";
 import qrDownload from "../assets/qr-download.svg";
+import mobileReader from "../assets/screenshots/mobile-reader.png";
 // Version for the APK filename shown in the install steps; same build-time
 // source as Base.astro (repo-root package.json), so it tracks the shipped
 // release automatically.
@@ -103,34 +104,21 @@ const platforms = [
       ))}
     </div>
 
-    <!-- Android launch band: phone mockup + install steps + QR.
-         The phone screen is a styled CSS mock of Reader mode; when a real
-         device screenshot is available, drop it in as
-         src/assets/screenshots/mobile-reader.png and replace the .phone-mock
-         div with an <Image> of it. -->
+    <!-- Android launch band: real device screenshot + install steps + QR.
+         The screenshot is captured from the actual app (mobile shell,
+         Reader mode, 390x844) and framed in a phone bezel. -->
     <div class="mt-16 grid items-center gap-10 lg:grid-cols-2" data-reveal>
       <div class="mx-auto lg:mx-0">
-        <div class="phone-frame" aria-hidden="true">
+        <div class="phone-frame">
           <div class="phone-screen">
-            <div class="phone-topbar">
-              <span class="phone-menu"></span>
-              <span class="phone-title">Field Notes.md</span>
-              <span class="phone-dot"></span>
-            </div>
-            <div class="phone-body">
-              <h4>Field Notes</h4>
-              <p class="phone-lede">Write anywhere. Sync nothing.</p>
-              <ul>
-                <li class="is-done">Ship the Android app</li>
-                <li>Take better notes</li>
-                <li>Stay offline on purpose</li>
-              </ul>
-              <p class="phone-math">E = mc²</p>
-              <p class="phone-tail">No account · no cloud · no telemetry.</p>
-            </div>
-            <div class="phone-bottomnav">
-              <span></span><span></span><span></span>
-            </div>
+            <Image
+              src={mobileReader}
+              alt="Paperling on Android: a note in Reader mode with headings, a task list and inline math"
+              width={390}
+              height={844}
+              loading="lazy"
+              class="block h-auto w-full select-none"
+            />
           </div>
         </div>
       </div>
@@ -174,8 +162,8 @@ const platforms = [
 </section>
 
 <style>
-  /* Phone mockup: pure CSS so it works before a real device screenshot
-     lands. Proportions mimic a 390x844 phone at ~0.45 scale. */
+  /* Phone bezel: the screenshot IS the screen (it already carries the
+     app's own top bar and bottom nav), so the frame only adds the bezel. */
   .phone-frame {
     width: 264px;
     padding: 10px;
@@ -186,109 +174,9 @@ const platforms = [
       inset 0 0 0 2px rgba(255, 255, 255, 0.06);
   }
   .phone-screen {
-    display: flex;
-    flex-direction: column;
-    height: 540px;
     overflow: hidden;
     border-radius: 27px;
     background: #fffdf9;
-  }
-  .phone-topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 14px;
-    background: #f4efe6;
-    border-bottom: 1px solid rgba(43, 36, 32, 0.08);
-  }
-  .phone-menu,
-  .phone-dot {
-    width: 14px;
-    height: 2px;
-    border-radius: 2px;
-    background: rgba(43, 36, 32, 0.55);
-    box-shadow: 0 4px 0 rgba(43, 36, 32, 0.55), 0 -4px 0 rgba(43, 36, 32, 0.55);
-  }
-  .phone-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #b45309;
-    box-shadow: none;
-  }
-  .phone-title {
-    font-size: 11px;
-    font-weight: 600;
-    color: rgba(43, 36, 32, 0.8);
-  }
-  .phone-body {
-    flex: 1;
-    padding: 18px 16px;
-    color: #2b2420;
-  }
-  .phone-body h4 {
-    font-family: var(--font-serif-display, Georgia, serif);
-    font-size: 20px;
-    font-weight: 700;
-  }
-  .phone-lede {
-    margin-top: 4px;
-    font-size: 11.5px;
-    color: rgba(43, 36, 32, 0.65);
-  }
-  .phone-body ul {
-    margin-top: 10px;
-    display: grid;
-    gap: 6px;
-    font-size: 11.5px;
-  }
-  .phone-body li {
-    padding-left: 18px;
-    position: relative;
-  }
-  .phone-body li::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 1px;
-    width: 11px;
-    height: 11px;
-    border: 1.5px solid rgba(43, 36, 32, 0.45);
-    border-radius: 3px;
-  }
-  .phone-body li.is-done {
-    text-decoration: line-through;
-    opacity: 0.65;
-  }
-  .phone-body li.is-done::before {
-    background: var(--color-brand, #8b5e3c);
-    border-color: var(--color-brand, #8b5e3c);
-  }
-  .phone-math {
-    margin-top: 12px;
-    font-family: Georgia, serif;
-    font-style: italic;
-    font-size: 14px;
-    text-align: center;
-    color: rgba(43, 36, 32, 0.85);
-  }
-  .phone-tail {
-    margin-top: 12px;
-    font-size: 10px;
-    color: rgba(43, 36, 32, 0.5);
-  }
-  .phone-bottomnav {
-    display: flex;
-    justify-content: space-around;
-    padding: 9px 0 11px;
-    background: #f4efe6;
-    border-top: 1px solid rgba(43, 36, 32, 0.08);
-  }
-  .phone-bottomnav span {
-    width: 22px;
-    height: 4px;
-    border-radius: 4px;
-    background: rgba(43, 36, 32, 0.35);
   }
   .qr-tile {
     display: inline-flex;
