@@ -71,7 +71,7 @@ jobs:
         # every test build would demand an uninstall first. Caching the
         # keystore keeps the signature stable across runs (best effort: if the
         # cache entry is evicted, one uninstall is needed again).
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.android/debug.keystore
           key: paperling-android-debug-keystore

@@ -64,7 +64,7 @@ jobs:
           java-version: 17
 
       - name: Restore the release keystore (stable APK signature)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.android/paperling-release.keystore
           key: paperling-android-release-keystore-v1
