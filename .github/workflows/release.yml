@@ -233,7 +233,7 @@ jobs:
       VERSION: ${{ needs.check-and-bump.outputs.version }}
     steps:
       - name: Checkout repository (with bumped version)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
 
