@@ -58,17 +58,49 @@ export interface RecentFile {
     path: string;
     name: string;
     openedAt: number;
+    /** Pinned recents always float above unpinned ones and are never evicted for space. PINS-01. */
+    pinned?: boolean;
 }
 
-export const getRecentFiles = (): RecentFile[] => safeGet<RecentFile[]>(KEY_RECENT_FILES, []);
+// Raw stored order is "most-recently-opened first". Separate from getRecentFiles
+// so pinning logic operates on the persisted array, not the sorted view.
+const readRecentFiles = (): RecentFile[] => {
+    const list = safeGet<unknown>(KEY_RECENT_FILES, []);
+    if (!Array.isArray(list)) return [];
+    // Defend against a malformed/hand-edited value (the sorted view below
+    // would otherwise throw mid-`.filter` if an entry were null).
+    return list.filter((f): f is RecentFile => !!f && typeof (f as RecentFile).path === "string");
+};
+
+export const getRecentFiles = (): RecentFile[] => {
+    const list = readRecentFiles();
+    // Pinned entries always appear at the top; each group keeps its stored
+    // most-recent-first order. Unpinned files are untouched. PINS-01.
+    return [...list.filter((f) => f.pinned), ...list.filter((f) => !f.pinned)];
+};
 
 export const addRecentFile = (path: string, name: string): RecentFile[] => {
-    const list = getRecentFiles().filter((f) => f.path !== path);
-    list.unshift({ path, name, openedAt: Date.now() });
-    const trimmed = list.slice(0, MAX_RECENT);
+    const list = readRecentFiles();
+    const existing = list.find((f) => f.path === path);
+    const rest = list.filter((f) => f.path !== path);
+    rest.unshift({ path, name, openedAt: Date.now(), pinned: existing?.pinned === true });
+    // Re-opening a pinned file must never drop it: only unpinned recents count
+    // toward the cap, so a pin survives however many other files get opened.
+    const pinned = rest.filter((f) => f.pinned);
+    const unpinned = rest.filter((f) => !f.pinned);
+    const trimmed = [...pinned, ...unpinned.slice(0, Math.max(0, MAX_RECENT - pinned.length))];
     safeSet(KEY_RECENT_FILES, trimmed);
     return trimmed;
 };
+
+const setRecentPin = (path: string, pinned: boolean): RecentFile[] => {
+    const list = readRecentFiles().map((f) => (f.path === path ? { ...f, pinned } : f));
+    safeSet(KEY_RECENT_FILES, list);
+    return getRecentFiles();
+};
+
+export const pinRecentFile = (path: string): RecentFile[] => setRecentPin(path, true);
+export const unpinRecentFile = (path: string): RecentFile[] => setRecentPin(path, false);
 
 export const removeRecentFile = (path: string): RecentFile[] => {
     const list = getRecentFiles().filter((f) => f.path !== path);

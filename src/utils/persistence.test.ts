@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
     getRecentFiles, addRecentFile, removeRecentFile, clearRecentFiles,
+    pinRecentFile, unpinRecentFile,
     getSplitRatio, setSplitRatio,
     getAIConfig, setAIConfig,
     getWordWrap,
@@ -51,6 +52,62 @@ describe("recent files", () => {
         removeRecentFile("/a.md");
         expect(getRecentFiles().map((f) => f.path)).toEqual(["/b.md"]);
         clearRecentFiles();
+        expect(getRecentFiles()).toEqual([]);
+    });
+});
+
+describe("pinned recent files", () => {
+    it("shows pinned files above unpinned ones", () => {
+        addRecentFile("/a.md", "a");
+        addRecentFile("/b.md", "b");
+        addRecentFile("/c.md", "c");
+        pinRecentFile("/b.md");
+        expect(getRecentFiles().map((f) => f.path)).toEqual(["/b.md", "/c.md", "/a.md"]);
+        expect(getRecentFiles()[0].pinned).toBe(true);
+    });
+
+    it("keeps pinned files most-recent-first among themselves", () => {
+        addRecentFile("/sticky.md", "sticky");
+        pinRecentFile("/sticky.md");
+        addRecentFile("/b.md", "b");
+        addRecentFile("/sticky.md", "sticky"); // re-open a pinned file -> stays pinned, top of pins
+        expect(getRecentFiles().map((f) => f.path)).toEqual(["/sticky.md", "/b.md"]);
+        expect(getRecentFiles()[0].pinned).toBe(true);
+    });
+
+    it("survives the cap no matter how many other files open", () => {
+        addRecentFile("/keep.md", "keep");
+        pinRecentFile("/keep.md");
+        for (let i = 0; i < 30; i++) addRecentFile(`/f${i}.md`, `f${i}`);
+        const list = getRecentFiles();
+        expect(list.map((f) => f.path)).toContain("/keep.md");
+        expect(list.filter((f) => f.pinned)).toHaveLength(1);
+        // Pins don't inflate the cap: total stays at 25.
+        expect(list).toHaveLength(25);
+    });
+
+    it("unpins a file and drops it below the remaining pinned entries", () => {
+        addRecentFile("/a.md", "a");
+        addRecentFile("/b.md", "b");
+        addRecentFile("/c.md", "c");
+        pinRecentFile("/b.md");
+        pinRecentFile("/a.md");
+        unpinRecentFile("/b.md");
+        expect(getRecentFiles().map((f) => f.path)).toEqual(["/a.md", "/c.md", "/b.md"]);
+    });
+
+    it("pin survives re-opening the file", () => {
+        addRecentFile("/a.md", "a");
+        pinRecentFile("/a.md");
+        addRecentFile("/a.md", "a");
+        expect(getRecentFiles()[0].path).toBe("/a.md");
+        expect(getRecentFiles()[0].pinned).toBe(true);
+    });
+
+    it("removeRecentFile drops a pinned entry too", () => {
+        addRecentFile("/a.md", "a");
+        pinRecentFile("/a.md");
+        removeRecentFile("/a.md");
         expect(getRecentFiles()).toEqual([]);
     });
 });
