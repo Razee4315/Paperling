@@ -292,8 +292,8 @@ export function WelcomeScreen({ onOpenFile, onNewFile, onOpenSettings, onFileDro
                                             className={`btn-press w-full flex items-center gap-3 px-3 pr-9 py-2 rounded-[var(--radius-md)] transition-colors text-left ${isMissing ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--bg-hover)]"}`}
                                             title={isMissing ? `${f.path} (missing)` : f.path}
                                         >
-                                            <span className="material-symbols-outlined text-[18px] text-[var(--text-secondary)] shrink-0">
-                                                {isMissing ? "broken_image" : "description"}
+                                            <span className={`material-symbols-outlined text-[18px] shrink-0 ${f.pinned ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"}`}>
+                                                {isMissing ? "broken_image" : f.pinned ? "push_pin" : "description"}
                                             </span>
                                             <div className="flex-1 min-w-0">
                                                 <div className={`text-sm truncate ${isMissing ? "line-through text-[var(--text-muted)]" : "text-[var(--text-primary)]"}`}>{f.name}</div>
