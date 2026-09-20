@@ -1071,7 +1071,7 @@ function MarkdownPreviewImpl({
                 ref={mainRef}
                 className="flex-1 overflow-y-auto bg-[var(--bg-primary)] transition-colors"
             >
-                <div className="preview-column max-w-[800px] mx-auto px-8 py-12">
+                <div className="preview-column w-full px-8 py-12">
                     {hasFrontmatter && (
                         <FrontmatterCard
                             data={frontmatter}
