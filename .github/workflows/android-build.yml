@@ -57,7 +57,7 @@ jobs:
           key: aarch64-linux-android
 
       - name: Setup Java 17 (Android Gradle Plugin requirement)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
