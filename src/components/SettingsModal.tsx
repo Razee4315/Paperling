@@ -423,7 +423,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
                                 )}
                                 {matches("vim") && (
-                                    <ToggleRow label="Vim mode" description="Modal editing in the editor: h/j/k/l, modes, operators (issue #119)" checked={vimMode}
+                                    <ToggleRow label="Vim mode" description="Modal editing in the editor: h/j/k/l, modes, operators" checked={vimMode}
                                         onChange={(v) => { setVimModeLocal(v); setVimMode(v); fire("paperling:vim-toggle", v); }} />
                                 )}
                                 {matches("autosave") && (
