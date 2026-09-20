@@ -72,6 +72,7 @@
   },
   "overrides": {
     "@babel/core": "^7.29.6",
+    "@codemirror/state": "^6.7.4",
     "@codemirror/view": "^6.43.7",
     "dompurify": "^3.4.12",
     "picomatch": "^4.0.4",
