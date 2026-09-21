@@ -50,7 +50,7 @@ import { getAIEnabled } from "../utils/persistence";
 import { invoke } from "@tauri-apps/api/core";
 import { matchWikilinkPrefix, rankFileNames, toWikiName } from "../utils/wikilinkComplete";
 import { applyTableOp, findTableAt, locateCell, type Align } from "../utils/tableModel";
-import { toCmKey } from "../config/keybindings";
+import { toCmKey, isMac } from "../config/keybindings";
 import { highlightCaretLine } from "../utils/caretLineHighlight";
 import type { Scroller } from "../utils/scrollSync";
 
@@ -221,6 +221,10 @@ function CodeEditorImpl({
     const onNoticeRef = useRef(onNotice); onNoticeRef.current = onNotice;
     const onReviewResolveRef = useRef(onReviewResolve); onReviewResolveRef.current = onReviewResolve;
     const filePathRef = useRef(filePath); filePathRef.current = filePath;
+    // One-shot latch for Ctrl+Shift+V ("paste as plain text"): the keydown sets
+    // it, the very next paste event consumes it and skips HTML conversion
+    // (PASTE-03).
+    const forcePlainTextRef = useRef(false);
     // Base names (without .md) of the sibling files, for `[[` autocomplete. Kept
     // in a ref so the once-created completion source always sees the latest list.
     const wikiNamesRef = useRef<string[]>([]);
@@ -435,6 +439,16 @@ function CodeEditorImpl({
             paste: (event, view) => handlePaste(event, view),
         });
 
+        // Arm the paste-as-plain-text latch (PASTE-03). One listener for the
+        // editor's lifetime; it only flips a flag.
+        const onPasteShortcutKeydown = (e: KeyboardEvent) => {
+            const mod = isMac ? e.metaKey : e.ctrlKey;
+            if (mod && e.shiftKey && !e.altKey && (e.key === "v" || e.key === "V")) {
+                forcePlainTextRef.current = true;
+            }
+        };
+        window.addEventListener("keydown", onPasteShortcutKeydown);
+
         const view = new EditorView({
             parent: containerRef.current,
             state: CMEditorState.create({
@@ -471,6 +485,7 @@ function CodeEditorImpl({
         view.focus();
 
         return () => {
+            window.removeEventListener("keydown", onPasteShortcutKeydown);
             view.destroy();
             viewRef.current = null;
         };
@@ -573,20 +588,38 @@ function CodeEditorImpl({
         if (urlOnSel) { event.preventDefault(); applyResultToView(view, urlOnSel); return true; }
         const autolink = pasteUrlAutolink(state, text);
         if (autolink) { event.preventDefault(); applyResultToView(view, autolink); return true; }
-        if (!html) {
-            const tsv = pasteTsvAsTable(state, text);
-            if (tsv) { event.preventDefault(); applyResultToView(view, tsv); return true; }
-        }
-        if (html && /<\w+/.test(html)) {
+        // TSV→table runs BEFORE the HTML branch when the text flavor looks
+        // like multi-cell spreadsheet data: Excel/Sheets put BOTH a <table>
+        // and TSV on the clipboard, and turndown (no table rules) flattens
+        // the HTML table into run-together text — the TSV table never stood a
+        // chance. PASTE-02.
+        const tsv = pasteTsvAsTable(state, text);
+        if (tsv) { event.preventDefault(); applyResultToView(view, tsv); return true; }
+        // Plain-text escape hatch: Ctrl+Shift+V set forcePlainTextRef on the
+        // keydown preceding this paste — skip the HTML conversion entirely.
+        // PASTE-03.
+        if (html && /<\w+/.test(html) && !forcePlainTextRef.current) {
             event.preventDefault();
+            // Capture the target range BEFORE any await: htmlToMarkdown lazily
+            // imports turndown on first use, and reading the selection after
+            // that await let a keystroke during the window make the paste
+            // replace freshly typed text (PASTE-01).
+            const sel = view.state.selection.main;
+            const from = sel.from;
+            const to = sel.to;
             (async () => {
                 let insert = text;
                 try { const md = (await htmlToMarkdown(html)).trim(); if (md) insert = md; } catch {/* fall back to plain text */ }
-                const sel = view.state.selection.main;
-                view.dispatch({ changes: { from: sel.from, to: sel.to, insert }, selection: { anchor: sel.from + insert.length } });
+                // Only paste if the caret still covers the captured range; a
+                // moved caret means the user kept editing — bailing out beats
+                // deleting their work.
+                const now = view.state.selection.main;
+                if (now.from !== from || now.to !== to) return;
+                view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length } });
             })();
             return true;
         }
+        forcePlainTextRef.current = false;
         return false; // let CodeMirror insert plain text
     }
 
