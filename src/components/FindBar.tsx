@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IS_MOBILE } from "../utils/platform";
+import { usePersistedState } from "../hooks/usePersistedState";
 
 /**
  * The one find-in-document mechanism (FIND-01). A single bar UI + behaviour
@@ -42,10 +43,16 @@ export interface FindController {
     setActive(index: number): void;
     /** Remove every highlight this controller painted. */
     clear(): void;
-    /** Replace match #index. Present only when supportsReplace. */
-    replaceActive?(index: number, replacement: string, query: string, opts: FindOpts): void;
-    /** Replace every match. Present only when supportsReplace. */
-    replaceAll?(replacement: string, query: string, opts: FindOpts): void;
+    /**
+     * Replace match #index. Present only when supportsReplace. Re-searches
+     * synchronously and returns the FRESH result so the bar can advance to the
+     * next match immediately — the old match list is stale after any
+     * replacement of a different length, and acting on it again inside the
+     * search debounce window spliced at shifted offsets (FIND-02).
+     */
+    replaceActive?(index: number, replacement: string, query: string, opts: FindOpts): FindResult | void;
+    /** Replace every match; returns the fresh (usually empty) result. */
+    replaceAll?(replacement: string, query: string, opts: FindOpts): FindResult | void;
 }
 
 interface FindBarProps {
@@ -59,12 +66,26 @@ interface FindBarProps {
 
 const DEBOUNCE_MS = 400;
 
+// Find state survives bar open/close and app restarts, like VS Code's panel —
+// retyping the same query (or re-toggling case/regex) on every open was pure
+// friction (FIND-05). localStorage keeps this component self-contained.
+const FIND_STATE_KEY = "paperling.find.state";
+interface PersistedFindState { query: string; replacement: string; caseSensitive: boolean; regex: boolean; showReplace: boolean }
+const loadFindState = (): PersistedFindState => {
+    try {
+        const raw = localStorage.getItem(FIND_STATE_KEY);
+        if (raw) return { query: "", replacement: "", caseSensitive: false, regex: false, showReplace: false, ...JSON.parse(raw) };
+    } catch { /* private mode, corrupted entry — defaults are fine */ }
+    return { query: "", replacement: "", caseSensitive: false, regex: false, showReplace: false };
+};
+const persistFindState = (s: PersistedFindState) => {
+    try { localStorage.setItem(FIND_STATE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+};
+
 export function FindBar({ isOpen, initialMode = "find", controller, revision, onClose }: FindBarProps) {
-    const [query, setQuery] = useState("");
-    const [replacement, setReplacement] = useState("");
-    const [showReplace, setShowReplace] = useState(initialMode === "replace" && controller.supportsReplace);
-    const [caseSensitive, setCaseSensitive] = useState(false);
-    const [regex, setRegex] = useState(false);
+    const [findState, setFindState] = usePersistedState(loadFindState, persistFindState);
+    const { query, replacement, caseSensitive, regex } = findState;
+    const showReplace = (initialMode === "replace" && controller.supportsReplace) || (findState.showReplace && controller.supportsReplace);
     const [activeIdx, setActiveIdx] = useState(-1);
     const [count, setCount] = useState(0);
     const [invalid, setInvalid] = useState(false);
@@ -72,11 +93,13 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
 
     const useRegex = regex && controller.supportsRegex;
 
+    const setQuery = (v: string) => setFindState((s) => ({ ...s, query: v }));
+    const setReplacement = (v: string) => setFindState((s) => ({ ...s, replacement: v }));
+
     useEffect(() => {
         if (isOpen) {
             inputRef.current?.focus();
             inputRef.current?.select();
-            setShowReplace(initialMode === "replace" && controller.supportsReplace);
         }
     }, [isOpen, initialMode, controller]);
 
@@ -139,11 +162,22 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
 
     const replaceCurrent = useCallback(() => {
         if (activeIdx < 0 || !controller.replaceActive) return;
-        controller.replaceActive(activeIdx, replacement, query, { caseSensitive, regex: useRegex });
+        // Adopt the fresh result: the active index lands on the next match
+        // (the caret was just advanced past the replacement), so repeated
+        // Replace presses walk the list like VS Code (FIND-03).
+        const fresh = controller.replaceActive(activeIdx, replacement, query, { caseSensitive, regex: useRegex });
+        if (fresh) {
+            setCount(fresh.count);
+            setActiveIdx(fresh.count > 0 ? fresh.activeIndex : -1);
+        }
     }, [activeIdx, controller, replacement, query, caseSensitive, useRegex]);
     const replaceAll = useCallback(() => {
         if (count === 0 || !controller.replaceAll) return;
-        controller.replaceAll(replacement, query, { caseSensitive, regex: useRegex });
+        const fresh = controller.replaceAll(replacement, query, { caseSensitive, regex: useRegex });
+        if (fresh) {
+            setCount(fresh.count);
+            setActiveIdx(fresh.count > 0 ? fresh.activeIndex : -1);
+        }
     }, [count, controller, replacement, query, caseSensitive, useRegex]);
 
     const handleKey = (e: React.KeyboardEvent) => {
@@ -154,6 +188,19 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
             e.preventDefault();
             if (e.shiftKey) prev();
             else next();
+        }
+    };
+
+    // Enter in the REPLACE field replaces (and advances), it does not navigate
+    // — the dialog-level Enter is "next match", which made the advertised
+    // keyboard flow "query → Tab → Enter" navigate instead of replacing
+    // (FIND-04). Shift+Enter still goes to the previous match.
+    const handleReplaceKey = (e: React.KeyboardEvent) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.shiftKey) prev();
+            else replaceCurrent();
         }
     };
 
@@ -180,7 +227,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
                 <span className="material-symbols-outlined text-[16px]">keyboard_arrow_down</span>
             </button>
             <button
-                onClick={() => setCaseSensitive((v) => !v)}
+                onClick={() => setFindState((s) => ({ ...s, caseSensitive: !s.caseSensitive }))}
                 aria-pressed={caseSensitive}
                 title="Match case"
                 className={`w-6 h-6 rounded text-[12px] font-bold flex items-center justify-center ${caseSensitive ? "bg-[var(--accent)] text-[var(--accent-text)]" : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"}`}
@@ -189,7 +236,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
             </button>
             {controller.supportsRegex && (
                 <button
-                    onClick={() => setRegex((v) => !v)}
+                    onClick={() => setFindState((s) => ({ ...s, regex: !s.regex }))}
                     aria-pressed={regex}
                     title="Regex"
                     className={`w-6 h-6 rounded text-[12px] font-mono flex items-center justify-center ${regex ? "bg-[var(--accent)] text-[var(--accent-text)]" : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"}`}
@@ -212,7 +259,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
                 {controller.supportsReplace && (
                     <button
                         type="button"
-                        onClick={() => setShowReplace((v) => !v)}
+                        onClick={() => setFindState((s) => ({ ...s, showReplace: !s.showReplace }))}
                         aria-label={showReplace ? "Hide replace" : "Show replace"}
                         className="flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
                     >
@@ -254,6 +301,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
                         type="text"
                         value={replacement}
                         onChange={(e) => setReplacement(e.target.value)}
+                        onKeyDown={handleReplaceKey}
                         placeholder="Replace"
                         enterKeyHint="done"
                         className="flex-1 min-w-0 px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"

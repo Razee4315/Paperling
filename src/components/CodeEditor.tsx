@@ -25,7 +25,7 @@ import {
     type EditorResult,
     type EditorState,
 } from "../utils/editorActions";
-import { FindBar, type FindController } from "./FindBar";
+import { FindBar, type FindController, type FindOpts } from "./FindBar";
 import { replaceOne, replaceAllMatches, isValidPattern } from "../utils/findReplace";
 import { findHighlightField, setFindMatches } from "../utils/editorFindHighlight";
 import {
@@ -888,7 +888,7 @@ function CodeEditorImpl({
     // setActive() gets only an index, so the query that produced the matches is
     // stashed here for the removed-side highlighter to reuse.
     const findQueryRef = useRef({ query: "", caseSensitive: false });
-    const editorFindController = useMemo<FindController>(() => {
+        const editorFindController = useMemo<FindController>(() => {
         // During an AI review the document holds only the proposed text; the
         // removed original lines are merge widgets, absent from the document.
         // Feed them to the search as extra regions so a match the user can
@@ -906,34 +906,35 @@ function CodeEditorImpl({
                     .map((c) => ({ fromA: c.fromA, toA: c.toA, anchor: c.fromB })),
             };
         };
+        const doSearch = (query: string, opts: FindOpts) => {
+            const v = viewRef.current;
+            if (!v) {
+                findMatchesRef.current = [];
+                return { count: 0, activeIndex: -1 };
+            }
+            const { regions, original } = removedRegions(v);
+            const matches = collectUnifiedMatches(v.state.doc.toString(), original, regions, query, opts);
+            findMatchesRef.current = matches;
+            findQueryRef.current = { query, caseSensitive: opts.caseSensitive };
+            clearRemovedHighlight();
+
+            let activeIndex = -1;
+            if (matches.length) {
+                // Order by on-screen position, so `anchor` (not `from`, which
+                // indexes the original doc for removed matches) is the cursor
+                // comparison.
+                const caret = v.state.selection.main.from;
+                activeIndex = matches.findIndex((m) => m.anchor >= caret);
+                if (activeIndex === -1) activeIndex = 0;
+            }
+            v.dispatch({ effects: setFindMatches.of({ ranges: docRanges(matches), activeIndex: -1 }) });
+            return { count: matches.length, activeIndex };
+        };
         return {
             supportsReplace: true,
             supportsRegex: true,
             isValidPattern: (query, opts) => isValidPattern(query, opts.regex),
-            search: (query, opts) => {
-                const v = viewRef.current;
-                if (!v) {
-                    findMatchesRef.current = [];
-                    return { count: 0, activeIndex: -1 };
-                }
-                const { regions, original } = removedRegions(v);
-                const matches = collectUnifiedMatches(v.state.doc.toString(), original, regions, query, opts);
-                findMatchesRef.current = matches;
-                findQueryRef.current = { query, caseSensitive: opts.caseSensitive };
-                clearRemovedHighlight();
-
-                let activeIndex = -1;
-                if (matches.length) {
-                    // Order by on-screen position, so `anchor` (not `from`, which
-                    // indexes the original doc for removed matches) is the cursor
-                    // comparison.
-                    const caret = v.state.selection.main.from;
-                    activeIndex = matches.findIndex((m) => m.anchor >= caret);
-                    if (activeIndex === -1) activeIndex = 0;
-                }
-                v.dispatch({ effects: setFindMatches.of({ ranges: docRanges(matches), activeIndex: -1 }) });
-                return { count: matches.length, activeIndex };
-            },
+            search: doSearch,
             setActive: (index) => {
                 const v = viewRef.current;
                 const matches = findMatchesRef.current;
@@ -974,14 +975,23 @@ function CodeEditorImpl({
                 // them would corrupt unrelated text.
                 if (!v || !m || m.side !== "doc") return;
                 const res = replaceOne(v.state.doc.toString(), m.from, query, replacement, opts.caseSensitive, opts.regex);
-                if (res) applyResultToView(v, { text: res.content, selStart: res.cursor, selEnd: res.cursor });
+                if (!res) return;
+                applyResultToView(v, { text: res.content, selStart: res.cursor, selEnd: res.cursor });
+                // Re-search SYNCHRONOUSLY: the match list is otherwise up to the
+                // FindBar's 400ms debounce stale, so a second Replace inside
+                // that window spliced at shifted offsets and corrupted
+                // neighbouring text (FIND-02). The caret sits just past the
+                // replacement, so search() naturally selects the NEXT match.
+                doSearch(query, opts);
             },
             replaceAll: (replacement, query, opts) => {
                 const v = viewRef.current;
                 if (!v) return;
                 const starts = replaceableOffsets(findMatchesRef.current);
                 const res = replaceAllMatches(v.state.doc.toString(), starts, query, replacement, opts.caseSensitive, opts.regex);
-                if (res) applyResultToView(v, { text: res.content, selStart: res.cursor, selEnd: res.cursor });
+                if (!res) return;
+                applyResultToView(v, { text: res.content, selStart: res.cursor, selEnd: res.cursor });
+                doSearch(query, opts);
             },
         };
     }, []);

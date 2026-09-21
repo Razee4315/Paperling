@@ -54,6 +54,16 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult }: Globa
         return () => { window.clearTimeout(t); detachTrap(); };
     }, [isOpen]);
 
+    // Keep the keyboard-active match in view (same pattern as the command
+    // palette). Without this, arrow-key navigation silently disappeared below
+    // the fold of the results list. GS-02.
+    useEffect(() => {
+        if (active < 0) return;
+        panelRef.current
+            ?.querySelector<HTMLElement>(`[data-match-idx="${active}"]`)
+            ?.scrollIntoView({ block: "nearest" });
+    }, [active, results]);
+
     // Debounced search. A monotonic request id guards against out-of-order
     // responses (a slow early query resolving after a faster later one).
     useEffect(() => {
@@ -89,8 +99,11 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult }: Globa
 
     const openItem = (item: FlatItem | undefined) => {
         if (!item) return;
+        // Stay OPEN: closing (which unmounts the component and reset the
+        // query) meant every match iteration required reopening the panel and
+        // retyping the query. Obsidian/VS Code keep results docked while you
+        // hop through them. GS-01.
         onOpenResult(item.path, item.line);
-        onClose();
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -169,7 +182,8 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult }: Globa
                                             return (
                                                 <li key={`${file.path}:${m.line}`}>
                                                     <button
-                                                        onClick={() => { onOpenResult(file.path, m.line); onClose(); }}
+                                                        data-match-idx={flatIndex}
+                                                        onClick={() => openItem({ path: file.path, line: m.line })}
                                                         className={`w-full text-left pl-10 pr-4 py-1 flex items-baseline gap-3 text-sm transition-colors ${isActive ? "bg-[var(--accent)] text-[var(--accent-text)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"}`}
                                                     >
                                                         <span className={`shrink-0 tabular-nums text-xs ${isActive ? "" : "text-[var(--text-muted)]"}`}>{m.line}</span>
