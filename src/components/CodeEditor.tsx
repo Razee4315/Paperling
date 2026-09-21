@@ -525,6 +525,36 @@ function CodeEditorImpl({
                     setSlashQuery("");
                 }
             }
+            return;
+        }
+        // Self-healing open: if a burst-typed "/query" (slash at line start,
+        // no spaces after it) is at the caret but the open branch missed the
+        // "/" keystroke — the slash state updates through React, so very fast
+        // typing could process subsequent letters before the state/ref sync
+        // landed and the menu never opened at all — re-arm it from the text
+        // itself. SlashMenu's from-anchor makes selection still replace the
+        // whole "/query" token. Only non-empty queries qualify (a bare "/"
+        // typing straight through stays untouched). SLASH-01.
+        {
+            const line = doc.lineAt(head);
+            const upToCaret = doc.sliceString(line.from, head);
+            const slashIdx = upToCaret.lastIndexOf("/");
+            if (slashIdx >= 0) {
+                const before = upToCaret.slice(0, slashIdx);
+                const query = upToCaret.slice(slashIdx + 1);
+                if (
+                    query.length > 0 &&
+                    query.length <= 48 &&
+                    !query.includes(" ") &&
+                    (before === "" || /\s$/.test(before))
+                ) {
+                    const coords = view.coordsAtPos(line.from + slashIdx);
+                    if (coords) {
+                        setSlashState({ from: line.from + slashIdx, pos: { x: coords.left, y: coords.bottom + 4 } });
+                        setSlashQuery(query);
+                    }
+                }
+            }
         }
     }
 
