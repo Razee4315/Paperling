@@ -19,6 +19,7 @@ import {
   setSession,
 } from "../utils/persistence";
 import {
+  collectBufferBackups,
   collectDirtyTabs as computeDirtyTabs,
   findReusableUntitledTab,
   findTabByPath,
@@ -28,6 +29,7 @@ import {
   type DirtyTab,
   type TabState,
 } from "../utils/tabsModel";
+import { loadBufferBackups, saveBufferBackups } from "../utils/bufferBackup";
 
 interface FileData {
   path: string;
@@ -873,6 +875,20 @@ export function useFileSession({
     setSession({ tabs: sessionTabs, activeIndex: activeIndex < 0 ? 0 : activeIndex });
   }, [activeTabId, booting, tabs]);
 
+  // Hot exit (HOT-01): mirror every DIRTY buffer's full text to the backup
+  // store, debounced, so a crash / force-quit / OS reboot costs at most the
+  // debounce window of work. Clean tabs are skipped (disk holds their state),
+  // so saved/closed/reverted tabs age out of the store automatically.
+  useEffect(() => {
+    if (booting) return;
+    const id = window.setTimeout(() => {
+      saveBufferBackups(
+        collectBufferBackups(tabsRef.current, activeTabIdRef.current, liveRef.current, currentLineRef.current),
+      );
+    }, 800);
+    return () => window.clearTimeout(id);
+  }, [booting, tabs, content]);
+
   // Resolve the launch file once on app start. PULL model: ask the backend for
   // an OS-opened file when the UI is ready instead of racing a pushed event
   // against webview startup and session restoration.
@@ -926,7 +942,17 @@ export function useFileSession({
         if (!paths.includes(forcedFile)) paths.push(forcedFile);
         activePath = forcedFile;
       }
-      if (paths.length === 0) {
+      // Hot exit (HOT-01): unsaved buffers from the previous run overlay the
+      // restored session (and can seed one when nothing else restores).
+      const backups = loadBufferBackups();
+      const backupByPath = new Map(backups.filter((b) => b.filePath).map((b) => [b.filePath as string, b]));
+      const untitledBackups = backups.filter((b) => !b.filePath);
+      const hadNoSessionPaths = paths.length === 0;
+      // Saved-file backups also pull their file back into the restore set.
+      for (const b of backupByPath.keys()) {
+        if (!paths.includes(b)) paths.push(b);
+      }
+      if (paths.length === 0 && backups.length === 0) {
         setBooting(false);
         return;
       }
@@ -935,19 +961,25 @@ export function useFileSession({
       // requested it from outside the app.
       const loaded: TabState[] = [];
       let activeId: string | null = null;
+      let recoveredCount = 0;
       for (const path of paths) {
         try {
           const fileData = await invoke<FileData>("read_file", { path });
           const id = newTabId();
+          const backup = backupByPath.get(path);
+          // Dirty backup for this file: restore the BUFFER text over the disk
+          // content (disk stays `originalContent`, so the buffer reads dirty).
+          const hasBackup = backup !== undefined && backup.content !== fileData.content;
+          if (hasBackup) recoveredCount += 1;
           loaded.push({
             id,
             filePath: fileData.path,
             fileName: fileData.name,
-            content: fileData.content,
+            content: hasBackup && backup ? backup.content : fileData.content,
             originalContent: fileData.content,
             fileSize: fileData.size,
             knownMtime: fileData.modified ?? 0,
-            cursorLine: cursorByPath.get(path),
+            cursorLine: backup?.cursorLine ?? cursorByPath.get(path),
           });
           if (path === activePath) activeId = id;
         } catch (error) {
@@ -956,9 +988,36 @@ export function useFileSession({
           else if (/too large/i.test(message)) showToast(`Could not restore "${path}": ${message}`, "error");
         }
       }
+      // Untitled dirty buffers become tabs of their own.
+      for (const b of untitledBackups) {
+        recoveredCount += 1;
+        const id = newTabId();
+        loaded.push({
+          id,
+          filePath: null,
+          fileName: b.fileName,
+          content: b.content,
+          originalContent: b.originalContent,
+          fileSize: new TextEncoder().encode(b.content).length,
+          knownMtime: 0,
+          cursorLine: b.cursorLine,
+        });
+        if (activeId === null) activeId = id;
+      }
+      if (recoveredCount > 0) {
+        showToast(
+          recoveredCount === 1
+            ? "Recovered 1 unsaved buffer from the last session"
+            : `Recovered ${recoveredCount} unsaved buffers from the last session`,
+          "info",
+        );
+      }
       if (loaded.length === 0) {
-        setSession(null);
-        setLastFile(null);
+        if (hadNoSessionPaths) {
+          // Nothing restored at all — no session, no readable backups.
+          setSession(null);
+          setLastFile(null);
+        }
         setBooting(false);
         return;
       }

@@ -72,6 +72,48 @@ export function collectDirtyTabs(
   return dirty;
 }
 
+/**
+ * A crash-recovery snapshot of one dirty buffer (HOT-01): enough to re-open
+ * the buffer with its unsaved edits after a force-quit, crash, or OS reboot —
+ * the things the regular session (paths + caret lines only) can't cover.
+ */
+export interface BufferBackupEntry {
+  /** Absolute path for a saved file, null for an untitled buffer. */
+  filePath: string | null;
+  fileName: string;
+  content: string;
+  originalContent: string;
+  cursorLine?: number;
+}
+
+/**
+ * Crash-recovery snapshots for every dirty tab. Same active-tab-vs-snapshot
+ * rule as collectDirtyTabs (TABS-04); clean tabs are skipped — the file on
+ * disk already holds their state.
+ */
+export function collectBufferBackups(
+  tabs: TabState[],
+  activeId: string | null,
+  live: LiveActiveTab,
+  activeCursorLine?: number
+): BufferBackupEntry[] {
+  const backups: BufferBackupEntry[] = [];
+  for (const t of tabs) {
+    const isActive = t.id === activeId;
+    const content = isActive ? live.content : t.content;
+    const originalContent = isActive ? live.originalContent : t.originalContent;
+    if (!isTabDirty({ content, originalContent })) continue;
+    backups.push({
+      filePath: isActive ? live.filePath : t.filePath,
+      fileName: isActive ? (live.fileName ?? "Untitled.md") : t.fileName,
+      content,
+      originalContent,
+      cursorLine: isActive ? activeCursorLine : t.cursorLine,
+    });
+  }
+  return backups;
+}
+
 /** Find an open tab by file path (null paths never match). */
 export function findTabByPath(tabs: TabState[], path: string | null): TabState | undefined {
   if (path == null) return undefined;
