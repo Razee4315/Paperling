@@ -377,10 +377,18 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
         .mermaid-rendered {
             margin: 1rem 0;
         }
-        .mermaid-rendered > svg {
+.mermaid-rendered > svg,
+        .mermaid-sizer > svg {
             width: 100%;
             height: auto;
             max-width: none !important;
+        }
+        /* The viewer's sizer pins the diagram to its fit/zoom width (see
+           MermaidBlock). Cap it to the export column so zoomed-in diagrams
+           don't overflow the page. MMV-01. */
+        .mermaid-sizer {
+            max-width: 100%;
+            margin: 0 auto;
         }
 
         /* Task lists */

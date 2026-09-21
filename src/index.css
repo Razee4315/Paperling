@@ -1173,6 +1173,14 @@ html.touch ::-webkit-scrollbar {
   max-width: none !important;
 }
 
+/* Diagram viewer (MermaidBlock): the sizer pins the diagram to its
+   fit-to-natural width (zoom 1) or the zoomed width; the svg fills it.
+   Without the sizer cap, every diagram stretched to the full column
+   width, so small flowcharts rendered comically oversized. MMV-01. */
+.mermaid-sizer {
+  max-width: 100%;
+}
+
 /* Tailwind v4 Preflight resets `ul, ol { list-style: none }`, so the markers
    must be re-declared here or every bullet/number in the preview disappears. */
 .markdown-body ul {
