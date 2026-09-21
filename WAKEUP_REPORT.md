@@ -6,6 +6,34 @@
 
 ---
 
+## IMPLEMENTATION STATUS — branch `fix/audit-pass-2026-09-21`
+
+All P0/P1/P2 fixes and the two headline features below were implemented on this branch, with 511/511 tests passing (25 new regression tests) and each change verified live in the running app. Commits, oldest first:
+
+1. `docs:` audit report
+2. `fix(files)` — P0 background-autosave mtime guard + parking, autosave path check, loadFileDirect review/conflict clear, save-all guard, conflict dialog Escape + "Save a copy" (§3.1, 3.17-3.20)
+3. `fix(shortcuts)` — defaultPrevented guard, macOS Alt+Arrows, Linux Ctrl+J (§3.3, 3.4)
+4. `fix(editor)` — Tab keeps selections, table Tab at EOF, list renumbering, wrapSelection inside-markers, caret offsets (§3.12 + P3s)
+5. `fix(preview)` — fence-safe wikilinks, image error state + data: images, `![[image]]` embeds, Unicode slugs, webview-navigation guard, TOC fences (§3.5, 3.21-3.25)
+6. `feat(mermaid)` — fit-to-natural-size, ctrl+wheel zoom, drag-pan, toolbar, fullscreen (§4 — the graph answer)
+7. `fix(find)` — stale-offset corruption, advance-after-replace, Enter-in-replace, persisted find state, GlobalSearch stay-open + active-row scroll (§3.2, 3.16)
+8. `fix(export)` — KaTeX CSS inlined into exports, debounce flushed before capture (§3.15)
+9. `fix(a11y/polish)` — settings focus trap, aria-pressed tiles, Zen bar focus reveal, status-bar words/characters, tutorial dirty flag (§3.8 + P3s)
+10. `fix(paste)` — Excel TSV tables, caret race, Ctrl+Shift+V plain paste (§3.10, 3.11)
+11. `fix(editor)` — slash menu self-heal on burst typing (§3.7)
+12. `feat(session)` — hot exit: dirty buffers survive crashes/force-quits with recovery toast (§5 #5)
+13. `feat(search)` — replace across files with confirm + post-replace tab refresh (§5 #4)
+
+**Deliberately deferred (needs a Rust toolchain or a dedicated review pass; no blind landings into the build pipeline):**
+- Explorer create/rename/delete + open-folder workspace — requires new `src-tauri` commands; no local cargo to compile-verify. The Rust registry/commands are mapped in §5 #1-2 so the follow-up is straightforward.
+- Keybinding customization UI (§5 #6) — large UI surface, best done as its own reviewed PR.
+- Slash-menu rework onto a CodeMirror completion source — the self-heal fix (SLASH-01) closes the user-facing failure; the full rework is an internal-quality refactor.
+- Smaller P3s not touched: responsive split at phone widths, callout rendering, graph view, workspace layout persistence, contrast variable raise.
+
+---
+
+---
+
 ## 0. TL;DR — The 10 things to do first
 
 | # | Item | Type | Effort |
