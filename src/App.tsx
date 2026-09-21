@@ -361,6 +361,7 @@ function AppContent() {
     handleConflictKeepMine,
     handleConflictLoadFromDisk,
     collectDirtyTabs,
+    isAutosaveParked,
     activateTab,
     cycleTab,
     loadFile,
@@ -643,7 +644,18 @@ function AppContent() {
 
   // Save EVERY dirty tab, then close. An untitled tab prompts for a location;
   // cancelling that (or any failed save) aborts the close so nothing is lost. TABS-04.
+  // A tab parked by the external-change guard is refused outright: its file
+  // changed on disk under unsaved edits, so auto-saving it would overwrite the
+  // external version and closing would silently discard the buffer. EXT-03.
   const handleSaveAndCloseWindow = useCallback(async () => {
+    const parked = collectDirtyTabs().find((t) => isAutosaveParked(t.filePath));
+    if (parked) {
+      showToast(
+        `"${parked.fileName}" changed on disk and has unsaved edits. Resolve the conflict before closing.`,
+        "error",
+      );
+      return;
+    }
     setShowUnsavedBeforeClose(false);
     for (const t of collectDirtyTabs()) {
       let path = t.filePath;
@@ -669,7 +681,31 @@ function AppContent() {
       }
     }
     forceCloseWindow();
-  }, [collectDirtyTabs, forceCloseWindow, promptForSavePath, showToast]);
+  }, [collectDirtyTabs, forceCloseWindow, isAutosaveParked, promptForSavePath, showToast]);
+
+  // "Save a copy" from the disk-conflict dialog: write the current buffer to a
+  // NEW file the user picks, leaving the conflicted file and the pending choice
+  // untouched. Gives "keep both" without deciding which version wins. EXT-02.
+  const handleConflictSaveCopy = useCallback(async () => {
+    const copyName = `${(fileName ?? "Untitled.md").replace(/\.md$/i, "")} (copy).md`;
+    let selected = await promptForSavePath(copyName);
+    if (!selected) return;
+    if (selected === DOWNLOADS_SENTINEL) {
+      const res = await saveToDownloads(normalizeMarkdownFileName(copyName), content);
+      if (!res.ok || !res.path) {
+        showToast(res.error || "Could not save the copy", "error");
+        return;
+      }
+      showToast("Copy saved — the conflicted file is untouched", "success");
+      return;
+    }
+    try {
+      await invoke("save_file", { path: selected, content });
+      showToast("Copy saved — the conflicted file is untouched", "success");
+    } catch (err) {
+      showToast(errMessage(err) || "Could not save the copy", "error");
+    }
+  }, [content, fileName, promptForSavePath, showToast]);
 
   const handleDiscardAndCloseWindow = useCallback(() => {
     setShowUnsavedBeforeClose(false);
@@ -1895,7 +1931,9 @@ function AppContent() {
 
       {/* Disk-conflict prompt: the open file changed on disk while the buffer
           had unsaved edits. Autosave and manual save stay paused until the user
-          picks a version. Dismissing resolves as keep-mine. EXT-02. */}
+          picks a version. Escape/backdrop are intentionally inert: silently
+          resolving as keep-mine armed an overwrite of the external version —
+          the choice must be explicit (or deferred via "Save a copy"). EXT-02. */}
       {conflictPrompt && (
         <Suspense fallback={null}>
           <ConflictDialog
@@ -1903,7 +1941,8 @@ function AppContent() {
             fileName={conflictPrompt.fileName}
             onKeepMine={handleConflictKeepMine}
             onLoadFromDisk={handleConflictLoadFromDisk}
-            onClose={handleConflictKeepMine}
+            onSaveCopy={handleConflictSaveCopy}
+            onClose={() => {/* no-op on purpose — see comment above */}}
           />
         </Suspense>
       )}

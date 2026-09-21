@@ -23,8 +23,14 @@ export interface UseAutosaveOptions {
    * picks a side. EXT-02.
    */
   conflictPending: boolean;
-  /** Called after a successful write with the new mtime and the saved content. */
-  onSaved: (mtime: number, content: string) => void;
+  /**
+   * Called after a successful write with the new mtime, the saved content, and
+   * the path that was written. The path lets the caller ignore a resolution
+   * that lands after the user switched documents mid-write — stamping the new
+   * document's state with the old file's mtime/originalContent corrupted its
+   * dirty flag and external-change detection. TABS-08.
+   */
+  onSaved: (mtime: number, content: string, savedPath: string) => void;
   /** Called when a write fails (already throttled to at most once per 30s). */
   onError: (message: string) => void;
 }
@@ -61,7 +67,7 @@ export function useAutosave({
     const id = window.setTimeout(async () => {
       try {
         const mtime = await invoke<number>("save_file", { path: filePath, content });
-        onSaved(mtime, content);
+        onSaved(mtime, content, filePath);
         lastErrorRef.current = 0;
       } catch (err) {
         const now = Date.now();

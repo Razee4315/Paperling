@@ -65,7 +65,7 @@ describe("useAutosave", () => {
     rerender(base({ conflictPending: false, onSaved }));
     await vi.advanceTimersByTimeAsync(1600);
     expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/doc.md", content: "new" });
-    expect(onSaved).toHaveBeenCalledWith(1700000000000, "new");
+    expect(onSaved).toHaveBeenCalledWith(1700000000000, "new", "C:/doc.md");
   });
 
   it("saves after the debounce and reports the new mtime + saved content", async () => {
@@ -78,7 +78,9 @@ describe("useAutosave", () => {
 
     await vi.advanceTimersByTimeAsync(600);
     expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/doc.md", content: "new" });
-    expect(onSaved).toHaveBeenCalledWith(1700000000000, "new");
+    // The path is passed through so the caller can ignore a resolution that
+    // lands after the user switched documents mid-write (TABS-08).
+    expect(onSaved).toHaveBeenCalledWith(1700000000000, "new", "C:/doc.md");
   });
 
   it("coalesces rapid edits — only the latest content is written", async () => {
