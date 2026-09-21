@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { attachFocusTrap } from "../utils/focusTrap";
+import { errMessage } from "../utils/errors";
 
 interface SearchMatch {
     line: number;
@@ -18,6 +19,34 @@ interface GlobalSearchProps {
     directory: string | null;
     onClose: () => void;
     onOpenResult: (path: string, line: number) => void;
+    /** Called after files were rewritten on disk so the shell can refresh the
+     *  open tab (or warn about a dirty buffer). */
+    onFilesReplaced?: (paths: string[]) => void;
+    /** Toast access for replace progress/errors. */
+    onNotify?: (message: string, type: "success" | "error" | "info") => void;
+}
+
+/** Count occurrences honoring the search's case toggle (GS-03). */
+function countOccurrences(content: string, query: string, caseSensitive: boolean): number {
+    if (!query) return 0;
+    const hay = caseSensitive ? content : content.toLowerCase();
+    const needle = caseSensitive ? query : query.toLowerCase();
+    let count = 0;
+    let idx = 0;
+    while ((idx = hay.indexOf(needle, idx)) !== -1) {
+        count += 1;
+        idx += needle.length;
+    }
+    return count;
+}
+
+/** Replace every occurrence honoring the search's case toggle (GS-03). */
+function replaceAllOccurrences(content: string, query: string, replacement: string, caseSensitive: boolean): string {
+    if (!caseSensitive) {
+        const esc = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");;
+        return content.replace(new RegExp(esc, "gi"), () => replacement);
+    }
+    return content.split(query).join(replacement);
 }
 
 /** Flattened, keyboard-navigable view of one match. */
@@ -26,8 +55,11 @@ interface FlatItem {
     line: number;
 }
 
-export function GlobalSearch({ isOpen, directory, onClose, onOpenResult }: GlobalSearchProps) {
+export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, onFilesReplaced, onNotify }: GlobalSearchProps) {
     const [query, setQuery] = useState("");
+    const [replacement, setReplacement] = useState("");
+    const [confirmPending, setConfirmPending] = useState(false);
+    const [replacing, setReplacing] = useState(false);
     const [caseSensitive, setCaseSensitive] = useState(false);
     const [results, setResults] = useState<FileResult[]>([]);
     const [loading, setLoading] = useState(false);
@@ -49,6 +81,8 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult }: Globa
     useEffect(() => {
         if (!isOpen) return;
         setActive(0);
+        setConfirmPending(false);
+        setReplacing(false);
         const t = window.setTimeout(() => inputRef.current?.focus(), 0);
         const detachTrap = attachFocusTrap(panelRef.current);
         return () => { window.clearTimeout(t); detachTrap(); };
@@ -106,6 +140,49 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult }: Globa
         onOpenResult(item.path, item.line);
     };
 
+    // Replace across files (GS-03): rewrite every file that had matches,
+    // through read_file/save_file so the app's atomic-write and EOL handling
+    // applies, then re-run the search so the panel reflects reality. The
+    // shell refreshes the open tab via onFilesReplaced.
+    const runReplaceAll = async () => {
+        setReplacing(true);
+        let filesChanged = 0;
+        let totalReplaced = 0;
+        const changedPaths: string[] = [];
+        try {
+            for (const file of results) {
+                if (file.matches.length === 0) continue;
+                const data = await invoke<{ path: string; name: string; content: string; size: number }>("read_file", { path: file.path });
+                const occurrences = countOccurrences(data.content, query.trim(), caseSensitive);
+                if (occurrences === 0) continue;
+                const updated = replaceAllOccurrences(data.content, query.trim(), replacement, caseSensitive);
+                await invoke("save_file", { path: file.path, content: updated });
+                filesChanged += 1;
+                totalReplaced += occurrences;
+                changedPaths.push(file.path);
+            }
+            onNotify?.(
+                totalReplaced === 1
+                    ? "Replaced 1 match"
+                    : `Replaced ${totalReplaced} matches in ${filesChanged} file${filesChanged === 1 ? "" : "s"}`,
+                "success",
+            );
+            onFilesReplaced?.(changedPaths);
+            // Refresh results so the panel reflects the new content.
+            const id = ++reqIdRef.current;
+            const res = await invoke<FileResult[]>("search_files", { directory, query: query.trim(), caseSensitive });
+            if (reqIdRef.current === id) {
+                setResults(res);
+                setActive(0);
+            }
+        } catch (err) {
+            onNotify?.(errMessage(err) || "Replace failed", "error");
+        } finally {
+            setReplacing(false);
+            setConfirmPending(false);
+        }
+    };
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
         if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => Math.min(i + 1, Math.max(0, totalMatches - 1))); }
@@ -153,6 +230,48 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult }: Globa
                         <span className="material-symbols-outlined text-[18px]">close</span>
                     </button>
                 </div>
+
+                {/* Replace row (GS-03) — offered whenever the folder search has matches. */}
+                {results.length > 0 && query.trim() && (
+                    <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border)]">
+                        <input
+                            value={replacement}
+                            onChange={(e) => { setReplacement(e.target.value); setConfirmPending(false); }}
+                            placeholder="Replace with…"
+                            aria-label="Replace across files"
+                            className="flex-1 bg-transparent outline-none text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+                        />
+                        {confirmPending ? (
+                            <>
+                                <span className="text-[11px] text-[var(--text-secondary)] whitespace-nowrap">
+                                    Rewrite {results.length} file{results.length === 1 ? "" : "s"}?
+                                </span>
+                                <button
+                                    onClick={runReplaceAll}
+                                    disabled={replacing || !replacement}
+                                    className="px-2 py-1 text-xs rounded bg-[var(--accent)] text-[var(--accent-text)] disabled:opacity-40 whitespace-nowrap"
+                                >
+                                    {replacing ? "Replacing…" : "Confirm"}
+                                </button>
+                                <button
+                                    onClick={() => setConfirmPending(false)}
+                                    className="px-2 py-1 text-xs rounded border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] whitespace-nowrap"
+                                >
+                                    Cancel
+                                </button>
+                            </>
+                        ) : (
+                            <button
+                                onClick={() => setConfirmPending(true)}
+                                disabled={replacing || !replacement || replacement === query.trim()}
+                                title={replacement === query.trim() ? "Replacement equals the search" : undefined}
+                                className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 whitespace-nowrap"
+                            >
+                                Replace all in files…
+                            </button>
+                        )}
+                    </div>
+                )}
 
                 {/* Results */}
                 <div className="flex-1 min-h-0 overflow-y-auto">

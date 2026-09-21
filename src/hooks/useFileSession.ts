@@ -1116,6 +1116,7 @@ export function useFileSession({
     handleConflictLoadFromDisk,
     collectDirtyTabs,
     isAutosaveParked,
+    loadFileDirect,
     activateTab,
     cycleTab,
     loadFile,

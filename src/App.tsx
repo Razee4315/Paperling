@@ -362,6 +362,7 @@ function AppContent() {
     handleConflictLoadFromDisk,
     collectDirtyTabs,
     isAutosaveParked,
+    loadFileDirect,
     activateTab,
     cycleTab,
     loadFile,
@@ -2005,6 +2006,20 @@ function AppContent() {
             directory={currentDirectory ?? (IS_MOBILE ? notesDir : null)}
             onClose={() => setShowSearch(false)}
             onOpenResult={handleOpenSearchResult}
+            onNotify={showToast}
+            onFilesReplaced={(paths) => {
+              // If the open file was rewritten on disk, refresh its tab —
+              // unless the buffer has unsaved edits, in which case the user
+              // must decide (saving would now overwrite the replaced disk
+              // version; the external-change guard keeps autosave honest).
+              if (filePath && paths.includes(filePath)) {
+                if (isDirty) {
+                  showToast("This file was replaced on disk while your buffer has unsaved edits — review before saving", "info");
+                } else {
+                  void loadFileDirect(filePath);
+                }
+              }
+            }}
           />
         </Suspense>
       )}
