@@ -92,10 +92,14 @@ export function FormatToolbar({ getState, apply, insert, onAIAssist }: FormatToo
         if (!st) return;
         const sel = st.text.slice(st.selStart, st.selEnd) || "code";
         const inserted = `\n\`\`\`\n${sel}\n\`\`\`\n`;
+        // The opening fence including its leading newline is 5 chars ("\n```\n");
+        // +4 parked the caret ON the fence line, where the next keystroke
+        // corrupted the fence ("```x"). SHC-08.
+        const fence = 5;
         apply({
             text: st.text.slice(0, st.selStart) + inserted + st.text.slice(st.selEnd),
-            selStart: st.selStart + 4, // place caret after opening fence
-            selEnd: st.selStart + 4 + sel.length,
+            selStart: st.selStart + fence,
+            selEnd: st.selStart + fence + sel.length,
         });
     };
 

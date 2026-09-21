@@ -74,11 +74,15 @@ export function handleTableTab(state: EditorState, shift: boolean): EditorResult
             const target = ls + pipes[cellIdx + 1] + 2;
             return { text, selStart: target, selEnd: target };
         }
-        // Last cell — go to next row's first cell, skipping separator rows
-        let nextLs = le + 1;
-        while (nextLs < text.length) {
-            const nle = lineEndIndex(text, nextLs);
-            const nextLine = text.slice(nextLs, nle);
+        // Last cell — go to next row's first cell, skipping separator rows.
+        // The scan treats a missing final line as "not a table row", so Tab on
+        // the last cell of a table that ENDS the document still creates the
+        // promised new row; the old bound (`scan < text.length`) skipped the
+        // loop entirely and fell through to a plain 2-space indent. SHC-05.
+        let scan = le + 1;
+        for (;;) {
+            const nle = scan <= text.length ? lineEndIndex(text, scan) : scan;
+            const nextLine = scan <= text.length ? text.slice(scan, nle) : "";
             if (!isTableLine(nextLine)) {
                 // Not a table — create a new row matching the column count
                 const cols = pipes.length - 1;
@@ -93,15 +97,14 @@ export function handleTableTab(state: EditorState, shift: boolean): EditorResult
             }
             // Skip separator rows
             if (/^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|$/.test(nextLine.trim())) {
-                nextLs = nle + 1;
+                scan = nle + 1;
                 continue;
             }
             // Found a body row — go to its first cell
-            const firstPipe = nextLs + nextLine.indexOf("|");
+            const firstPipe = scan + nextLine.indexOf("|");
             const target = firstPipe + 2;
             return { text, selStart: target, selEnd: target };
         }
-        return null;
     }
 
     // Shift+Tab — previous cell
@@ -177,8 +180,20 @@ export function handleTab(state: EditorState, shift: boolean): EditorResult | nu
         return null;
     }
 
+    // Single-line selection: indent the containing LINE (like the multi-line
+    // branch) and keep the selection. The old code spliced INDENT at the caret
+    // with `text.slice(selEnd)` — deleting the selected text. SHC-04.
+    if (selStart !== selEnd) {
+        const blockStart = lineStartIndex(text, selStart);
+        return {
+            text: text.slice(0, blockStart) + INDENT + text.slice(blockStart),
+            selStart: selStart + INDENT.length,
+            selEnd: selEnd + INDENT.length,
+        };
+    }
+
     return {
-        text: text.slice(0, selStart) + INDENT + text.slice(selEnd),
+        text: text.slice(0, selStart) + INDENT + text.slice(selStart),
         selStart: selStart + INDENT.length,
         selEnd: selStart + INDENT.length,
     };
@@ -232,16 +247,37 @@ export function handleEnter(state: EditorState): EditorResult | null {
             };
         }
 
-        // Numbered list: increment
+        // Numbered list: increment the new item's marker AND renumber the
+        // same-indent items below it (2.→3.→4. …, stopping at the first line
+        // that breaks the chain). The old code only incremented the new item,
+        // leaving the rest of the list stale after any insert. SHC-06.
         let nextMarker = marker;
+        const lineEnd = lineEndIndex(text, selStart);
+        const remainder = text.slice(selStart, lineEnd); // rest of the caret line ("" at line end)
+        const newline = text.slice(lineEnd, lineEnd + 1); // the line's "\n", or "" at EOF
+        const afterLine = text.slice(lineEnd + 1); // lines after the caret line
+        let tail: string;
         const numMatch = marker.match(/^(\d+)\.$/);
-        if (numMatch) {
-            nextMarker = `${parseInt(numMatch[1], 10) + 1}.`;
+        if (numMatch && afterLine) {
+            const current = parseInt(numMatch[1], 10);
+            nextMarker = `${current + 1}.`;
+            const restLines = afterLine.split("\n");
+            let expected = current + 2;
+            for (let i = 0; i < restLines.length; i++) {
+                const m = restLines[i].match(/^(\s*)(\d+)(\.\s)/);
+                if (!m || m[1] !== indent || parseInt(m[2], 10) !== expected - 1) break;
+                restLines[i] = `${m[1]}${expected}${m[3]}` + restLines[i].slice(m[0].length);
+                expected++;
+            }
+            tail = remainder + newline + restLines.join("\n");
+        } else {
+            if (numMatch) nextMarker = `${parseInt(numMatch[1], 10) + 1}.`;
+            tail = remainder + newline + afterLine;
         }
 
         const insert = `\n${indent}${nextMarker} ${taskBox}`;
         return {
-            text: text.slice(0, selStart) + insert + text.slice(selEnd),
+            text: text.slice(0, selStart) + insert + tail,
             selStart: selStart + insert.length,
             selEnd: selStart + insert.length,
         };
@@ -330,7 +366,26 @@ export function wrapSelection(
     const { text, selStart, selEnd } = state;
     const selected = text.slice(selStart, selEnd) || placeholder;
 
-    // Toggle: if selection is already wrapped, unwrap
+    // Toggle, case 1: the selection carries its OWN markers (e.g. "**bold**"
+    // selected, Ctrl+B pressed) — strip them. The outside-marker check below
+    // can't see this case and used to double-wrap. SHC-07. Symmetric pairs
+    // only: an asymmetric wrap like [x](y) has no meaningful inside form.
+    if (
+        selStart !== selEnd &&
+        right === left &&
+        selected.length > left.length + right.length &&
+        selected.startsWith(left) &&
+        selected.endsWith(right)
+    ) {
+        const inner = selected.slice(left.length, selected.length - right.length);
+        return {
+            text: text.slice(0, selStart) + inner + text.slice(selEnd),
+            selStart,
+            selEnd: selStart + inner.length,
+        };
+    }
+
+    // Toggle, case 2: the markers sit just OUTSIDE the selection.
     const beforeSel = text.slice(Math.max(0, selStart - left.length), selStart);
     const afterSel = text.slice(selEnd, selEnd + right.length);
     if (selStart !== selEnd && beforeSel === left && afterSel === right) {

@@ -109,3 +109,60 @@ describe("handleTab", () => {
         expect(r?.selStart).toBe(6);
     });
 });
+
+describe("audit regression fixes", () => {
+    it("Tab with a single-line selection indents the line and KEEPS the selection (SHC-04)", () => {
+        const r = handleTab(st("hello world", 6, 11), false);
+        expect(r?.text).toBe("  hello world");
+        expect(r?.selStart).toBe(8);
+        expect(r?.selEnd).toBe(13);
+    });
+
+    it("Tab on the last cell of a table that ends the document creates a new row (SHC-05)", () => {
+        const doc = "| a | b |\n| --- | --- |\n| 1 | 2 |";
+        // caret on the "2" — inside the LAST cell (between the last two pipes)
+        const r = handleTab(st(doc, doc.length - 3), false);
+        expect(r?.text).toBe(doc + "\n|  |  |");
+        expect(r?.selStart).toBe(doc.length + 3);
+    });
+
+    it("Tab on the last cell before a trailing newline appends a row before it (SHC-05)", () => {
+        const doc = "| a | b |\n| --- | --- |\n| 1 | 2 |\n";
+        const r = handleTab(st(doc, doc.length - 4), false);
+        expect(r?.text).toBe("| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |\n");
+    });
+
+    it("Enter on a numbered list renumbers the items below (SHC-06)", () => {
+        const r = handleEnter(st("1. one\n2. two\n3. three", 6), false);
+        expect(r?.text).toBe("1. one\n2. \n3. two\n4. three");
+    });
+
+    it("Enter renumbering stops at a broken chain (SHC-06)", () => {
+        const r = handleEnter(st("1. one\n2. two\n\n9. nine", 6), false);
+        expect(r?.text).toBe("1. one\n2. \n3. two\n\n9. nine");
+    });
+
+    it("Enter on a numbered list at EOF adds no stray trailing newline (SHC-06)", () => {
+        expect(handleEnter(st("1. one", 6))?.text).toBe("1. one\n2. ");
+        expect(handleEnter(st("1. one\n", 6))?.text).toBe("1. one\n2. \n");
+    });
+
+    it("wrapSelection unwraps markers INSIDE the selection (SHC-07)", () => {
+        const r = wrapSelection(st("**bold**", 0, 8), "**");
+        expect(r.text).toBe("bold");
+        expect(r.selStart).toBe(0);
+        expect(r.selEnd).toBe(4);
+    });
+
+    it("wrapSelection still unwraps markers OUTSIDE the selection", () => {
+        const r = wrapSelection(st("**bold**", 2, 6), "**");
+        expect(r.text).toBe("bold");
+    });
+
+    it("handleTableTab: shift-tab from the first body cell skips the separator to the header row", () => {
+        const doc = "| a | b |\n| --- | --- |\n| 1 | 2 |";
+        // caret on the "1" (first cell of the body row)
+        const r = handleTab(st(doc, 26), true);
+        expect(r?.selStart).toBe(6); // second cell of the header row
+    });
+});

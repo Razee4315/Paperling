@@ -20,7 +20,7 @@ const commands: SlashCommand[] = [
     { id: "task", label: "Task list", description: "- [ ] todo", snippet: "- [ ] ", caretOffset: 6, icon: "check_box" },
     { id: "quote", label: "Quote", description: "> blockquote", snippet: "> ", caretOffset: 2, icon: "format_quote" },
     { id: "code", label: "Code block", description: "```\\ncode\\n```", snippet: "```\n\n```\n", caretOffset: 4, icon: "code" },
-    { id: "table", label: "Table", description: "| h | h |\\n| - | - |", snippet: "| Header 1 | Header 2 |\n| --- | --- |\n| Cell | Cell |\n", caretOffset: 11, icon: "table_chart" },
+    { id: "table", label: "Table", description: "| h | h |\\n| - | - |", snippet: "| Header 1 | Header 2 |\n| --- | --- |\n| Cell | Cell |\n", caretOffset: 10, icon: "table_chart" },
     { id: "hr", label: "Divider", description: "Horizontal rule", snippet: "\n---\n\n", caretOffset: 6, icon: "horizontal_rule" },
     { id: "math", label: "Math block", description: "$$ ... $$", snippet: "$$\n\n$$\n", caretOffset: 3, icon: "function" },
     { id: "chem", label: "Chemistry equation", description: "$\\ce{...}$ (mhchem)", snippet: "$\\ce{}$", caretOffset: 5, icon: "science" },
