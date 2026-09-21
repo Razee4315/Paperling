@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { attachFocusTrap } from "../utils/focusTrap";
-import { formatShortcut, formatAliases, withMod, aiShortcutLabel } from "../config/keybindings";
+import { formatShortcut, formatAliases, withMod, aiShortcutLabel, isMac } from "../config/keybindings";
 import iconKeyboard from "../assets/mascot/icon-keyboard.png";
 
 interface ShortcutCheatsheetProps {
@@ -44,7 +44,10 @@ const groups: ShortcutGroup[] = [
             { keys: formatShortcut("reopenClosedTab"), description: "Reopen closed tab" },
             { keys: formatShortcut("nextTab"), description: "Next tab" },
             { keys: formatShortcut("prevTab"), description: "Previous tab" },
-            { keys: "Alt+←/→", description: "Previous / next tab" },
+            // macOS reserves Option+Arrows for word-wise caret movement in
+            // every text view, so the app doesn't bind tab switching to it
+            // there (SHC-02).
+            ...(isMac ? [] : [{ keys: "Alt+←/→", description: "Previous / next tab" }]),
             { keys: withMod("1–8"), description: "Jump to tab N" },
             { keys: withMod("9"), description: "Jump to last tab" },
         ],

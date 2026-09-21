@@ -98,6 +98,24 @@ describe("useGlobalShortcuts", () => {
         window.removeEventListener("paperling:ai-assist", onAi);
         expect(onAi).toHaveBeenCalledTimes(1);
     });
+
+    it("ignores events another layer already handled (defaultPrevented, SHC-01)", () => {
+        // The editor/vim/menus preventDefault the keys they own; the window
+        // handler used to fire on top of them (e.g. vim's Ctrl+W delete-word
+        // also closed the tab, macOS Alt+Arrows moved the caret AND switched
+        // tabs).
+        const h = makeHandlers();
+        render(<Harness handlers={h} />);
+        const event = new KeyboardEvent("keydown", {
+            key: "s",
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true,
+        });
+        event.preventDefault(); // simulate the editor having handled it
+        window.dispatchEvent(event);
+        expect(h.handleSaveFile).not.toHaveBeenCalled();
+    });
 });
 
 describe("useGlobalShortcuts gating", () => {
