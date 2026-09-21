@@ -85,15 +85,22 @@ const SANITIZE_SCHEMA = {
     protocols: {
         ...defaultSchema.protocols,
         href: [...(defaultSchema.protocols?.href ?? []), "wikilink"],
+        // `data` for image sources only (LocalImage guards to data:image/*) so
+        // base64-embedded images render instead of skeletonizing forever.
+        src: [...(defaultSchema.protocols?.src ?? []), "data"],
     },
 } as typeof defaultSchema;
 
 // react-markdown's default urlTransform drops any href whose scheme isn't in a
 // small safe list — which silently kills our internal `wikilink:` links (the
-// click handler keys off that exact scheme). Pass those through; defer
-// everything else to the default, which still blocks javascript:, etc.
+// click handler keys off that exact scheme) and base64-embedded images many
+// other tools produce. Pass those through; defer everything else to the
+// default, which still blocks javascript:, etc. (data: is additionally limited
+// to image subtypes by the sanitize schema below and by LocalImage.)
 const mdUrlTransform = (url: string): string =>
-    url.startsWith("wikilink:") ? url : defaultUrlTransform(url);
+    url.startsWith("wikilink:") || /^data:image\//i.test(url)
+        ? url
+        : defaultUrlTransform(url);
 
 // rehype plugin: stamp each top-level rendered block with the source line it came
 // from (data-source-line). Lets the preview report the ACCURATE top-visible line
@@ -214,15 +221,67 @@ interface MarkdownPreviewProps {
     onNavigateRelative?: (href: string) => void;
 }
 
-/** Slugify heading text into a stable, URL-safe id (GitHub-style). */
+/** Slugify heading text into a stable, URL-safe id (GitHub-style). Unicode
+ *  letters/digits (CJK, Cyrillic, accented Latin) are kept so those headings
+ *  get distinct anchors and in-document links can resolve — the old ASCII-only
+ *  class collapsed every CJK heading to `section`, `section-1`, … (NAV-06). */
 const slugify = (text: string): string =>
     text
         .toLowerCase()
         .trim()
-        .replace(/[^\w\s-]/g, "")
+        .replace(/[^\p{L}\p{N}\s-]/gu, "")
         .replace(/\s+/g, "-")
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "");
+
+/* ---------- Wikilink pre-processing (NAV-08) ---------- */
+
+const WIKILINK_RE = /\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
+// One capture group → String.split keeps protected spans at odd indices:
+// code spans, single-line $$…$$ and inline $…$ are literal text, never links.
+const INLINE_PROTECTED_RE = /(`+[^`]*`+|\$\$[^$]*\$\$|\$[^$\n]+\$)/;
+
+const rewriteWikilinks = (text: string): string =>
+    text.replace(WIKILINK_RE, (_m, target: string, alias?: string) => {
+        const t = target.trim();
+        const a = (alias ?? target).trim();
+        return `[${a}](wikilink:${encodeURIComponent(t)})`;
+    });
+
+export function rewriteWikilinksOutsideCode(body: string): string {
+    const out: string[] = [];
+    let inFence = false;
+    let inBlockMath = false;
+    for (const line of body.split("\n")) {
+        if (/^\s*(```|~~~)/.test(line)) {
+            inFence = !inFence;
+            out.push(line);
+            continue;
+        }
+        if (inFence) {
+            out.push(line);
+            continue;
+        }
+        // Multi-line $$ block: everything between the $$ fences is literal.
+        if (inBlockMath) {
+            out.push(line);
+            if (line.includes("$$")) inBlockMath = false;
+            continue;
+        }
+        if (/^\s*\$\$\s*$/.test(line)) {
+            inBlockMath = true;
+            out.push(line);
+            continue;
+        }
+        out.push(
+            line
+                .split(INLINE_PROTECTED_RE)
+                .map((part, i) => (i % 2 === 1 ? part : rewriteWikilinks(part)))
+                .join(""),
+        );
+    }
+    return out.join("\n");
+}
 
 /** Extract the plain-text label from a React node tree (for slug + anchor link). */
 function nodeText(node: React.ReactNode): string {
@@ -304,19 +363,35 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
     const [error, setError] = useState(false);
 
     useEffect(() => {
-        if (!baseDir || !src) return;
+        if (!src) return;
 
-        // External URLs and data: URIs go straight to the <img>.
-        if (src.includes('://') || src.startsWith('data:')) {
+        // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
+        // resolve them as plain paths next to the document, like a text
+        // wikilink would be. IMG-EMBED-01.
+        const effective = src.startsWith("wikilink:")
+            ? decodeURIComponent(src.slice("wikilink:".length))
+            : src;
+
+        // External URLs and data: URIs go straight to the <img>. They don't
+        // need the document's directory, so they must load even when no file
+        // is on disk (browser mode / untitled buffer) — the old `!baseDir`
+        // early-return left them as an eternal loading skeleton.
+        if (effective.includes('://') || effective.startsWith('data:')) {
             setImageSrc(src);
             setError(false);
+            return;
+        }
+
+        if (!baseDir) {
+            // A relative path with no base directory can never resolve.
+            setError(true);
             return;
         }
 
         // Strip a leading `./` then validate. Anything with a `..` segment, an
         // absolute prefix, or a drive letter is rejected — see
         // isUnsafeRelativePath above.
-        const cleanPath = src.startsWith('./') ? src.slice(2) : src;
+        const cleanPath = effective.startsWith('./') ? effective.slice(2) : effective;
         if (isUnsafeRelativePath(cleanPath)) {
             setError(true);
             return;
@@ -369,6 +444,7 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             alt={alt || 'image'}
             {...props}
             loading="lazy"
+            onError={() => setError(true)}
             className="max-w-full h-auto rounded-lg my-4 cursor-zoom-in transition-transform hover:scale-[1.01]"
             onClick={() => {
                 const evt = new CustomEvent("paperling:zoom", { detail: { src: imageSrc, alt } });
@@ -828,6 +904,10 @@ function MarkdownPreviewImpl({
             }
             // External http(s) and mailto links — route through the OS default
             // handler so the webview itself doesn't navigate away from the app.
+            // Every OTHER relative target (report.pdf, results.csv, img.png…)
+            // gets preventDefault unconditionally: leaving its href live let a
+            // plain click navigate the whole webview to tauri.localhost/<file>
+            // and blank the app. NAV-07.
             const isExternal = !!href && /^(https?:|mailto:)/i.test(href);
             return (
                 <a
@@ -837,8 +917,8 @@ function MarkdownPreviewImpl({
                         ? { rel: "noopener noreferrer", target: "_blank" }
                         : {})}
                     onClick={(e) => {
-                        if (!isExternal || !href) return;
                         e.preventDefault();
+                        if (!isExternal || !href) return;
                         openUrl(href).catch((err) =>
                             console.error("Failed to open external URL:", err)
                         );
@@ -901,13 +981,16 @@ function MarkdownPreviewImpl({
     // We use a custom href scheme so the link click handler can detect them
     // and load the target file, while keeping the source markdown portable
     // (the source still has [[Foo]] — only the rendered output uses the scheme).
-    const renderBody = useMemo(() => {
-        return parsedBody.replace(/\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) => {
-            const t = target.trim();
-            const a = (alias ?? target).trim();
-            return `[${a}](wikilink:${encodeURIComponent(t)})`;
-        });
-    }, [parsedBody]);
+    //
+    // The rewrite is fence/code/math-aware: a single regex over the raw
+    // document used to visibly corrupt code blocks and inline code that merely
+    // CONTAIN "[[x]]" (preview and the Copy button both shipped the rewritten
+    // text). Fenced blocks are skipped by line scanning; inline code spans and
+    // math are protected by splitting the line on those spans first. NAV-08.
+    const renderBody = useMemo(
+        () => rewriteWikilinksOutsideCode(parsedBody),
+        [parsedBody],
+    );
 
     // Lazy-load KaTeX only when the document actually contains math.
     // Heavy (~280kb) — keeping it out of the initial bundle is a real win.

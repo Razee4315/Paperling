@@ -37,8 +37,24 @@ export function TableOfContents({
         const lines = normalized.split("\n");
         const items: TocItem[] = [];
 
+        // Fence/frontmatter awareness: `# comment` lines inside a ```/~~~
+        // block (bash/yaml scripts are full of them) or in the frontmatter
+        // block are NOT headings, and clicking one used to jump into the
+        // middle of a code block. TOC-02.
+        let inFence = false;
+        let pastFrontmatter = lines[0]?.trim() !== "---";
+
         lines.forEach((line, index) => {
+            if (!pastFrontmatter) {
+                if (index > 0 && line.trim() === "---") pastFrontmatter = true;
+                return;
+            }
             const trimmed = line.trim();
+            if (/^(```|~~~)/.test(trimmed)) {
+                inFence = !inFence;
+                return;
+            }
+            if (inFence) return;
             const match = trimmed.match(/^(#{1,6})\s+(.+)$/);
             if (match) {
                 const level = match[1].length;
