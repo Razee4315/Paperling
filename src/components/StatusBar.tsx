@@ -119,6 +119,16 @@ function StatusBarImpl({
                 {wordCount !== undefined && (
                     <div
                         className={`flex items-center gap-1 cursor-default transition-colors ${hasSelection ? "text-[var(--accent)]" : "hover:text-[var(--text-primary)]"}`}
+                        // The visible text is a WORD count, so the accessible
+                        // name must say words too — the character detail stays
+                        // as a hover title only (it used to leak into the
+                        // accessibility tree as the node's name, so screen
+                        // readers read "42 characters" for "42 words").
+                        aria-label={
+                            hasSelection
+                                ? `Selected ${selectionWordCount.toLocaleString()} of ${wordCount.toLocaleString()} words`
+                                : `${wordCount.toLocaleString()} words`
+                        }
                         title={
                             hasSelection
                                 ? `Selection: ${selectionWordCount.toLocaleString()} words, ${selectionLength.toLocaleString()} characters`

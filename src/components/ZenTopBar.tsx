@@ -91,7 +91,7 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen }: ZenTopBa
                 style={{ paddingTop: "var(--safe-area-top, 0px)" }}
                 className={IS_TOUCH
                     ? "relative min-h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)] border-b border-[var(--border)]"
-                    : "absolute top-0 inset-x-0 h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)]/95 backdrop-blur-sm border-b border-[var(--border)] transition-all duration-150 delay-150 group-hover/zenbar:delay-0 invisible opacity-0 -translate-y-1 pointer-events-none group-hover/zenbar:visible group-hover/zenbar:opacity-100 group-hover/zenbar:translate-y-0 group-hover/zenbar:pointer-events-auto"}
+                    : "absolute top-0 inset-x-0 h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)]/95 backdrop-blur-sm border-b border-[var(--border)] transition-all duration-150 delay-150 group-hover/zenbar:delay-0 invisible opacity-0 -translate-y-1 pointer-events-none group-hover/zenbar:visible group-hover/zenbar:opacity-100 group-hover/zenbar:translate-y-0 group-hover/zenbar:pointer-events-auto group-focus-within/zenbar:delay-0 group-focus-within/zenbar:visible group-focus-within/zenbar:opacity-100 group-focus-within/zenbar:translate-y-0 group-focus-within/zenbar:pointer-events-auto"}
             >
                 <button
                     onClick={onExitZen}

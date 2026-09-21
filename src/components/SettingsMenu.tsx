@@ -85,6 +85,7 @@ export function SettingsMenu() {
                                 <button
                                     key={t.id}
                                     onClick={() => setTheme(t.id)}
+                                    aria-pressed={theme === t.id}
                                     className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg transition-all ${theme === t.id
                                         ? 'ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]'
                                         : 'hover:bg-[var(--bg-hover)]'

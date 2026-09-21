@@ -171,6 +171,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         };
         document.addEventListener("keydown", onKey);
         const detach = attachFocusTrap(dialogRef.current);
+        // Move focus INTO the dialog: the trap only engages once focus is
+        // inside the container, and screen readers need the dialog announced.
+        // Mirrors the cheatsheet/palette, which focus their filter inputs.
+        const searchInput = dialogRef.current?.querySelector<HTMLInputElement>('input[aria-label="Search settings"]');
+        searchInput?.focus();
         return () => {
             document.removeEventListener("keydown", onKey);
             detach();
@@ -276,6 +281,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 <button
                                                     key={t.id}
                                                     onClick={() => setTheme(t.id)}
+                                                    aria-pressed={theme === t.id}
                                                     className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${theme === t.id
                                                         ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
                                                         : "hover:bg-[var(--bg-hover)]"

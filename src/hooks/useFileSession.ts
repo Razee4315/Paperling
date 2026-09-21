@@ -560,7 +560,13 @@ export function useFileSession({
   const openTutorial = useCallback(
     (tutorialContent: string) => {
       const name = "Welcome to Paperling.md";
-      const bytes = new TextEncoder().encode(tutorialContent).length;
+      // Normalize line endings ONCE, up front: the editor's doc normalizes
+      // \r\n to \n on insert, so a CRLF tutorial.md (Windows checkout) made
+      // the editor's onChange fire with text that differs from
+      // originalContent — the freshly opened guide showed up pre-marked
+      // "unsaved changes". TABS-09.
+      const normalized = tutorialContent.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const bytes = new TextEncoder().encode(normalized).length;
       // Snapshot first so the active tab's latest edits are preserved even when
       // switching to (or reusing) another tab.
       snapshotActiveTab();
@@ -572,8 +578,8 @@ export function useFileSession({
         id,
         filePath: null,
         fileName: name,
-        content: tutorialContent,
-        originalContent: tutorialContent,
+        content: normalized,
+        originalContent: normalized,
         fileSize: bytes,
         knownMtime: 0,
       };
@@ -584,8 +590,8 @@ export function useFileSession({
       clearReview();
       setFilePath(null);
       setFileName(name);
-      setContent(tutorialContent);
-      setOriginalContent(tutorialContent);
+      setContent(normalized);
+      setOriginalContent(normalized);
       setFileSize(bytes);
       knownMtimeRef.current = 0;
       setLastFile(null);
