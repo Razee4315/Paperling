@@ -475,6 +475,12 @@ function escapeHtml(text: string): string {
 }
 
 // Generate standalone HTML document
+// KaTeX's stylesheet inlined into exports: the preview's DOM carries the
+// rendered KaTeX spans, whose layout depends entirely on this CSS. Without it,
+// every formula in an exported HTML/PDF rendered as jumbled, unpositioned
+// spans (EXPORT-01). Font URLs degrade gracefully to system serifs offline.
+import katexCss from "katex/dist/katex.min.css?raw";
+
 export function generateHTML(
     htmlContent: string,
     title: string,
@@ -505,6 +511,7 @@ export function generateHTML(
     <meta name="date" content="${new Date().toISOString()}">
     <title>${safeTitle}</title>
     <style>${css}</style>
+    ${htmlContent.includes('katex') ? `<style>${katexCss}</style>` : ''}
 </head>
 <body>
     <article>

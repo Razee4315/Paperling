@@ -18,7 +18,7 @@ const loadExportModule = (): Promise<ExportModule> => {
 
 interface ExportMenuProps {
     fileName: string;
-    getExportHtml?: () => string;
+    getExportHtml?: () => Promise<string>;
     onSuccess?: (format: string) => void;
     onError?: (format: string) => void;
 }
@@ -60,9 +60,13 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: Expo
     const handleExport = async (format: ExportFormat) => {
         if (isExporting || !getExportHtml) return;
 
-        // Capture HTML on demand from the visible preview
-        const htmlContent = getExportHtml();
-        if (!htmlContent) return;
+        // Capture HTML on demand from the visible preview. The capture flushes
+        // the preview debounce and waits a frame, so it's async (EXPORT-03).
+        const htmlContent = await getExportHtml();
+        if (!htmlContent) {
+            onError?.("Nothing to export yet");
+            return;
+        }
 
         setIsExporting(true);
         setIsOpen(false);

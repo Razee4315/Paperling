@@ -498,7 +498,7 @@ function AppContent() {
   // (still heavy) full re-parse fires. Combined with the preview's startTransition
   // render, this keeps typing responsive on large files. PREVIEW-01.
   const previewDebounceMs = content.length > 40_000 ? 250 : content.length > 12_000 ? 160 : 80;
-  const deferredContent = useDebouncedValue(content, previewDebounceMs);
+  const [deferredContent, flushDeferredPreview] = useDebouncedValue(content, previewDebounceMs);
 
   // Word/char counts feed the status bar — fine to lag a frame behind on huge
   // docs, so they read deferred too. countSourceWords is the SAME pipeline the
@@ -1090,13 +1090,21 @@ function AppContent() {
     hasFile, content, mode,
   });
 
-  // Get export HTML from the visible preview on demand (avoids duplicate rendering)
-  const getExportHtml = useCallback((): string => {
+  // Get export HTML from the visible preview on demand (avoids duplicate
+  // rendering). The preview renders the DEBOUNCED content, so capturing right
+  // after typing used to ship the document without the last keystrokes — flush
+  // the debounce first and let one frame pass so the preview catches up
+  // (EXPORT-03).
+  const getExportHtml = useCallback(async (): Promise<string> => {
+    flushDeferredPreview();
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
     if (previewRef.current) {
       return previewRef.current.innerHTML;
     }
     return "";
-  }, []);
+  }, [flushDeferredPreview]);
 
   // Mobile "Export as HTML…": the phone's counterpart of the desktop Export
   // menu (there is no OS save panel to aim it at, so the file lands in the
@@ -1109,7 +1117,7 @@ function AppContent() {
   // getExportHtml so the dependency below isn't in its temporal dead zone.
   const handleExportHtml = useCallback(async () => {
     if (!fileName) return;
-    const raw = getExportHtml();
+    const raw = await getExportHtml();
     if (!raw) {
       showToast("Nothing to export yet", "error");
       return;
