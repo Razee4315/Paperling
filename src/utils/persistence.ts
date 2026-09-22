@@ -184,6 +184,14 @@ const KEY_OPEN_IN_READER = "paperling:openInReader";
 export const getOpenInReader = (): boolean => safeGet<boolean>(KEY_OPEN_IN_READER, false);
 export const setOpenInReader = (v: boolean): void => safeSet(KEY_OPEN_IN_READER, v);
 
+// Readable line length (RLL-01): center the preview in a comfortable
+// ~800px column, Obsidian-style. ON by default — long measure (~100+ chars)
+// is measurably harder to read, and the pre-#205 behavior is the better
+// default; the toggle exists for users who want the full window width.
+const KEY_READABLE_LINE_LENGTH = "paperling:readableLineLength";
+export const getReadableLineLength = (): boolean => safeGet<boolean>(KEY_READABLE_LINE_LENGTH, true);
+export const setReadableLineLength = (v: boolean): void => safeSet(KEY_READABLE_LINE_LENGTH, v);
+
 // Zen mode: distraction-free reading canvas. Hides the title bar, tab bar,
 // mode toggle, status bar, and all side panels, leaving only the rendered
 // markdown. Toggled via F9, the command palette, or Settings → Editor; the

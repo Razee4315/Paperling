@@ -108,6 +108,8 @@ import {
   setWordWrap,
   getZenMode,
   setZenMode,
+  getReadableLineLength,
+  setReadableLineLength,
 } from "./utils/persistence";
 import { getAutoSave } from "./utils/persistence";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
@@ -182,6 +184,9 @@ function AppContent() {
   zenModeRef.current = zenMode;
   const zenToggleRef = useRef<() => void>(() => {});
   const [spellCheckEnabled, setSpellCheckEnabled] = usePersistedState<boolean>(getSpellCheck, setSpellCheck);
+  // Readable line length: centered ~800px preview column (Obsidian-style
+  // default ON). RLL-01.
+  const [readableLineLength, setReadableLineLengthState] = usePersistedState<boolean>(getReadableLineLength, setReadableLineLength);
   // Optional vim modal editing (issue #119). Toggled in Settings → Editor.
   const [vimModeEnabled, setVimModeEnabled] = usePersistedState<boolean>(getVimMode, setVimMode);
   const [cursorPosition, setCursorPosition] = useState({ line: 1, col: 1 });
@@ -539,6 +544,7 @@ function AppContent() {
         if (!!(e as CustomEvent).detail?.enabled !== zenModeRef.current) zenToggleRef.current();
       }],
       ["paperling:autosave-toggle", (e) => setAutoSaveEnabled(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:readable-toggle", (e) => setReadableLineLengthState(!!(e as CustomEvent).detail?.enabled)],
       // Opened from the title-bar settings dropdown's "More settings…" entry.
       ["paperling:open-settings", () => setShowSettings(true)],
       // Alt+J with no selection opens the docked AI side panel. The editor's
@@ -1701,6 +1707,10 @@ function AppContent() {
               isFullscreen={isFullscreen}
               onToggleFullscreen={toggleFullscreen}
               onExitZen={handleToggleZen}
+              outlineOpen={showTOC}
+              onToggleOutline={handleToggleTOC}
+              onNewFile={handleNewFile}
+              onOpenFile={handleOpenFile}
             />
           )}
           <div
@@ -1783,6 +1793,7 @@ function AppContent() {
                   content={deferredContent}
                   fileName={fileName || ""}
                   fileSize={fileSize}
+                  readableLineLength={readableLineLength}
                   onEditClick={handleToggleMode}
                   onLineChange={handlePreviewLineChange}
                   filePath={filePath}
@@ -1815,7 +1826,7 @@ function AppContent() {
 
           {/* Sidebar Panels — only mount when actually open so they don't
               load their module until first use. */}
-          {!zenActive && showTOC && (
+          {showTOC && (
             <Suspense fallback={null}>
               <TableOfContents
                 isOpen={showTOC}

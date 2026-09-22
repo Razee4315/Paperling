@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useTheme, ACCENT_CHOICES, type Theme, type FontFamily, type FontSize } from "../context/ThemeContext";
+import { getInstalledFontFamilies } from "../utils/fontDiscovery";
 import { IS_MOBILE } from "../utils/platform";
 import {
     getTypewriterMode, setTypewriterMode,
@@ -11,6 +12,7 @@ import {
     getVimMode, setVimMode,
     getAutoSave, setAutoSave,
     getOpenInReader, setOpenInReader,
+    getReadableLineLength, setReadableLineLength,
     getZenMode, setZenMode,
     getAIHistoryTurns, setAIHistoryTurns, AI_HISTORY_TURNS_MAX,
     getAIIconAnimation, setAIIconAnimation,
@@ -110,6 +112,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [vimMode, setVimModeLocal] = useState(getVimMode);
     const [autoSave, setAutoSaveLocal] = useState(getAutoSave);
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
+    const [readableLength, setReadableLengthLocal] = useState(getReadableLineLength);
+    // Installed-font suggestions for the custom-font input. Computed lazily on
+    // first focus (never at startup), cached per session; the <datalist> does
+    // the type-to-filter natively. SET-03.
+    const [fontSuggestions, setFontSuggestions] = useState<string[]>([]);
+    const hydrateFontSuggestions = useCallback(() => {
+        void getInstalledFontFamilies().then(setFontSuggestions);
+    }, []);
     const [zenMode, setZenModeLocal] = useState(getZenMode);
 
     // The running app's version for the About panel (#148). Read from the Tauri
@@ -221,6 +231,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 ref={dialogRef}
                 className="settings-shell relative z-10 w-[min(820px,95vw)] h-[min(600px,90dvh)] flex bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-lg)] shadow-2xl overflow-hidden animate-fade-in"
             >
+                {/* Font suggestions (SET-03): filled on first focus of the
+                    custom-font input from the lazily-discovered installed
+                    families; the datalist filters natively as the user types. */}
+                <datalist id="paperling-installed-fonts">
+                    {fontSuggestions.map((f) => <option key={f} value={f} />)}
+                </datalist>
                 {/* Sidebar — narrower below `sm` so the content pane keeps a
                     usable width when the 95vw modal shrinks on small screens.
                     On mobile the shell CSS turns this into a horizontal icon
@@ -259,8 +275,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </nav>
                 </aside>
 
-                {/* Body */}
-                <div className="flex-1 flex flex-col min-w-0">
+                {/* Body. min-h-0 is the load-bearing class: a flex item's
+                    default min-height:auto lets this wrapper grow to its
+                    content height, overflowing the shell (which clips) —
+                    on phones the settings below the fold (custom font…)
+                    were unreachable because the pane never scrolled.
+                    SET-02. */}
+                <div className="flex-1 flex flex-col min-w-0 min-h-0">
                     <header className="flex items-center justify-between px-6 py-3 border-b border-[var(--border)]">
                         <h2 className="text-base font-semibold text-[var(--text-primary)]">
                             {sections.find((s) => s.id === section)?.label ?? "Settings"}
@@ -365,7 +386,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                     type="text"
                                                     value={customFont}
                                                     maxLength={100}
-                                                    onFocus={() => setFont("custom")}
+                                                    list="paperling-installed-fonts"
+                                                    onFocus={() => { setFont("custom"); hydrateFontSuggestions(); }}
                                                     onChange={(e) => setCustomFont(e.target.value)}
                                                     onBlur={() => setCustomFont(customFont.trim())}
                                                     placeholder="e.g. Atkinson Hyperlegible"
@@ -441,6 +463,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     // file open (same pattern as toggle-ai-panel).
                                     <ToggleRow label="Open files in reader mode" description="Every file opens read-first; editing stays one click away" checked={openInReader}
                                         onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
+                                )}
+                                {matches("readable line length preview width column") && (
+                                    <ToggleRow label="Readable line length" description="Center the reading column at a comfortable width (Obsidian-style). Off: the preview fills the window" checked={readableLength}
+                                        onChange={(v) => { setReadableLengthLocal(v); setReadableLineLength(v); fire("paperling:readable-toggle", v); }} />
                                 )}
                                 {matches("zen mode") && (
                                     <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}

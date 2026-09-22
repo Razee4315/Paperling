@@ -210,6 +210,9 @@ interface MarkdownPreviewProps {
     fileName: string;
     fileSize: number;
     onEditClick: () => void;
+    /** Center the reading column (~800px, Obsidian-style). Default on;
+     *  off = the preview fills the window (RLL-01). */
+    readableLineLength?: boolean;
     onLineChange?: (line: number) => void;
     filePath?: string | null;
     markdownBodyRef?: React.RefObject<HTMLDivElement | null>;
@@ -741,6 +744,7 @@ function MarkdownPreviewImpl({
     content,
     onLineChange,
     filePath,
+    readableLineLength = true,
     markdownBodyRef,
     onContentChange,
     onScrollFraction,
@@ -1154,7 +1158,7 @@ function MarkdownPreviewImpl({
                 ref={mainRef}
                 className="flex-1 overflow-y-auto bg-[var(--bg-primary)] transition-colors"
             >
-                <div className="preview-column w-full px-8 py-12">
+                <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 py-12`}>
                     {hasFrontmatter && (
                         <FrontmatterCard
                             data={frontmatter}
