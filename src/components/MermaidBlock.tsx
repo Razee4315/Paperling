@@ -26,13 +26,16 @@ const loadMermaid = (): Promise<typeof import("mermaid")["default"]> => {
 // stark "default". PREVIEW-03.
 const themeToMermaid = (t: string): "default" | "dark" | "neutral" => {
     switch (t) {
-        case "dark":
-        case "dracula":
-            return "dark";
         case "paper":
             return "neutral";
-        default:
+        case "light":
             return "default";
+        // Every dark theme — including the newer Graphite/Nord/Midnight —
+        // must map to mermaid's dark palette. Falling through to "default"
+        // rendered light-theme text (near-black labels/legends) directly on
+        // the app's dark background, where it was unreadable (MMV-02).
+        default:
+            return "dark";
     }
 };
 
@@ -180,7 +183,14 @@ function MermaidView({ svg }: { svg: string }) {
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
-            onDoubleClick={() => setZoom((z) => (z > 1 ? 1 : 2))}
+            onDoubleClick={(e) => {
+                // Ignore double clicks on the toolbar/buttons — two rapid
+                // clicks on a zoom control are a dblclick to the viewport,
+                // and the 2x toggle then fought the stepped zoom (zoom out
+                // twice -> snap to 200%). MMV-03.
+                if ((e.target as HTMLElement).closest('[role="toolbar"], button')) return;
+                setZoom((z) => (z > 1 ? 1 : 2));
+            }}
         >
             {toolbar}
             <div className="mermaid-sizer mx-auto" style={{ width }}>
