@@ -57,15 +57,26 @@ const CANDIDATE_FAMILIES = [
 
 interface WideWindow { queryLocalFonts?: () => Promise<Array<{ family: string }>> }
 
+/** The API can show a permission PROMPT that never resolves (Chrome-family
+ *  without a saved grant). A hung promise must not leave the input empty, so
+ *  the call races this timeout and the probe covers the fallback. */
+const API_TIMEOUT_MS = 2500;
+
 /** Strategy 1: exact enumeration where the API exists and is permitted. */
 async function viaLocalFontsApi(): Promise<string[]> {
     try {
         const fonts = (window as WideWindow).queryLocalFonts;
         if (typeof fonts !== "function") return [];
-        const list = await fonts.call(window);
+        const list = await Promise.race([
+            fonts.call(window),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("font api timeout")), API_TIMEOUT_MS),
+            ),
+        ]);
         return [...new Set(list.map((f) => f.family))].sort((a, b) => a.localeCompare(b));
     } catch {
-        // Denied / unsupported / no user gesture — fall through to probing.
+        // Denied / unsupported / no gesture / hung prompt — fall through to
+        // probing.
         return [];
     }
 }
