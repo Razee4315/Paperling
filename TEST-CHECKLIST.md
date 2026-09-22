@@ -1,6 +1,16 @@
 # ✅ Verification Checklist — branch `fix/audit-pass-2026-09-21`
 
-*Everything below is implemented on this branch and covered by 511 passing tests. Tick each one as you try it.*
+*Everything below is implemented on this branch (516 passing tests). Tick each one as you try it.*
+
+## 🆕 Round 2 — from your Test Build feedback
+
+- [ ] **Chemistry renders now.** A `$$` block with the mhchem command shows proper book-style chemistry (subscripts, arrow) — no more red raw text. Root cause: two different KaTeX versions were installed; mhchem patched one while the other did the rendering.
+- [ ] **Mermaid zoom no longer jumps to 200%.** Click the − or + button twice quickly: it steps smoothly (100% → 81% → 64%) instead of snapping to 200%.
+- [ ] **Graphite / Nord / Midnight diagrams are readable.** Switch to any dark theme: diagram labels/legends are light-on-dark, not near-black on black.
+- [ ] **Readable line length toggle** (Settings → Editor, ON by default): the preview shows a centered ~800px column, Obsidian-style. Turn it OFF: the preview fills the window. The choice persists across restarts.
+- [ ] **Zen mode (F9) got real features:** hover the top edge — the bar now has Outline, New file, and Open file buttons; the outline overlay works inside zen.
+- [ ] **Mobile settings scroll.** On a phone, Settings now scrolls — the custom-font area is reachable (before, everything below the fold was cut off).
+- [ ] **Font suggestions.** Tap the "Custom system font" input: your installed fonts appear as you type (native dropdown arrow). Nothing is probed until you touch the input, and the result is cached for the session. Some browsers prompt for font access once; it falls back gracefully if denied.
 
 ## 💾 Data safety (the big one)
 - [ ] **External changes are never overwritten.** Open a file, edit it, switch to a second tab, edit the file from outside (Notepad), then come back within ~2s. Paperling *pauses* instead of overwriting: you get a warning toast, and switching to that tab shows the conflict dialog.
