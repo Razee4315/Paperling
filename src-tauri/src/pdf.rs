@@ -190,7 +190,16 @@ fn wait_for_written_file(path: &std::path::Path) -> Result<(), String> {
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn cleanup(window: tauri::WebviewWindow, temp: &std::path::Path) {
     let _ = window.close();
-    let _ = std::fs::remove_file(temp);
+    
+    let temp_path = temp.to_path_buf();
+    tauri::async_runtime::spawn(async move {
+        for _ in 0..20 {
+            if tokio::fs::remove_file(&temp_path).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    });
 }
 
 /// Drive WebView2's native `PrintToPdf` to `path` and block (pumping the message
