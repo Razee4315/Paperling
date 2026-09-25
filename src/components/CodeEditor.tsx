@@ -231,6 +231,11 @@ function CodeEditorImpl({
     const aiConfigRef = useRef(aiConfig); aiConfigRef.current = aiConfig;
     const typewriterRef = useRef(typewriterMode); typewriterRef.current = typewriterMode;
     const slashStateRef = useRef(slashState); slashStateRef.current = slashState;
+    // The range the AI bubble will act on, MAPPED through every later edit.
+    // It used to be the raw offsets captured when the bubble opened, so typing
+    // while the model generated made Replace splice the wrong text. Null when
+    // no bubble is open. AI-06.
+    const aiRangeRef = useRef<{ from: number; to: number; text: string } | null>(null);
 
     // The last value WE emitted via onChange — lets the external-content sync
     // effect below skip the O(n) doc.toString() comparison on the common case
@@ -331,6 +336,7 @@ function CodeEditorImpl({
         const rect = view.scrollDOM.getBoundingClientRect();
         const x = coords ? coords.left : rect.left + 28;
         const y = (coords ? coords.bottom : rect.top + 24) + 6;
+        aiRangeRef.current = { from: sel.from, to: sel.to, text: view.state.doc.sliceString(sel.from, sel.to) };
         setAIBubble({ x, y, selStart: sel.from, selEnd: sel.to, text: view.state.doc.sliceString(sel.from, sel.to) });
     }, []);
 
@@ -410,6 +416,14 @@ function CodeEditorImpl({
                     });
                 }
             } else if (update.docChanged) {
+                const range = aiRangeRef.current;
+                if (range) {
+                    aiRangeRef.current = {
+                        ...range,
+                        from: update.changes.mapPos(range.from, 1),
+                        to: Math.max(update.changes.mapPos(range.from, 1), update.changes.mapPos(range.to, -1)),
+                    };
+                }
                 const value = update.state.doc.toString();
                 lastEmittedRef.current = value;
                 onChangeRef.current?.(value);
@@ -692,6 +706,13 @@ function CodeEditorImpl({
         // documented way to clear CodeMirror's undo/redo stacks.
         view.dispatch({ effects: historyCompRef.current.reconfigure([]) });
         view.dispatch({ effects: historyCompRef.current.reconfigure(history()) });
+        // Anything anchored to the previous document is now meaningless: an
+        // open AI bubble would write its result into THIS file at the old
+        // file's offsets (AI-06), and a slash menu would replace text here.
+        aiRangeRef.current = null;
+        setAIBubble(null);
+        setSlashState(null);
+        setSlashQuery("");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [docSwapId]);
 
@@ -1113,18 +1134,31 @@ function CodeEditorImpl({
                         config={aiConfig}
                         onReplace={(out) => {
                             const v = viewRef.current;
-                            if (v) v.dispatch({ changes: { from: aiBubble.selStart, to: aiBubble.selEnd, insert: out }, selection: { anchor: aiBubble.selStart + out.length } });
+                            const range = aiRangeRef.current;
+                            // Only replace while the mapped range still holds
+                            // exactly the text the model was given; if the user
+                            // edited inside it, replacing would destroy that edit.
+                            if (v && range && v.state.doc.sliceString(range.from, range.to) === range.text) {
+                                v.dispatch({ changes: { from: range.from, to: range.to, insert: out }, selection: { anchor: range.from + out.length } });
+                            } else {
+                                onNoticeRef.current?.("The selected text changed while AI was working, so nothing was replaced. Use Insert, or run it again.");
+                            }
+                            aiRangeRef.current = null;
                             setAIBubble(null);
                             v?.focus();
                         }}
                         onInsert={(out) => {
                             const v = viewRef.current;
+                            const range = aiRangeRef.current;
                             const ins = "\n\n" + out;
-                            if (v) v.dispatch({ changes: { from: aiBubble.selEnd, to: aiBubble.selEnd, insert: ins }, selection: { anchor: aiBubble.selEnd + ins.length } });
+                            if (v && range) {
+                                v.dispatch({ changes: { from: range.to, to: range.to, insert: ins }, selection: { anchor: range.to + ins.length } });
+                            }
+                            aiRangeRef.current = null;
                             setAIBubble(null);
                             v?.focus();
                         }}
-                        onClose={() => setAIBubble(null)}
+                        onClose={() => { aiRangeRef.current = null; setAIBubble(null); }}
                     />
                 )}
 

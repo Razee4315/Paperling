@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { collectBufferBackups, type TabState } from "./tabsModel";
 import { loadBufferBackups, saveBufferBackups, type BufferBackup } from "./bufferBackup";
 
@@ -63,5 +63,24 @@ describe("bufferBackup store", () => {
     ]);
     const loaded = loadBufferBackups();
     expect(loaded.map((b) => b.fileName)).toEqual(["ok.md"]);
+  });
+});
+
+describe("saveBufferBackups quota handling (HOT-05)", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("drops the stale snapshot and keeps what fits when storage is full", () => {
+    const small: BufferBackup = { filePath: null, fileName: "a.md", content: "small", originalContent: "" };
+    const big: BufferBackup = { filePath: null, fileName: "b.md", content: "x".repeat(5000), originalContent: "" };
+    saveBufferBackups([{ ...small, content: "OLD stale text" }]);
+    const real = Storage.prototype.setItem;
+    // Simulate a quota: anything over 1000 chars throws.
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, k: string, v: string) {
+      if (v.length > 1000) throw new DOMException("full", "QuotaExceededError");
+      real.call(this, k, v);
+    });
+    saveBufferBackups([big, small]);
+    spy.mockRestore();
+    expect(loadBufferBackups().map((b) => b.content)).toEqual(["small"]);
   });
 });

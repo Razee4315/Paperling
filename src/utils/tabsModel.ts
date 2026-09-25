@@ -114,10 +114,28 @@ export function collectBufferBackups(
   return backups;
 }
 
+/**
+ * Comparison key for a file path. The same file reaches the app spelled
+ * differently — dialog paths use `\`, wikilink/relative resolution may use
+ * `/`, and Windows paths are case-insensitive — and an exact string compare
+ * opened it in two tabs whose saves clobbered each other. Drive-letter and
+ * UNC paths are Windows paths, so only those are case-folded. TABS-18.
+ */
+export function pathKey(path: string): string {
+  const slashed = path.replace(/\\/g, "/");
+  const isWindows = /^[a-zA-Z]:\//.test(slashed) || slashed.startsWith("//");
+  return isWindows ? slashed.toLowerCase() : slashed;
+}
+
+/** Do two (possibly null) paths name the same file? Null never matches. */
+export function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
+  return a != null && b != null && pathKey(a) === pathKey(b);
+}
+
 /** Find an open tab by file path (null paths never match). */
 export function findTabByPath(tabs: TabState[], path: string | null): TabState | undefined {
   if (path == null) return undefined;
-  return tabs.find((t) => t.filePath === path);
+  return tabs.find((t) => samePath(t.filePath, path));
 }
 
 /**

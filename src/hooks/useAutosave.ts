@@ -33,6 +33,12 @@ export interface UseAutosaveOptions {
   onSaved: (mtime: number, content: string, savedPath: string) => void;
   /** Called when a write fails (already throttled to at most once per 30s). */
   onError: (message: string) => void;
+  /**
+   * Optional pre-write guard (must be stable). Resolve false to skip this
+   * write — used to stat the file first so a change made by another program
+   * raises the conflict dialog instead of being overwritten. EXT-06.
+   */
+  beforeWrite?: (path: string) => Promise<boolean>;
 }
 
 /** Debounce before persisting after the last edit. */
@@ -59,6 +65,7 @@ export function useAutosave({
   conflictPending,
   onSaved,
   onError,
+  beforeWrite,
 }: UseAutosaveOptions): void {
   const lastErrorRef = useRef(0);
 
@@ -66,6 +73,7 @@ export function useAutosave({
     if (!enabled || !filePath || content === originalContent || isReviewActive || conflictPending) return;
     const id = window.setTimeout(async () => {
       try {
+        if (beforeWrite && !(await beforeWrite(filePath))) return;
         const mtime = await invoke<number>("save_file", { path: filePath, content });
         onSaved(mtime, content, filePath);
         lastErrorRef.current = 0;
@@ -79,5 +87,5 @@ export function useAutosave({
       }
     }, AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(id);
-  }, [enabled, filePath, content, originalContent, isReviewActive, conflictPending, onSaved, onError]);
+  }, [enabled, filePath, content, originalContent, isReviewActive, conflictPending, onSaved, onError, beforeWrite]);
 }

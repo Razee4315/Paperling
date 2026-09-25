@@ -64,6 +64,18 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
             // vim's Ctrl+W delete-word also closed the tab, and vim's Ctrl+E /
             // Ctrl+O scroll/jump also toggled modes / opened files. SHC-01.
             if (e.defaultPrevented) return;
+            // A modal dialog owns the keyboard. App shortcuts used to fire
+            // BEHIND it: Alt+Arrows / Ctrl+Tab behind the disk-conflict dialog
+            // switched tabs and silently resolved it, Ctrl+W behind a
+            // save prompt opened a second prompt, and so on. Only F11 (a
+            // window-level toggle) stays live. EXT-04.
+            if (
+                typeof document !== "undefined" &&
+                document.querySelector('[aria-modal="true"]') &&
+                !matchesBinding(e, "fullscreen")
+            ) {
+                return;
+            }
             // F11 - Toggle fullscreen. The universal fullscreen key on Windows
             // and Linux. macOS reserves F11 for Show Desktop, where users
             // fullscreen via the green title-bar button; the underlying Tauri

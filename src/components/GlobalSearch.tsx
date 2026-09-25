@@ -19,34 +19,51 @@ interface GlobalSearchProps {
     directory: string | null;
     onClose: () => void;
     onOpenResult: (path: string, line: number) => void;
-    /** Called after files were rewritten on disk so the shell can refresh the
-     *  open tab (or warn about a dirty buffer). */
-    onFilesReplaced?: (paths: string[]) => void;
+    /** The live buffer of a file that is open in a tab, else null. Replace
+     *  edits open files IN THEIR BUFFER: writing the disk behind a tab's back
+     *  was silently reverted by that tab's next autosave. GS-04. */
+    getOpenBuffer?: (path: string) => string | null;
+    /** Write a new buffer for an open file (marks the tab dirty; it saves
+     *  through the normal, conflict-guarded save paths). */
+    setOpenBuffer?: (path: string, text: string) => boolean;
     /** Toast access for replace progress/errors. */
     onNotify?: (message: string, type: "success" | "error" | "info") => void;
 }
 
-/** Count occurrences honoring the search's case toggle (GS-03). */
-function countOccurrences(content: string, query: string, caseSensitive: boolean): number {
-    if (!query) return 0;
-    const hay = caseSensitive ? content : content.toLowerCase();
-    const needle = caseSensitive ? query : query.toLowerCase();
-    let count = 0;
-    let idx = 0;
-    while ((idx = hay.indexOf(needle, idx)) !== -1) {
-        count += 1;
-        idx += needle.length;
-    }
-    return count;
+/** Literal (non-regex) matcher honoring the search's case toggle (GS-03).
+ *  Counting and replacing share it, so the reported count can't disagree
+ *  with what was actually replaced. */
+function literalRegex(query: string, caseSensitive: boolean): RegExp {
+    const esc = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(esc, caseSensitive ? "g" : "gi");
 }
 
-/** Replace every occurrence honoring the search's case toggle (GS-03). */
-function replaceAllOccurrences(content: string, query: string, replacement: string, caseSensitive: boolean): string {
-    if (!caseSensitive) {
-        const esc = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");;
-        return content.replace(new RegExp(esc, "gi"), () => replacement);
-    }
-    return content.split(query).join(replacement);
+/** Replace every occurrence; returns the new text and how many were replaced. */
+export function replaceLiteral(
+    content: string,
+    query: string,
+    replacement: string,
+    caseSensitive: boolean,
+): { text: string; count: number } {
+    if (!query) return { text: content, count: 0 };
+    let count = 0;
+    const text = content.replace(literalRegex(query, caseSensitive), () => {
+        count += 1;
+        return replacement;
+    });
+    return { text, count };
+}
+
+/** Mirrors SEARCH_MAX_RESULTS in src-tauri/src/commands.rs: at this many
+ *  files the result list is truncated, so a replace can't reach every file. */
+const SEARCH_MAX_RESULTS = 300;
+
+/** One file rewritten by the last replace, kept so it can be undone. */
+interface ReplaceUndoEntry {
+    path: string;
+    before: string;
+    after: string;
+    inBuffer: boolean;
 }
 
 /** Flattened, keyboard-navigable view of one match. */
@@ -55,7 +72,7 @@ interface FlatItem {
     line: number;
 }
 
-export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, onFilesReplaced, onNotify }: GlobalSearchProps) {
+export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpenBuffer, setOpenBuffer, onNotify }: GlobalSearchProps) {
     const [query, setQuery] = useState("");
     const [replacement, setReplacement] = useState("");
     const [confirmPending, setConfirmPending] = useState(false);
@@ -65,6 +82,9 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, onFiles
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [active, setActive] = useState(0);
+    // The last replace's per-file before/after, for "Undo replace". Cleared
+    // when the panel reopens.
+    const [undoEntries, setUndoEntries] = useState<ReplaceUndoEntry[] | null>(null);
 
     const panelRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -83,6 +103,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, onFiles
         setActive(0);
         setConfirmPending(false);
         setReplacing(false);
+        setUndoEntries(null);
         const t = window.setTimeout(() => inputRef.current?.focus(), 0);
         const detachTrap = attachFocusTrap(panelRef.current);
         return () => { window.clearTimeout(t); detachTrap(); };
@@ -140,42 +161,54 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, onFiles
         onOpenResult(item.path, item.line);
     };
 
-    // Replace across files (GS-03): rewrite every file that had matches,
-    // through read_file/save_file so the app's atomic-write and EOL handling
-    // applies, then re-run the search so the panel reflects reality. The
-    // shell refreshes the open tab via onFilesReplaced.
+    const refreshResults = async () => {
+        const id = ++reqIdRef.current;
+        const res = await invoke<FileResult[]>("search_files", { directory, query: query.trim(), caseSensitive });
+        if (reqIdRef.current === id) {
+            setResults(res);
+            setActive(0);
+        }
+    };
+
+    // Replace across files (GS-03/04). A file open in a tab is edited in its
+    // buffer (it then saves through the normal guarded paths); every other
+    // file goes through read_file/save_file so the atomic-write and EOL
+    // handling applies. Each file's before/after is kept for "Undo replace".
     const runReplaceAll = async () => {
         setReplacing(true);
-        let filesChanged = 0;
         let totalReplaced = 0;
-        const changedPaths: string[] = [];
+        const undo: ReplaceUndoEntry[] = [];
+        const q = query.trim();
         try {
             for (const file of results) {
                 if (file.matches.length === 0) continue;
-                const data = await invoke<{ path: string; name: string; content: string; size: number }>("read_file", { path: file.path });
-                const occurrences = countOccurrences(data.content, query.trim(), caseSensitive);
-                if (occurrences === 0) continue;
-                const updated = replaceAllOccurrences(data.content, query.trim(), replacement, caseSensitive);
-                await invoke("save_file", { path: file.path, content: updated });
-                filesChanged += 1;
-                totalReplaced += occurrences;
-                changedPaths.push(file.path);
+                const buffered = getOpenBuffer?.(file.path) ?? null;
+                if (buffered !== null) {
+                    const { text, count } = replaceLiteral(buffered, q, replacement, caseSensitive);
+                    if (count === 0 || !setOpenBuffer?.(file.path, text)) continue;
+                    undo.push({ path: file.path, before: buffered, after: text, inBuffer: true });
+                    totalReplaced += count;
+                    continue;
+                }
+                const data = await invoke<{ content: string }>("read_file", { path: file.path });
+                const { text, count } = replaceLiteral(data.content, q, replacement, caseSensitive);
+                if (count === 0) continue;
+                await invoke("save_file", { path: file.path, content: text });
+                undo.push({ path: file.path, before: data.content, after: text, inBuffer: false });
+                totalReplaced += count;
             }
+            const files = undo.length;
+            const openCount = undo.filter((u) => u.inBuffer).length;
             onNotify?.(
-                totalReplaced === 1
-                    ? "Replaced 1 match"
-                    : `Replaced ${totalReplaced} matches in ${filesChanged} file${filesChanged === 1 ? "" : "s"}`,
+                `Replaced ${totalReplaced} match${totalReplaced === 1 ? "" : "es"} in ${files} file${files === 1 ? "" : "s"}` +
+                    (openCount > 0 ? ` (${openCount} open in tabs: edited in the editor, unsaved)` : ""),
                 "success",
             );
-            onFilesReplaced?.(changedPaths);
-            // Refresh results so the panel reflects the new content.
-            const id = ++reqIdRef.current;
-            const res = await invoke<FileResult[]>("search_files", { directory, query: query.trim(), caseSensitive });
-            if (reqIdRef.current === id) {
-                setResults(res);
-                setActive(0);
-            }
+            setUndoEntries(undo.length > 0 ? undo : null);
+            await refreshResults();
         } catch (err) {
+            // Files rewritten before the failure can still be undone.
+            if (undo.length > 0) setUndoEntries(undo);
             onNotify?.(errMessage(err) || "Replace failed", "error");
         } finally {
             setReplacing(false);
@@ -183,11 +216,60 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, onFiles
         }
     };
 
+    // Undo the last replace. A file is only restored while it still holds
+    // exactly what the replace wrote — anything edited since is left alone
+    // (and reported) rather than clobbered.
+    const runUndoReplace = async () => {
+        if (!undoEntries) return;
+        setReplacing(true);
+        let restored = 0;
+        let skipped = 0;
+        try {
+            for (const entry of undoEntries) {
+                if (entry.inBuffer) {
+                    if (getOpenBuffer?.(entry.path) === entry.after && setOpenBuffer?.(entry.path, entry.before)) restored += 1;
+                    else skipped += 1;
+                    continue;
+                }
+                const data = await invoke<{ content: string }>("read_file", { path: entry.path });
+                if (data.content !== entry.after) {
+                    skipped += 1;
+                    continue;
+                }
+                await invoke("save_file", { path: entry.path, content: entry.before });
+                restored += 1;
+            }
+            onNotify?.(
+                `Undid the replace in ${restored} file${restored === 1 ? "" : "s"}` +
+                    (skipped > 0 ? ` — ${skipped} changed since and ${skipped === 1 ? "was" : "were"} left as is` : ""),
+                skipped > 0 ? "info" : "success",
+            );
+            setUndoEntries(null);
+            await refreshResults();
+        } catch (err) {
+            onNotify?.(errMessage(err) || "Undo failed", "error");
+        } finally {
+            setReplacing(false);
+        }
+    };
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
         if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => Math.min(i + 1, Math.max(0, totalMatches - 1))); }
         else if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)); }
-        else if (e.key === "Enter") { e.preventDefault(); openItem(flat[active]); }
+        else if (e.key === "Enter") {
+            // Enter in the replace field arms / confirms the replace instead of
+            // opening a search result.
+            if ((e.target as HTMLElement).dataset.replaceInput !== undefined) {
+                e.preventDefault();
+                if (replacing || replacement === query.trim()) return;
+                if (confirmPending) void runReplaceAll();
+                else setConfirmPending(true);
+                return;
+            }
+            e.preventDefault();
+            openItem(flat[active]);
+        }
     };
 
     if (!isOpen) return null;
@@ -237,18 +319,19 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, onFiles
                         <input
                             value={replacement}
                             onChange={(e) => { setReplacement(e.target.value); setConfirmPending(false); }}
-                            placeholder="Replace with…"
+                            placeholder="Replace with… (leave empty to delete)"
                             aria-label="Replace across files"
+                            data-replace-input=""
                             className="flex-1 bg-transparent outline-none text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
                         />
                         {confirmPending ? (
                             <>
                                 <span className="text-[11px] text-[var(--text-secondary)] whitespace-nowrap">
-                                    Rewrite {results.length} file{results.length === 1 ? "" : "s"}?
+                                    {replacement ? "Rewrite" : "Delete matches in"} {results.length} file{results.length === 1 ? "" : "s"}?
                                 </span>
                                 <button
                                     onClick={runReplaceAll}
-                                    disabled={replacing || !replacement}
+                                    disabled={replacing}
                                     className="px-2 py-1 text-xs rounded bg-[var(--accent)] text-[var(--accent-text)] disabled:opacity-40 whitespace-nowrap"
                                 >
                                     {replacing ? "Replacing…" : "Confirm"}
@@ -263,13 +346,31 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, onFiles
                         ) : (
                             <button
                                 onClick={() => setConfirmPending(true)}
-                                disabled={replacing || !replacement || replacement === query.trim()}
+                                disabled={replacing || replacement === query.trim()}
                                 title={replacement === query.trim() ? "Replacement equals the search" : undefined}
                                 className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 whitespace-nowrap"
                             >
                                 Replace all in files…
                             </button>
                         )}
+                    </div>
+                )}
+
+                {results.length >= SEARCH_MAX_RESULTS && (
+                    <div className="px-4 py-1.5 text-[11px] text-[var(--text-secondary)] border-b border-[var(--border)] bg-[var(--bg-hover)]" role="note">
+                        Showing the first {SEARCH_MAX_RESULTS} files — results are capped, so a replace won't reach every file. Narrow the search to be sure.
+                    </div>
+                )}
+                {undoEntries && (
+                    <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] text-[var(--text-secondary)] border-b border-[var(--border)]">
+                        <span className="flex-1">Replaced in {undoEntries.length} file{undoEntries.length === 1 ? "" : "s"}.</span>
+                        <button
+                            onClick={runUndoReplace}
+                            disabled={replacing}
+                            className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-40"
+                        >
+                            Undo replace
+                        </button>
                     </div>
                 )}
 

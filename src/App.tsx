@@ -112,6 +112,7 @@ import {
   setReadableLineLength,
 } from "./utils/persistence";
 import { getAutoSave } from "./utils/persistence";
+import { clearBufferBackups } from "./utils/bufferBackup";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
 import { errMessage } from "./utils/errors";
 import { revealMainWindow, desktopWindow } from "./utils/appWindow";
@@ -348,6 +349,8 @@ function AppContent() {
   // any review because a proposal belongs to the file it was created for.
   const clearReview = useCallback(() => setProposedDoc(null), []);
   const {
+    getOpenBuffer,
+    setOpenBuffer,
     filePath,
     fileName,
     content,
@@ -367,7 +370,6 @@ function AppContent() {
     handleConflictLoadFromDisk,
     collectDirtyTabs,
     isAutosaveParked,
-    loadFileDirect,
     activateTab,
     cycleTab,
     loadFile,
@@ -642,6 +644,12 @@ function AppContent() {
   // the exit_app command instead. Without it a back-press with unsaved work
   // could trap the user in the dialog forever.
   const forceCloseWindow = useCallback(() => {
+    // Every caller has just resolved ALL unsaved work explicitly (saved it or
+    // chose Discard). The hot-exit store is only rewritten on an 800ms
+    // debounce that never runs once the window is destroyed, so without this
+    // the next launch "recovered" edits the user threw away — and untitled
+    // buffers "Save all" had just written to disk. HOT-03.
+    clearBufferBackups();
     if (IS_MOBILE) {
       invoke("exit_app").catch(() => {/* nothing left to fall back to */});
       return;
@@ -655,7 +663,11 @@ function AppContent() {
   // changed on disk under unsaved edits, so auto-saving it would overwrite the
   // external version and closing would silently discard the buffer. EXT-03.
   const handleSaveAndCloseWindow = useCallback(async () => {
-    const parked = collectDirtyTabs().find((t) => isAutosaveParked(t.filePath));
+    // The active tab's own conflict dialog counts too: saving it would
+    // overwrite the external version the dialog is asking about. CLOSE-02.
+    const parked = collectDirtyTabs().find(
+      (t) => isAutosaveParked(t.filePath) || (conflictPrompt != null && t.filePath === filePath),
+    );
     if (parked) {
       showToast(
         `"${parked.fileName}" changed on disk and has unsaved edits. Resolve the conflict before closing.`,
@@ -688,7 +700,7 @@ function AppContent() {
       }
     }
     forceCloseWindow();
-  }, [collectDirtyTabs, forceCloseWindow, isAutosaveParked, promptForSavePath, showToast]);
+  }, [collectDirtyTabs, conflictPrompt, filePath, forceCloseWindow, isAutosaveParked, promptForSavePath, showToast]);
 
   // "Save a copy" from the disk-conflict dialog: write the current buffer to a
   // NEW file the user picks, leaving the conflicted file and the pending choice
@@ -2018,19 +2030,8 @@ function AppContent() {
             onClose={() => setShowSearch(false)}
             onOpenResult={handleOpenSearchResult}
             onNotify={showToast}
-            onFilesReplaced={(paths) => {
-              // If the open file was rewritten on disk, refresh its tab —
-              // unless the buffer has unsaved edits, in which case the user
-              // must decide (saving would now overwrite the replaced disk
-              // version; the external-change guard keeps autosave honest).
-              if (filePath && paths.includes(filePath)) {
-                if (isDirty) {
-                  showToast("This file was replaced on disk while your buffer has unsaved edits — review before saving", "info");
-                } else {
-                  void loadFileDirect(filePath);
-                }
-              }
-            }}
+            getOpenBuffer={getOpenBuffer}
+            setOpenBuffer={setOpenBuffer}
           />
         </Suspense>
       )}

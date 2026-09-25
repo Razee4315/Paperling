@@ -49,6 +49,15 @@ export function loadBufferBackups(): BufferBackup[] {
   }
 }
 
+function tryWrite(list: BufferBackup[]): boolean {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(list));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function saveBufferBackups(backups: BufferBackup[]): void {
   try {
     const usable = backups
@@ -58,9 +67,27 @@ export function saveBufferBackups(backups: BufferBackup[]): void {
       localStorage.removeItem(KEY);
       return;
     }
-    localStorage.setItem(KEY, JSON.stringify(usable));
+    if (tryWrite(usable)) return;
+    // Quota exceeded. The failed setItem left the PREVIOUS snapshot in place,
+    // and after a crash that stale text would be "recovered" over newer work.
+    // Drop it, then keep as many buffers as fit, smallest first (more whole
+    // documents survive than if one huge buffer crowded out the rest). HOT-05.
+    localStorage.removeItem(KEY);
+    const bySize = [...usable].sort((a, b) => a.content.length - b.content.length);
+    for (let n = bySize.length - 1; n > 0; n--) {
+      if (tryWrite(bySize.slice(0, n))) return;
+    }
   } catch {
-    // Quota exceeded (private mode, huge set) — backups are best-effort by
-    // design; never let a backup failure break the app.
+    // Storage disabled entirely — backups are best-effort by design; never let
+    // a backup failure break the app.
+  }
+}
+
+/** Forget every backup — the user explicitly saved or discarded (HOT-03). */
+export function clearBufferBackups(): void {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* storage disabled */
   }
 }

@@ -114,3 +114,21 @@ describe("useAutosave", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useAutosave pre-write guard (EXT-06)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    (invoke as Mock).mockReset().mockResolvedValue(1700000000000);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("skips the write when beforeWrite vetoes it (file changed on disk)", async () => {
+    const onSaved = vi.fn();
+    const beforeWrite = vi.fn().mockResolvedValue(false);
+    renderHook((p: UseAutosaveOptions) => useAutosave(p), { initialProps: base({ onSaved, beforeWrite }) });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(beforeWrite).toHaveBeenCalledWith("C:/doc.md");
+    expect(invoke).not.toHaveBeenCalledWith("save_file", expect.anything());
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+});
