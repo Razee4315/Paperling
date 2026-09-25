@@ -26,7 +26,7 @@ import {
     type EditorResult,
     type EditorState,
 } from "../utils/editorActions";
-import { FindBar, type FindController, type FindOpts } from "./FindBar";
+import { FindBar, findSeedFromSelection, type FindController, type FindOpts } from "./FindBar";
 import { replaceOne, replaceAllMatches, isValidPattern } from "../utils/findReplace";
 import { findHighlightField, setFindMatches } from "../utils/editorFindHighlight";
 import {
@@ -272,6 +272,19 @@ function CodeEditorImpl({
 
     const [findOpen, setFindOpen] = useState(false);
     const [findMode, setFindMode] = useState<"find" | "replace">("find");
+    // Each open request (incl. a repeat Ctrl+F) carries the selection to
+    // search for. FIND-06/07.
+    const [findRequest, setFindRequest] = useState<{ nonce: number; text?: string }>({ nonce: 0 });
+    const requestFind = useCallback((mode: "find" | "replace") => {
+        const v = viewRef.current;
+        const sel = v?.state.selection.main;
+        const text = v && sel && !sel.empty ? v.state.sliceDoc(sel.from, sel.to) : undefined;
+        setFindMode(mode);
+        setFindOpen(true);
+        setFindRequest((r) => ({ nonce: r.nonce + 1, text: findSeedFromSelection(text) }));
+    }, []);
+    const requestFindRef = useRef(requestFind);
+    requestFindRef.current = requestFind;
     const [slashState, setSlashState] = useState<{ from: number; pos: { x: number; y: number } } | null>(null);
     const [slashQuery, setSlashQuery] = useState("");
     const [aiBubble, setAIBubble] = useState<{ x: number; y: number; selStart: number; selEnd: number; text: string } | null>(null);
@@ -469,8 +482,8 @@ function CodeEditorImpl({
                     return true;
                 }
             },
-            { key: toCmKey("find"), run: () => { setFindMode("find"); setFindOpen(true); return true; } },
-            { key: toCmKey("replace"), run: () => { setFindMode("replace"); setFindOpen(true); return true; } },
+            { key: toCmKey("find"), run: () => { requestFindRef.current("find"); return true; } },
+            { key: toCmKey("replace"), run: () => { requestFindRef.current("replace"); return true; } },
             // NB: the AI shortcut (Alt+J / ⌘J) is handled at the App window level
             // so it fires regardless of editor focus — see App.tsx. The editor
             // opens the bubble via the paperling:ai-assist event listener below.
@@ -1096,14 +1109,8 @@ function CodeEditorImpl({
     // outside→editor idiom as paperling:goto-line above. The matching
     // paperling:close-find is the Android back handler's way in (see App.tsx).
     useEffect(() => {
-        const openFind = () => {
-            setFindMode("find");
-            setFindOpen(true);
-        };
-        const openReplace = () => {
-            setFindMode("replace");
-            setFindOpen(true);
-        };
+        const openFind = () => requestFindRef.current("find");
+        const openReplace = () => requestFindRef.current("replace");
         const closeFind = () => setFindOpen(false);
         window.addEventListener("paperling:open-find", openFind);
         window.addEventListener("paperling:open-replace", openReplace);
@@ -1253,6 +1260,11 @@ function CodeEditorImpl({
                 const m = matches[index];
                 if (!v || !m) return;
                 v.dispatch({
+                    // The active match becomes the selection (VS Code): Esc
+                    // then leaves you ON the found text, ready to type over
+                    // it. It used to stay at the old caret, so the first
+                    // keystroke after Esc yanked the view back there. FIND-08.
+                    ...(m.side === "doc" ? { selection: { anchor: m.from, head: m.to } } : {}),
                     effects: [
                         // activeDocIndex, not `index`: the bar counts removed
                         // matches too, so the two numberings differ.
@@ -1346,6 +1358,7 @@ function CodeEditorImpl({
                     isOpen={findOpen}
                     initialMode={findMode}
                     controller={editorFindController}
+                    openRequest={findRequest}
                     revision={content}
                     onClose={() => { setFindOpen(false); viewRef.current?.focus(); }}
                 />

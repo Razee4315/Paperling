@@ -125,7 +125,7 @@ import {
 } from "./utils/tabsModel";
 import { countSourceWords, countWords } from "./utils/documentStats";
 import { Tour } from "./components/Tour";
-import { FindBar } from "./components/FindBar";
+import { FindBar, findSeedFromSelection } from "./components/FindBar";
 import { createPreviewFindController } from "./utils/previewFind";
 // The interactive feature guide, shipped as raw markdown so it opens as a real,
 // editable document (offered at the end of the welcome tour / from the palette).
@@ -208,6 +208,14 @@ function AppContent() {
   const [showUnsavedBeforeClose, setShowUnsavedBeforeClose] = useState(false);
   // Find bar over the reader-mode preview (Ctrl+F when mode === "preview").
   const [previewFindOpen, setPreviewFindOpen] = useState(false);
+  // Reader-mode find open requests carry the selected text as the query,
+  // matching the editor's find. FIND-06/07.
+  const [previewFindRequest, setPreviewFindRequest] = useState<{ nonce: number; text?: string }>({ nonce: 0 });
+  const openPreviewFindBar = useCallback(() => {
+    const text = typeof window !== "undefined" ? window.getSelection()?.toString() : undefined;
+    setPreviewFindOpen(true);
+    setPreviewFindRequest((r) => ({ nonce: r.nonce + 1, text: findSeedFromSelection(text) }));
+  }, []);
   // Autosave: save a moment after the user stops typing (Settings → Editor).
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => getAutoSave());
 
@@ -1146,7 +1154,7 @@ function AppContent() {
     openSettings: () => setShowSettings(true),
     // Ctrl+F in reader mode opens the preview find bar (the editor keymap
     // handles find in code/split mode, where the editor has focus). FIND-01.
-    openPreviewFind: () => setPreviewFindOpen(true),
+    openPreviewFind: openPreviewFindBar,
     openSearch: () => setShowSearch(true),
     closeActiveTab: () => { if (activeTabId) closeTab(activeTabId); },
     prevTab: () => cycleTab(-1),
@@ -1245,9 +1253,9 @@ function AppContent() {
   // editor, so from reader mode we switch to code mode first. The editor listens
   // for these events (CodeEditor's paperling:open-find / paperling:open-replace).
   const openFind = useCallback(() => {
-    if (mode === "preview") setPreviewFindOpen(true);
+    if (mode === "preview") openPreviewFindBar();
     else window.dispatchEvent(new CustomEvent("paperling:open-find"));
-  }, [mode]);
+  }, [mode, openPreviewFindBar]);
   const openReplace = useCallback(() => {
     if (mode === "preview") {
       setMode("code");
@@ -1946,6 +1954,7 @@ function AppContent() {
                   highlights matches via the CSS Custom Highlight API. */}
               <FindBar
                 isOpen={previewFindOpen}
+                openRequest={previewFindRequest}
                 controller={previewFindController}
                 revision={content}
                 onClose={() => setPreviewFindOpen(false)}

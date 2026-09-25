@@ -139,4 +139,15 @@ describe("useGlobalShortcuts gating", () => {
         press({ key: "f", ctrlKey: true });
         expect(h.openPreviewFind).not.toHaveBeenCalled();
     });
+
+    it("Ctrl+F outside the focused editor opens the editor's find (FIND-10)", () => {
+        const h = makeHandlers({ mode: "split", openPreviewFind: vi.fn() });
+        render(<Harness handlers={h} />);
+        const opened = vi.fn();
+        window.addEventListener("paperling:open-find", opened);
+        press({ key: "f", ctrlKey: true });
+        window.removeEventListener("paperling:open-find", opened);
+        expect(opened).toHaveBeenCalledTimes(1);
+        expect(h.openPreviewFind).not.toHaveBeenCalled();
+    });
 });

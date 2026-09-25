@@ -166,6 +166,13 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
                 if (s.hasFile && s.mode === "preview" && s.openPreviewFind) {
                     e.preventDefault();
                     s.openPreviewFind();
+                } else if (s.hasFile) {
+                    // Focus is outside the editor (a tab, the split preview,
+                    // the status bar): the editor keymap never saw the key,
+                    // so Ctrl+F did nothing. Route it to the editor's find.
+                    // FIND-10.
+                    e.preventDefault();
+                    window.dispatchEvent(new CustomEvent("paperling:open-find"));
                 }
                 return;
             }

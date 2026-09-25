@@ -62,9 +62,29 @@ interface FindBarProps {
     /** Changes whenever the searchable content changes; re-runs the search. */
     revision: unknown;
     onClose: () => void;
+    /**
+     * Bumped on every open request (Ctrl+F, menu, palette), including while
+     * the bar is already open. `text` is the selection to search for, if any.
+     * Every editor (VS Code, Obsidian, Typora, browsers) pre-fills find with
+     * the selected word and re-focuses the field on a repeat Ctrl+F; Paperling
+     * did neither, so the query had to be retyped and a second Ctrl+F from
+     * the editor did nothing visible. FIND-06/07.
+     */
+    openRequest?: { nonce: number; text?: string };
 }
 
-const DEBOUNCE_MS = 400;
+/** Search quickly while the query is being typed (search-as-you-type), and
+ *  more lazily when only the document changed underneath an open bar. FIND-09. */
+const QUERY_DEBOUNCE_MS = 90;
+const REVISION_DEBOUNCE_MS = 350;
+
+/** A selection worth seeding find with: one line, not huge, not blank. */
+export function findSeedFromSelection(text: string | null | undefined): string | undefined {
+    if (!text || text.includes("\n") || text.length > 200 || !text.trim()) return undefined;
+    return text;
+}
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Find state survives bar open/close and app restarts, like VS Code's panel —
 // retyping the same query (or re-toggling case/regex) on every open was pure
@@ -82,7 +102,7 @@ const persistFindState = (s: PersistedFindState) => {
     try { localStorage.setItem(FIND_STATE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
 };
 
-export function FindBar({ isOpen, initialMode = "find", controller, revision, onClose }: FindBarProps) {
+export function FindBar({ isOpen, initialMode = "find", controller, revision, onClose, openRequest }: FindBarProps) {
     const [findState, setFindState] = usePersistedState(loadFindState, persistFindState);
     const { query, replacement, caseSensitive, regex } = findState;
     const showReplace = (initialMode === "replace" && controller.supportsReplace) || (findState.showReplace && controller.supportsReplace);
@@ -103,6 +123,21 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
         }
     }, [isOpen, initialMode, controller]);
 
+    // An open request (possibly on an already-open bar) seeds the query from
+    // the selection and puts the caret back in the field. FIND-06/07.
+    const lastRequestRef = useRef(openRequest?.nonce);
+    useEffect(() => {
+        if (!openRequest || openRequest.nonce === lastRequestRef.current) return;
+        lastRequestRef.current = openRequest.nonce;
+        const seed = openRequest.text;
+        if (seed) setFindState((s) => ({ ...s, query: s.regex && controller.supportsRegex ? escapeRegex(seed) : seed }));
+        // After the render that applies the seed, so select() covers it.
+        requestAnimationFrame(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        });
+    }, [openRequest, controller, setFindState]);
+
     // Clear the previous highlights the instant the query (or its options)
     // changes, so nothing stale lingers on screen during the debounce window —
     // only matches for the settled query are ever painted. Navigation (next/prev)
@@ -113,6 +148,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
 
     // Recompute matches (debounced) when the query, its options, or the content
     // changes. Editor keystrokes bump `revision`, so matches track live edits.
+    const lastSearchKeyRef = useRef("");
     useEffect(() => {
         if (!isOpen) return;
         const q = query;
@@ -131,13 +167,16 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
             setInvalid(true);
             return;
         }
+        const key = `${q}\u0000${caseSensitive}\u0000${useRegex}`;
+        const delay = key === lastSearchKeyRef.current ? REVISION_DEBOUNCE_MS : QUERY_DEBOUNCE_MS;
         const id = window.setTimeout(() => {
+            lastSearchKeyRef.current = key;
             const { count: n, activeIndex } = controller.search(q, opts);
             setInvalid(false);
             setCount(n);
             setActiveIdx(n > 0 ? activeIndex : -1);
             if (n === 0) controller.clear();
-        }, DEBOUNCE_MS);
+        }, delay);
         return () => window.clearTimeout(id);
     }, [isOpen, query, caseSensitive, regex, useRegex, revision, controller]);
 
