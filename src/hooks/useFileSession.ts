@@ -347,7 +347,23 @@ export function useFileSession({
           setActiveTab(existing.id);
         } else {
           const id = newTabId();
-          commitTabs([...tabsRef.current, { id, ...loaded }]);
+          // Opening a file from an untouched, empty Untitled tab takes that
+          // tab's place instead of leaving a stray blank tab behind (the
+          // usual "New File, then Open" start). It gets a NEW id so the
+          // editor starts it fresh: reusing the id would make the empty
+          // buffer part of this file's undo history. TABS-22.
+          const live = liveRef.current;
+          const activeIdx = tabsRef.current.findIndex((tab) => tab.id === activeTabIdRef.current);
+          const active = activeIdx >= 0 ? tabsRef.current[activeIdx] : undefined;
+          const pristine =
+            active && !active.filePath && !live.filePath && live.content === "" && live.originalContent === "";
+          if (pristine) {
+            const next = [...tabsRef.current];
+            next[activeIdx] = { id, ...loaded };
+            commitTabs(next);
+          } else {
+            commitTabs([...tabsRef.current, { id, ...loaded }]);
+          }
           setActiveTab(id);
         }
         // Snap the new file to the top — but not on a same-path external reload,
@@ -665,6 +681,9 @@ export function useFileSession({
       const selected = await open({
         multiple: true,
         filters: [{ name: "Markdown & text", extensions: ["md", "markdown", "txt", "text"] }],
+        // Start next to the open note (or the last one used), not wherever
+        // the OS dialog was last. SAVE-05.
+        defaultPath: dirOf(filePathRef.current) ?? lastUsedDirectory(getRecentFiles()) ?? undefined,
       });
       if (typeof selected === "string") await loadFile(selected);
       else if (Array.isArray(selected)) for (const path of selected) await loadFile(path);

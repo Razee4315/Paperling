@@ -79,6 +79,22 @@ describe("useFileSession", () => {
     expect(seen).toBe("bravo");
   });
 
+  it("opening a file replaces an untouched empty Untitled tab (TABS-22)", async () => {
+    const { result } = renderHook(() => useFileSession(options()));
+    act(() => result.current.handleNewFile());
+    const untitledId = result.current.activeTabId;
+    await act(() => result.current.loadFile("C:/a.md"));
+    expect(result.current.tabs.map((t) => t.fileName)).toEqual(["a.md"]);
+    // A fresh id, so the editor can't carry the blank buffer's history over.
+    expect(result.current.activeTabId).not.toBe(untitledId);
+
+    // A typed-in Untitled tab is kept.
+    act(() => result.current.handleNewFile());
+    act(() => result.current.setContent("draft"));
+    await act(() => result.current.loadFile("C:/b.md"));
+    expect(result.current.tabs.map((t) => t.fileName)).toEqual(["a.md", expect.stringMatching(/^Untitled/), "b.md"]);
+  });
+
   it("closes a clean tab and activates its neighbour", async () => {
     const { result } = renderHook(() => useFileSession(options()));
     await act(() => result.current.loadFile("C:/a.md"));
