@@ -808,6 +808,11 @@ function AppContent() {
   // preview's link renderers are rebuilt whenever their handlers change).
   const liveContentRef = useRef(content);
   liveContentRef.current = content;
+  // The text the preview DOM currently shows (reported after each commit).
+  const renderedPreviewContentRef = useRef<string | null>(null);
+  const handlePreviewRendered = useCallback((rendered: string) => {
+    renderedPreviewContentRef.current = rendered;
+  }, []);
 
   // Wikilink click: resolve target relative to the current file's folder.
   // Tries `<target>.md` first, then `<target>` literal. Silently fails if neither exists.
@@ -1171,6 +1176,13 @@ function AppContent() {
   // (EXPORT-03).
   const getExportHtml = useCallback(async (): Promise<string> => {
     flushDeferredPreview();
+    // The preview renders in a transition, so on a long note "two frames"
+    // wasn't always enough and an export could miss the last edits. Wait
+    // until it reports the current text as rendered (bounded). EXPORT-07.
+    const deadline = Date.now() + 5000;
+    while (renderedPreviewContentRef.current !== liveContentRef.current && Date.now() < deadline) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 30));
+    }
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
@@ -1946,6 +1958,7 @@ function AppContent() {
                   registerScroller={registerPreviewScroller}
                   onWikilinkClick={handleWikilinkClick}
                   onNavigateRelative={handleNavigateRelative}
+                  onRendered={handlePreviewRendered}
                 />
               </Suspense>
 

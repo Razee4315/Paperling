@@ -243,6 +243,9 @@ interface MarkdownPreviewProps {
     onWikilinkClick?: (target: string) => void;
     /** Open a relative `[text](note.md)` link in-app instead of externally. */
     onNavigateRelative?: (href: string) => void;
+    /** Called after the body for `content` has been committed to the DOM.
+     *  Export/print wait on it instead of guessing a number of frames. */
+    onRendered?: (content: string) => void;
 }
 
 /** Slugify heading text into a stable, URL-safe id (GitHub-style). Unicode
@@ -815,6 +818,7 @@ function MarkdownPreviewImpl({
     registerScroller,
     onWikilinkClick,
     onNavigateRelative,
+    onRendered,
 }: MarkdownPreviewProps) {
     const mainRef = useRef<HTMLElement>(null);
     const [zoomImage, setZoomImage] = useState<{ src: string; alt: string } | null>(null);
@@ -1097,11 +1101,20 @@ function MarkdownPreviewImpl({
     // inside a transition. A burst of edits (already coalesced by App's debounce)
     // never blocks the commit that paints the latest keystroke, and React can
     // interrupt + restart this reconcile if newer input arrives. PREVIEW-01.
-    const [renderedBody, setRenderedBody] = useState(renderBody);
+    const [rendered, setRendered] = useState({ body: renderBody, content });
+    const renderedBody = rendered.body;
     const [, startBodyTransition] = useTransition();
     useEffect(() => {
-        startBodyTransition(() => setRenderedBody(renderBody));
+        startBodyTransition(() => setRendered({ body: renderBody, content }));
+        // `content` rides along only to report what was rendered.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [renderBody]);
+    // After commit: the DOM now shows `rendered.content`. EXPORT-07.
+    const onRenderedRef = useRef(onRendered);
+    onRenderedRef.current = onRendered;
+    useEffect(() => {
+        onRenderedRef.current?.(rendered.content);
+    }, [rendered]);
 
     // Top-level blocks of the body (null = render it whole, e.g. footnotes).
     // PERF-02.
