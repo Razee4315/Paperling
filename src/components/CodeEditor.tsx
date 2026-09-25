@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect, useState, useMemo, memo } from "react";
-import { EditorState as CMEditorState, Compartment, Prec } from "@codemirror/state";
+import { EditorState as CMEditorState, EditorSelection, Compartment, Prec } from "@codemirror/state";
+import { selectNextOccurrence, highlightSelectionMatches } from "@codemirror/search";
 import {
     EditorView,
     keymap,
@@ -69,6 +70,9 @@ interface CodeEditorProps {
     showToolbar?: boolean;
     wordWrap?: boolean;
     spellCheck?: boolean;
+    /** Centre the text in a ~80-character column (Settings → Readable line
+     *  length), matching the preview. Only applies while word wrap is on. */
+    readableLineLength?: boolean;
     /** Optional vim modal editing (issue #119): h/j/k/l, modes, operators —
      *  the official @replit/codemirror-vim implementation. Off by default. */
     vimMode?: boolean;
@@ -128,11 +132,13 @@ const editorTheme = EditorView.theme({
         height: "100%",
         color: "var(--text-primary)",
         backgroundColor: "var(--bg-editor)",
-        fontSize: "14px",
+        // Follows Settings → Font size (was a hardcoded 14px, so the setting
+        // never touched the editor). Line height scales with it.
+        fontSize: "var(--editor-font-size, 14px)",
     },
     ".cm-scroller": {
         fontFamily: EDITOR_FONT_FAMILY,
-        lineHeight: "24px",
+        lineHeight: "1.72",
         overflow: "auto",
     },
     ".cm-content": {
@@ -163,6 +169,46 @@ const editorTheme = EditorView.theme({
         backgroundColor: "var(--selection-bg)",
     },
     ".cm-foldPlaceholder": { backgroundColor: "var(--bg-hover)", color: "var(--text-secondary)", border: "none" },
+});
+
+/** Bold/italic across several cursors (Ctrl+D): wrap every range. Returns
+ *  false for a single range so the tested single-range toggle handles it. */
+function wrapEachRange(view: EditorView, mark: string): boolean {
+    if (view.state.selection.ranges.length < 2) return false;
+    view.dispatch(
+        view.state.changeByRange((r) => ({
+            changes: [
+                { from: r.from, insert: mark },
+                { from: r.to, insert: mark },
+            ],
+            range: EditorSelection.range(r.from + mark.length, r.to + mark.length),
+        })),
+    );
+    return true;
+}
+
+/**
+ * Typing an emphasis marker over a selection wraps it instead of replacing
+ * it (`*` → *text*, `_`, `~`, `=` for ==highlight==), like Typora. The
+ * cheatsheet promised this for years, backed by helpers that were never
+ * wired; closeBrackets already covers brackets and quotes. EDIT-01.
+ */
+const WRAP_ON_TYPE = new Set(["*", "_", "~", "="]);
+const wrapSelectionOnType = EditorView.inputHandler.of((view, from, to, text) => {
+    if (!WRAP_ON_TYPE.has(text) || from === to) return false;
+    const { ranges } = view.state.selection;
+    if (ranges.some((r) => r.empty)) return false;
+    view.dispatch(
+        view.state.changeByRange((r) => ({
+            changes: [
+                { from: r.from, insert: text },
+                { from: r.to, insert: text },
+            ],
+            range: EditorSelection.range(r.from + 1, r.to + 1),
+        })),
+        { userEvent: "input.type" },
+    );
+    return true;
 });
 
 /** Build the EditorState shape the (tested) editorActions helpers expect. */
@@ -210,6 +256,7 @@ function CodeEditorImpl({
     wordWrap = true,
     spellCheck = false,
     vimMode = false,
+    readableLineLength = false,
     aiConfig,
     reviewDoc,
     onReviewResolve,
@@ -370,8 +417,11 @@ function CodeEditorImpl({
         const editingKeymap = Prec.highest(keymap.of([
             { key: "Tab", run: (v) => runAction(v, (st) => handleTab(st, false)), shift: (v) => runAction(v, (st) => handleTab(st, true)) },
             { key: "Enter", run: (v) => runAction(v, handleEnter) },
-            { key: toCmKey("bold"), run: (v) => { applyResultToView(v, wrapSelection(toEdState(v), "**", "**", "bold")); return true; } },
-            { key: toCmKey("italic"), run: (v) => { applyResultToView(v, wrapSelection(toEdState(v), "*", "*", "italic")); return true; } },
+            { key: toCmKey("bold"), run: (v) => wrapEachRange(v, "**") || (applyResultToView(v, wrapSelection(toEdState(v), "**", "**", "bold")), true) },
+            { key: toCmKey("italic"), run: (v) => wrapEachRange(v, "*") || (applyResultToView(v, wrapSelection(toEdState(v), "*", "*", "italic")), true) },
+            // Ctrl+D: add the next occurrence of the selection/word as another
+            // cursor (VS Code). @codemirror/search was bundled but unused.
+            { key: toCmKey("selectNextOccurrence"), run: selectNextOccurrence, preventDefault: true },
             { key: toCmKey("link"), run: (v) => { applyResultToView(v, insertLink(toEdState(v))); return true; } },
             {
                 key: toCmKey("blockquote"), run: (v) => {
@@ -497,10 +547,17 @@ function CodeEditorImpl({
                     drawSelection(),
                     dropCursor(),
                     closeBrackets(),
+                    wrapSelectionOnType,
+                    // Multiple cursors (Ctrl+D, Ctrl/Cmd+click). Without this
+                    // facet CodeMirror silently keeps only the main range.
+                    CMEditorState.allowMultipleSelections.of(true),
                     autocompletion({ override: [wikiCompletionSource], icons: false, aboveCursor: false }),
                     markdown(),
                     syntaxHighlighting(markdownHighlight),
                     findHighlightField,
+                    // Other occurrences of the selected word get a subtle
+                    // highlight, as in every code editor.
+                    highlightSelectionMatches({ minSelectionLength: 2 }),
                     editorTheme,
                     wrapComp.of(wordWrap ? EditorView.lineWrapping : []),
                     spellComp.of(EditorView.contentAttributes.of(spellAttrs(spellCheck))),
@@ -530,6 +587,10 @@ function CodeEditorImpl({
     // Helper used by the editing keymap: run a (tested) editorActions function and
     // apply its result, or fall through to CodeMirror's default if it returns null.
     function runAction(view: EditorView, fn: (st: EditorState) => EditorResult | null): boolean {
+        // The (single-range) helpers would collapse a multi-cursor selection
+        // to its main range; with several cursors, let CodeMirror's own
+        // Enter / indent commands handle every range instead.
+        if (view.state.selection.ranges.length > 1) return false;
         const r = fn(toEdState(view));
         if (!r) return false;
         applyResultToView(view, r);
@@ -1131,7 +1192,10 @@ function CodeEditorImpl({
                 <FormatToolbar getState={getState} apply={applyResult} insert={insertAtCaret} onAIAssist={aiEnabled ? openAIBubble : undefined} />
             )}
             <div className="flex-1 overflow-hidden relative">
-                <div ref={containerRef} className="absolute inset-0 [&_.cm-editor]:h-full [&_.cm-editor]:outline-none" />
+                <div
+                    ref={containerRef}
+                    className={`absolute inset-0 [&_.cm-editor]:h-full [&_.cm-editor]:outline-none ${readableLineLength && wordWrap ? "readable-editor" : ""}`}
+                />
 
                 <FindBar
                     isOpen={findOpen}

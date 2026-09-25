@@ -138,6 +138,7 @@ const fontSizes: Record<FontSize, { base: string; h1: string; h2: string; h3: st
     small: { base: '14px', h1: '1.875em', h2: '1.5em', h3: '1.125em', lineHeight: '1.6' },
     medium: { base: '16px', h1: '2.25em', h2: '1.75em', h3: '1.25em', lineHeight: '1.7' },
     large: { base: '18px', h1: '2.5em', h2: '2em', h3: '1.375em', lineHeight: '1.8' },
+    xlarge: { base: '20px', h1: '2.5em', h2: '2em', h3: '1.375em', lineHeight: '1.8' },
 };
 
 // Generate CSS for export

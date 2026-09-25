@@ -286,75 +286,6 @@ export function handleEnter(state: EditorState): EditorResult | null {
     return null;
 }
 
-/* ---------- Auto-pair ---------- */
-
-const AUTO_PAIRS: Record<string, string> = {
-    "(": ")",
-    "[": "]",
-    "{": "}",
-    "`": "`",
-    '"': '"',
-    "'": "'",
-};
-
-const WRAP_PAIRS: Record<string, string> = {
-    "(": ")",
-    "[": "]",
-    "{": "}",
-    "`": "`",
-    "*": "*",
-    "_": "_",
-    '"': '"',
-};
-
-export function handleAutoPair(state: EditorState, ch: string): EditorResult | null {
-    const { text, selStart, selEnd } = state;
-
-    // Wrap selection
-    if (selStart !== selEnd && WRAP_PAIRS[ch]) {
-        const close = WRAP_PAIRS[ch];
-        const selected = text.slice(selStart, selEnd);
-        const wrapped = ch + selected + close;
-        return {
-            text: text.slice(0, selStart) + wrapped + text.slice(selEnd),
-            selStart: selStart + 1,
-            selEnd: selEnd + 1,
-        };
-    }
-
-    // Empty selection: insert pair, place caret in middle
-    if (selStart === selEnd && AUTO_PAIRS[ch]) {
-        const close = AUTO_PAIRS[ch];
-        const nextChar = text[selStart] ?? "";
-        // Don't auto-pair quotes when next to a word char (likely an apostrophe)
-        if ((ch === "'" || ch === '"') && /\w/.test(text[selStart - 1] ?? "")) return null;
-        // Don't double-up if the close char is already there (let the user "type past" it)
-        if (nextChar === close && (ch === ")" || ch === "]" || ch === "}" || ch === "`" || ch === '"' || ch === "'")) return null;
-
-        const inserted = ch + close;
-        return {
-            text: text.slice(0, selStart) + inserted + text.slice(selEnd),
-            selStart: selStart + 1,
-            selEnd: selStart + 1,
-        };
-    }
-
-    return null;
-}
-
-/** "Type past" closer when caret is right before a matching closer that we just inserted. */
-export function handleSkipCloser(state: EditorState, ch: string): EditorResult | null {
-    const { text, selStart, selEnd } = state;
-    if (selStart !== selEnd) return null;
-    if (![")", "]", "}", "`", '"', "'"].includes(ch)) return null;
-    if (text[selStart] !== ch) return null;
-    return {
-        text,
-        selStart: selStart + 1,
-        selEnd: selStart + 1,
-    };
-}
-
 /* ---------- Bold / Italic / Link ---------- */
 
 export function wrapSelection(
@@ -421,28 +352,4 @@ export function insertLink(state: EditorState): EditorResult {
         selStart: caret,
         selEnd: isUrl ? caret : caret + url.length,
     };
-}
-
-/* ---------- Backspace: erase auto-pair ---------- */
-
-export function handleBackspace(state: EditorState): EditorResult | null {
-    const { text, selStart, selEnd } = state;
-    if (selStart !== selEnd || selStart === 0) return null;
-    const prev = text[selStart - 1];
-    const next = text[selStart];
-    if (
-        (prev === "(" && next === ")") ||
-        (prev === "[" && next === "]") ||
-        (prev === "{" && next === "}") ||
-        (prev === "`" && next === "`") ||
-        (prev === '"' && next === '"') ||
-        (prev === "'" && next === "'")
-    ) {
-        return {
-            text: text.slice(0, selStart - 1) + text.slice(selStart + 1),
-            selStart: selStart - 1,
-            selEnd: selStart - 1,
-        };
-    }
-    return null;
 }

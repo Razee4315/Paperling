@@ -30,7 +30,7 @@ const ACCENT_COLORS: Record<Exclude<AccentId, 'default'>, string> = {
     cyan: '#06b6d4',
 };
 export type FontFamily = 'inter' | 'merriweather' | 'lora' | 'source-serif' | 'fira-sans' | 'custom';
-export type FontSize = 'small' | 'medium' | 'large';
+export type FontSize = 'small' | 'medium' | 'large' | 'xlarge';
 
 interface ThemeContextType {
     theme: Theme;
@@ -56,7 +56,7 @@ const FONT_SIZE_STORAGE_KEY = 'paperling-font-size';
 // Valid values for validation against corrupted localStorage
 const VALID_THEMES: Theme[] = ['dark', 'light', 'paper', 'dracula', 'graphite', 'nord', 'midnight'];
 const VALID_FONTS: FontFamily[] = ['inter', 'merriweather', 'lora', 'source-serif', 'fira-sans', 'custom'];
-const VALID_FONT_SIZES: FontSize[] = ['small', 'medium', 'large'];
+const VALID_FONT_SIZES: FontSize[] = ['small', 'medium', 'large', 'xlarge'];
 
 function getValidated<T extends string>(key: string, validValues: T[], fallback: T): T {
     const stored = localStorage.getItem(key);

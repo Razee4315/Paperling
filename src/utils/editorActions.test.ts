@@ -2,53 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
     handleTab,
     handleEnter,
-    handleAutoPair,
-    handleSkipCloser,
-    handleBackspace,
     wrapSelection,
     insertLink,
     type EditorState,
 } from "./editorActions";
 
 const st = (text: string, selStart: number, selEnd: number = selStart): EditorState => ({ text, selStart, selEnd });
-
-describe("handleAutoPair", () => {
-    it("inserts a closing pair on empty selection and centers the caret", () => {
-        const r = handleAutoPair(st("", 0), "(");
-        expect(r).toEqual({ text: "()", selStart: 1, selEnd: 1 });
-    });
-
-    it("wraps a non-empty selection", () => {
-        const r = handleAutoPair(st("abc", 0, 3), "(");
-        expect(r).toEqual({ text: "(abc)", selStart: 1, selEnd: 4 });
-    });
-
-    it("does not auto-pair a quote next to a word char (apostrophe)", () => {
-        expect(handleAutoPair(st("a", 1), "'")).toBeNull();
-    });
-
-    it("returns null for a non-pairing char", () => {
-        expect(handleAutoPair(st("", 0), "z")).toBeNull();
-    });
-});
-
-describe("handleSkipCloser", () => {
-    it("types past an existing closer", () => {
-        expect(handleSkipCloser(st("()", 1), ")")).toEqual({ text: "()", selStart: 2, selEnd: 2 });
-    });
-    it("returns null when next char is not the closer", () => {
-        expect(handleSkipCloser(st("(", 1), ")")).toBeNull();
-    });
-});
-
-describe("handleBackspace", () => {
-    it("erases an empty auto-pair as a unit", () => {
-        expect(handleBackspace(st("()", 1))).toEqual({ text: "", selStart: 0, selEnd: 0 });
-    });
-    it("returns null for normal backspace", () => {
-        expect(handleBackspace(st("ab", 2))).toBeNull();
-    });
-});
 
 describe("wrapSelection", () => {
     it("wraps a selection with markers", () => {

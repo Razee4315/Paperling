@@ -90,12 +90,18 @@ const groups: ShortcutGroup[] = [
             { keys: "Enter", description: "Continue list, blockquote, or task item" },
             { keys: formatShortcut("find"), description: "Find" },
             { keys: formatShortcut("replace"), description: "Find and replace" },
+            { keys: formatShortcut("gotoLine"), description: "Go to line (or type :N in the palette)" },
+            { keys: formatShortcut("selectNextOccurrence"), description: "Select next occurrence (multi-cursor)" },
+            { keys: isMac ? "⌥↑ / ⌥↓" : "Alt+↑ / Alt+↓", description: "Move line up / down" },
+            { keys: isMac ? "⇧⌥↓" : "Shift+Alt+↓", description: "Duplicate line" },
+            { keys: withMod("Shift+K"), description: "Delete line" },
         ],
     },
     {
         title: "Editor: Auto-pair",
         items: [
             { keys: "( [ { ` \" '", description: "Wrap selection or insert pair" },
+            { keys: "* _ ~ =", description: "Wrap selection in emphasis / highlight markers" },
             { keys: ") ] } ` \" '", description: "Type past matching closer" },
             { keys: "Backspace", description: "Removes empty pair atomically" },
         ],

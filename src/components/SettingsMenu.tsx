@@ -25,6 +25,7 @@ const fontSizes: { id: FontSize; name: string; size: string }[] = [
     { id: 'small', name: 'Small', size: '14px' },
     { id: 'medium', name: 'Medium', size: '16px' },
     { id: 'large', name: 'Large', size: '18px' },
+    { id: 'xlarge', name: 'XL', size: '20px' },
 ];
 
 export function SettingsMenu() {

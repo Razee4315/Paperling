@@ -18,6 +18,8 @@ export interface ShortcutHandlers {
     handleToggleTOC: () => void;
     openCheatsheet: () => void;
     openPalette: () => void;
+    /** Open the palette in ":" go-to-line mode (mod+G). NAV-10. */
+    openGotoLine?: () => void;
     openSettings: () => void;
     /** Open the reader-mode find bar. Only invoked when mode === "preview". */
     openPreviewFind?: () => void;
@@ -232,6 +234,12 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
             if (matchesBinding(e, "palette")) {
                 e.preventDefault();
                 s.openPalette();
+                return;
+            }
+            // mod+G - go to line (palette in ":" mode). NAV-10.
+            if (matchesBinding(e, "gotoLine")) {
+                e.preventDefault();
+                if (s.hasFile) s.openGotoLine?.();
                 return;
             }
             // mod+, - Settings

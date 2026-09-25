@@ -45,11 +45,25 @@ export function SlashMenu({ isOpen, position, query, onSelect, onClose }: SlashM
     const [activeIdx, setActiveIdx] = useState(0);
     const listRef = useRef<HTMLUListElement>(null);
 
+    // Rank: label/word prefix first ("/h" → Headings before "Math"), then any
+    // substring. Stable within a rank, so the menu order is preserved.
     const filtered = query
-        ? commands.filter((c) =>
-            c.label.toLowerCase().includes(query.toLowerCase()) ||
-            c.id.toLowerCase().includes(query.toLowerCase())
-        )
+        ? commands
+              .map((c) => {
+                  const q = query.toLowerCase();
+                  const label = c.label.toLowerCase();
+                  const rank = label.startsWith(q) || c.id.startsWith(q)
+                      ? 0
+                      : label.split(/\s+/).some((w) => w.startsWith(q))
+                        ? 1
+                        : label.includes(q) || c.id.includes(q)
+                          ? 2
+                          : -1;
+                  return { c, rank };
+              })
+              .filter((r) => r.rank !== -1)
+              .sort((a, b) => a.rank - b.rank)
+              .map((r) => r.c)
         : commands;
 
     useEffect(() => { setActiveIdx(0); }, [query, isOpen]);

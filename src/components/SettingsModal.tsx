@@ -63,9 +63,12 @@ const fonts: Array<{ id: FontFamily; name: string; kind: string; stack: string }
 ];
 
 const fontSizes: Array<{ id: FontSize; name: string; sample: number }> = [
-    { id: "small", name: "Small", sample: 13 },
+    // Samples match the real reading sizes (they used to show 13/19px for
+    // 14/18px text).
+    { id: "small", name: "Small", sample: 14 },
     { id: "medium", name: "Medium", sample: 16 },
-    { id: "large", name: "Large", sample: 19 },
+    { id: "large", name: "Large", sample: 18 },
+    { id: "xlarge", name: "Extra large", sample: 20 },
 ];
 
 interface ToggleRowProps {
@@ -403,7 +406,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 {matches("size") && (
                                     <section>
                                         <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Font size</h3>
-                                        <div className="grid grid-cols-3 gap-2">
+                                        <div className="grid grid-cols-4 gap-2">
                                             {fontSizes.map((s) => {
                                                 const active = fontSize === s.id;
                                                 return (

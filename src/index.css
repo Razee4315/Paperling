@@ -405,6 +405,7 @@
 }
 
 [data-font-size="small"] {
+  --editor-font-size: 13px;
   --font-size-base: 14px;
   --font-size-h1: 1.875em;
   --font-size-h2: 1.5em;
@@ -413,6 +414,7 @@
 }
 
 [data-font-size="medium"] {
+  --editor-font-size: 14px;
   --font-size-base: 16px;
   --font-size-h1: 2.25em;
   --font-size-h2: 1.75em;
@@ -421,7 +423,17 @@
 }
 
 [data-font-size="large"] {
+  --editor-font-size: 16px;
   --font-size-base: 18px;
+  --font-size-h1: 2.5em;
+  --font-size-h2: 2em;
+  --font-size-h3: 1.375em;
+  --line-height: 1.8;
+}
+
+[data-font-size="xlarge"] {
+  --editor-font-size: 18px;
+  --font-size-base: 20px;
   --font-size-h1: 2.5em;
   --font-size-h2: 2em;
   --font-size-h3: 1.375em;
@@ -1300,6 +1312,14 @@ html.touch ::-webkit-scrollbar {
   cursor: pointer;
 }
 .markdown-body .md-tag:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+/* Readable line length in the editor (Settings → Readable line length):
+   the text column is centred and capped like the preview's, while the
+   gutter stays at the left edge. Only applied with word wrap on. */
+.readable-editor .cm-content {
+  max-width: 820px;
+  margin: 0 auto;
+}
 
 .markdown-body strong {
   font-weight: 600;

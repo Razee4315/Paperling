@@ -50,6 +50,7 @@ export const BINDINGS = {
     toggleTOC: { key: "o", mod: true, shift: true },
     searchInFolder: { key: "f", mod: true, shift: true },
     palette: { key: "p", mod: true },
+    gotoLine: { key: "g", mod: true },
     settings: { key: ",", mod: true },
     fullscreen: { key: "F11" },
     cheatsheet: { key: "?" },
@@ -69,6 +70,7 @@ export const BINDINGS = {
     blockquote: { key: "/", mod: true },
     find: { key: "f", mod: true },
     replace: { key: "h", mod: true },
+    selectNextOccurrence: { key: "d", mod: true },
 } satisfies Record<string, Binding>;
 
 export type BindingId = keyof typeof BINDINGS;

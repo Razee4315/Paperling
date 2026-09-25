@@ -169,6 +169,10 @@ function AppContent() {
   const [mode, setMode] = usePersistedState<ViewMode>(getSavedViewMode, setSavedViewMode);
   const [showCheatsheet, setShowCheatsheet] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
+  // Palette opened in a mode (":" = go to line, via Ctrl+G). NAV-10.
+  const [paletteSeed, setPaletteSeed] = useState<string | undefined>(undefined);
+  // Markdown files next to the open one, for the palette's quick switcher.
+  const [folderFiles, setFolderFiles] = useState<{ name: string; path: string }[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [showStats, setShowStats] = useState(false);
@@ -1131,7 +1135,8 @@ function AppContent() {
     handleToggleMode, handleToggleSplit, handleToggleFileExplorer, handleToggleTOC,
     toggleFullscreen, toggleZen: handleToggleZen,
     openCheatsheet: () => setShowCheatsheet(true),
-    openPalette: () => setShowPalette(true),
+    openPalette: () => { setPaletteSeed(undefined); setShowPalette(true); },
+    openGotoLine: () => { setPaletteSeed(":"); setShowPalette(true); },
     openSettings: () => setShowSettings(true),
     // Ctrl+F in reader mode opens the preview find bar (the editor keymap
     // handles find in code/split mode, where the editor has focus). FIND-01.
@@ -1192,6 +1197,42 @@ function AppContent() {
       showToast(errMessage(err) || "Could not export HTML", "error");
     }
   }, [fileName, getExportHtml, showToast, theme, font, fontSize, customFont]);
+
+  // Print the RENDERED document (not the app window): the export pipeline's
+  // standalone HTML — which already carries print CSS, KaTeX styles and
+  // inlined images — goes into an off-screen iframe that prints itself.
+  // Ctrl+P is the command palette, so this palette entry is the print path.
+  // PRINT-01.
+  const handlePrint = useCallback(async () => {
+    const raw = await getExportHtml();
+    if (!raw) {
+      showToast("Open the document in Reader or Split view to print it", "info");
+      return;
+    }
+    try {
+      const { prepareExportHtml, generateHTML } = await import("./utils/exportUtils");
+      const cleaned = await prepareExportHtml(raw);
+      const title = (fileName ?? "Untitled").replace(/\.(md|markdown)$/i, "");
+      const html = generateHTML(cleaned, title, "light", font, fontSize, false, customFont);
+      const frame = document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+      document.body.appendChild(frame);
+      const cleanup = () => window.setTimeout(() => frame.remove(), 1000);
+      frame.onload = () => {
+        try {
+          frame.contentWindow?.focus();
+          frame.contentWindow?.print();
+        } catch {
+          showToast("Printing isn't available here — use Export → PDF instead", "error");
+        }
+        cleanup();
+      };
+      frame.srcdoc = html;
+    } catch (err) {
+      showToast(errMessage(err) || "Could not print", "error");
+    }
+  }, [customFont, fileName, font, fontSize, getExportHtml, showToast]);
 
   // Open find / find-and-replace from the Edit menu and command palette. In
   // reader mode "find" uses the preview find bar; "replace" only applies to the
@@ -1291,6 +1332,16 @@ function AppContent() {
         keywords: "words count reading time",
         run: () => setShowStats(true),
       });
+      if (!IS_MOBILE) {
+        items.push({
+          id: "file.print",
+          label: "Print…",
+          section: "File",
+          icon: "print",
+          keywords: "print paper pdf printer",
+          run: () => void handlePrint(),
+        });
+      }
       items.push({
         id: "tab.close",
         label: "Close tab",
@@ -1524,7 +1575,7 @@ function AppContent() {
     // separate hook that's gated on the palette actually being open.
     handleNewFile, handleOpenFileAction, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
-    loadFile, filePath, hasFile, showToast, closeTab,
+    loadFile, filePath, hasFile, showToast, closeTab, handlePrint,
     typewriterModeEnabled, toolbarVisible, aiEnabled,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
@@ -1563,6 +1614,34 @@ function AppContent() {
     return items;
   }, [showPalette, deferredContent]);
 
+  // Quick switcher: list the open file's folder when the palette opens, so any
+  // sibling note is a few keystrokes away (not just recents and tabs).
+  useEffect(() => {
+    if (!showPalette || !currentDirectory) return;
+    let cancelled = false;
+    invoke<{ name: string; path: string; is_dir: boolean }[]>("list_directory_files", { directory: currentDirectory })
+      .then((entries) => {
+        if (!cancelled) setFolderFiles(entries.filter((e) => !e.is_dir));
+      })
+      .catch(() => { if (!cancelled) setFolderFiles([]); });
+    return () => { cancelled = true; };
+  }, [showPalette, currentDirectory]);
+
+  const folderPaletteItems = useMemo<PaletteCommand[]>(() => {
+    if (!showPalette) return [];
+    const recentPaths = new Set(getRecentFiles().map((r) => r.path));
+    return folderFiles
+      .filter((f) => f.path !== filePath && !recentPaths.has(f.path))
+      .map((f) => ({
+        id: `folder.${f.path}`,
+        label: f.name,
+        section: "Files in this folder",
+        icon: "description",
+        keywords: "open file switch quick",
+        run: () => loadFile(f.path),
+      }));
+  }, [showPalette, folderFiles, filePath, loadFile]);
+
   // "Open tabs" palette section — jump to any open tab by name (only worthwhile
   // with more than one open). Uses the same folder disambiguation as the bar. TABS-11.
   const tabPaletteItems = useMemo<PaletteCommand[]>(() => {
@@ -1587,8 +1666,8 @@ function AppContent() {
   // before so the CommandPalette component sees no API change. Reference
   // changes only when one of the sources changes — typically rare.
   const fullPaletteItems = useMemo<PaletteCommand[]>(
-    () => [...paletteItems, ...tabPaletteItems, ...headingPaletteItems],
-    [paletteItems, tabPaletteItems, headingPaletteItems]
+    () => [...paletteItems, ...tabPaletteItems, ...folderPaletteItems, ...headingPaletteItems],
+    [paletteItems, tabPaletteItems, folderPaletteItems, headingPaletteItems]
   );
 
   // Tab-bar items. The active tab's name/dirty come from live state (its stored
@@ -1810,6 +1889,7 @@ function AppContent() {
                 wordWrap={wordWrapEnabled}
                 spellCheck={spellCheckEnabled}
                 vimMode={vimModeEnabled}
+                readableLineLength={readableLineLength}
                 aiConfig={aiConfig}
                 reviewDoc={proposedDoc}
                 onReviewResolve={handleReviewResolve}
@@ -2055,7 +2135,13 @@ function AppContent() {
       )}
       {showPalette && (
         <Suspense fallback={null}>
-          <CommandPalette isOpen={showPalette} items={fullPaletteItems} onClose={() => setShowPalette(false)} />
+          <CommandPalette
+            isOpen={showPalette}
+            items={fullPaletteItems}
+            initialQuery={paletteSeed}
+            lineCount={hasFile ? content.split("\n").length : undefined}
+            onClose={() => { setShowPalette(false); setPaletteSeed(undefined); }}
+          />
         </Suspense>
       )}
       {showSearch && (
