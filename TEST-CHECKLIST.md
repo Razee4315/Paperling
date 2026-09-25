@@ -1,3 +1,45 @@
+# ✅ Round 3 — branch `fix/audit-round3-2026-09-25`
+
+*Everything here is new on this branch (515 passing tests). Details: `AUDIT_2026-09-25.md`.*
+
+## 💾 Your work is safe (try these first)
+- [ ] **Crash recovery sticks.** Type in a new note, kill the app from Task Manager, then reopen: the text is back and the tab shows the unsaved dot. Kill it again and reopen: **still back** (it used to vanish the second time).
+- [ ] **"Don't save" means don't save.** Type something, close the window, choose Discard, then reopen: nothing is "recovered".
+- [ ] **Other programs' edits are never overwritten.** Open a note, type, then save the same file in Notepad within 1–2 seconds. Paperling shows the "File changed on disk" dialog instead of overwriting. Ctrl+S does the same.
+- [ ] While that dialog is open, press **Alt+→** or **Ctrl+Tab**: nothing happens (shortcuts are paused behind dialogs). Click another tab and wait 3s: Notepad's version is still on disk. Come back: the dialog is there again.
+- [ ] **Keep my version** saves once, and the dialog doesn't come back.
+- [ ] **Replace in files with the note open:** Ctrl+Shift+F, search a word that's in an open tab, and replace. The open tab shows the change (unsaved dot) and **keeps it**. Then click **Undo replace**: everything goes back.
+
+## ⌨️ Things that were broken
+- [ ] Type in a new note, then press **Ctrl+N**: a second tab opens (it used to do nothing).
+- [ ] Write `Run the command /table later`, then click right after `/table`: **no** slash menu, and Enter just makes a new line.
+- [ ] Windows: while typing, **Alt+←/→** switches tabs again.
+- [ ] Hover a Mermaid diagram and click **+**: it zooms (it used to open fullscreen).
+
+## ✨ New
+- [ ] **Callouts:** `> [!WARNING] Careful` renders as an orange box; `> [!tip]- Folded` renders collapsed.
+- [ ] **#tags** show as pills; click one to search the folder for it. `%%hidden%%` text disappears from the preview.
+- [ ] **`[[Other note#Heading]]`** opens the note at that heading and shows as "Other note › Heading".
+- [ ] **Multi-cursor:** select a word, press **Ctrl+D** a few times, and type: every copy changes.
+- [ ] Select text and type `*` / `_` / `=` / `~`: the selection gets wrapped.
+- [ ] **Ctrl+G** (or `:42` in Ctrl+P): go to line. **Ctrl+P** also lists every note in the folder (quick switcher), and "fil new" finds "New file".
+- [ ] **Settings → Shortcuts:** click Bold, press Ctrl+Shift+Y, and it works in the editor right away. Trying a combo that's already used is refused with a message. Reset works.
+- [ ] Settings search: type `vim` or `bold`, and it jumps to the right section.
+- [ ] **Font size** (Settings → Appearance) now changes the editor too; there's a new Extra large step.
+- [ ] **Readable line length** also centres the editor text.
+- [ ] Diagram toolbar: **Copy as PNG** (paste into chat/docs) and **Save as SVG**.
+- [ ] Ctrl+P → **Print…** prints the formatted document, not the app window.
+- [ ] **File explorer** (Ctrl+Shift+E): New note, New folder, F2 to rename (the open tab follows), and Delete to move to `.trash` (nothing is permanently deleted). `.txt` notes are listed too.
+- [ ] Folder search: the new **ab** (whole word) toggle; `.txt` files are searched too.
+- [ ] A note saved by Notepad **with a BOM** shows its frontmatter card normally, and saving keeps the file byte-identical.
+- [ ] macOS/Linux: saving a note through a symlink keeps the symlink.
+
+## 🧪 For you, the developer
+- [ ] The Test Build workflow compiled the new Rust commands (link in the hand-off message).
+- [ ] When you open a PR, CI runs the new `cargo test` cases (unique temp names, explorer ops, whole-word search, symlink saves).
+
+---
+
 # ✅ Verification Checklist — branch `fix/audit-pass-2026-09-21`
 
 *Everything below is implemented on this branch (516 passing tests). Tick each one as you try it.*
