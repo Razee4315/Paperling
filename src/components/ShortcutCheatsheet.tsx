@@ -85,9 +85,10 @@ const groups: ShortcutGroup[] = [
     {
         title: "Editor: Navigation",
         items: [
-            { keys: "Tab", description: "Indent line / selection" },
-            { keys: "Shift+Tab", description: "Outdent line / selection" },
-            { keys: "Enter", description: "Continue list, blockquote, or task item" },
+            { keys: "Tab", description: "Indent line or nest list item" },
+            { keys: "Shift+Tab", description: "Outdent line or un-nest list item" },
+            { keys: "Enter", description: "Continue list, blockquote, or task item (on an empty nested item: step out)" },
+            { keys: withMod("Click"), description: "Follow the link or [[wikilink]] under the pointer" },
             { keys: formatShortcut("find"), description: "Find" },
             { keys: formatShortcut("replace"), description: "Find and replace" },
             { keys: formatShortcut("gotoLine"), description: "Go to line (or type :N in the palette)" },

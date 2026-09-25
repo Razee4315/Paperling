@@ -52,6 +52,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { matchWikilinkPrefix, rankFileNames, toWikiName } from "../utils/wikilinkComplete";
 import { applyTableOp, findTableAt, locateCell, type Align } from "../utils/tableModel";
 import { toCmKey, isMac } from "../config/keybindings";
+import { linkAt, type EditorLink } from "../utils/editorLinks";
 import { highlightCaretLine } from "../utils/caretLineHighlight";
 import type { HandoffOptions, Scroller } from "../utils/scrollSync";
 
@@ -92,6 +93,8 @@ interface CodeEditorProps {
      *  its own editor state (caret, selection, scroll and undo history) so
      *  switching tabs and back is lossless. TABS-20. */
     docKey?: string | null;
+    /** Ctrl/Cmd+click on a link in the source follows it. NAV-11. */
+    onOpenLink?: (link: EditorLink) => void;
 }
 
 /**
@@ -266,6 +269,7 @@ function CodeEditorImpl({
     onReviewResolve,
     docSwapId,
     docKey = null,
+    onOpenLink,
 }: CodeEditorProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
@@ -302,6 +306,7 @@ function CodeEditorImpl({
     const onErrorRef = useRef(onError); onErrorRef.current = onError;
     const onNoticeRef = useRef(onNotice); onNoticeRef.current = onNotice;
     const onReviewResolveRef = useRef(onReviewResolve); onReviewResolveRef.current = onReviewResolve;
+    const onOpenLinkRef = useRef(onOpenLink); onOpenLinkRef.current = onOpenLink;
     const filePathRef = useRef(filePath); filePathRef.current = filePath;
     // One-shot latch for Ctrl+Shift+V ("paste as plain text"): the keydown sets
     // it, the very next paste event consumes it and skips HTML conversion
@@ -566,8 +571,31 @@ function CodeEditorImpl({
             }
         });
 
+        // Ctrl/Cmd+click follows the link under the pointer (NAV-11); while
+        // the modifier is held, links show a pointer cursor as the hint.
+        const modHeld = (e: MouseEvent) => (isMac ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey;
+        const linkUnder = (view: EditorView, e: MouseEvent) => {
+            const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+            if (pos == null) return null;
+            const line = view.state.doc.lineAt(pos);
+            return linkAt(line.text, pos - line.from);
+        };
         const pasteHandler = EditorView.domEventHandlers({
             paste: (event, view) => handlePaste(event, view),
+            mousedown: (event, view) => {
+                if (event.button !== 0 || !modHeld(event) || !onOpenLinkRef.current) return false;
+                const link = linkUnder(view, event);
+                if (!link) return false;
+                event.preventDefault();
+                onOpenLinkRef.current(link);
+                return true;
+            },
+            mousemove: (event, view) => {
+                const pointer = modHeld(event) && !!onOpenLinkRef.current && !!linkUnder(view, event);
+                const want = pointer ? "pointer" : "";
+                if (view.contentDOM.style.cursor !== want) view.contentDOM.style.cursor = want;
+                return false;
+            },
         });
 
         // Arm the paste-as-plain-text latch (PASTE-03). One listener for the

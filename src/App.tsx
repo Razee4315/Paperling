@@ -4,7 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { save, ask } from "@tauri-apps/plugin-dialog";
 import { listen, TauriEvent } from "@tauri-apps/api/event";
 
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+import type { EditorLink } from "./utils/editorLinks";
 
 import { ThemeProvider, useTheme, type Theme } from "./context/ThemeContext";
 import { TitleBar } from "./components/TitleBar";
@@ -897,6 +898,24 @@ function AppContent() {
       offerCreateNote(resolved, name);
     }
   }, [filePath, loadFile, offerCreateNote]);
+
+  // Ctrl/Cmd+click on a link in the editor (NAV-11): the same destinations a
+  // click in the reader reaches.
+  const handleEditorOpenLink = useCallback((link: EditorLink) => {
+    if (link.kind === "wikilink") {
+      void handleWikilinkClick(link.target);
+    } else if (link.kind === "url") {
+      openUrl(link.target).catch((err) => console.error("Failed to open external URL:", err));
+    } else if (link.kind === "relative") {
+      if (/\.(md|markdown|txt)(#.*)?$/i.test(link.target)) void handleNavigateRelative(link.target);
+      else showToast("Only notes can be opened from the editor. Use Reader mode for other files.", "info");
+    } else {
+      const text = liveContentRef.current;
+      const line = findAnchorLine(text, link.target) ?? findAnchorLine(text, link.target.replace(/-/g, " "));
+      if (line == null) showToast(`No "${link.target}" heading in this note`, "info");
+      else window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
+    }
+  }, [handleWikilinkClick, handleNavigateRelative, showToast]);
 
   // Open a cross-file search result: load the file (if not already open) and
   // jump to the matching line once it has rendered. The goto-line event is the
@@ -1903,6 +1922,7 @@ function AppContent() {
                 content={content}
                 docSwapId={docSwapId}
                 docKey={activeTabId}
+                onOpenLink={handleEditorOpenLink}
                 onChange={handleContentChange}
                 onCursorChange={handleCursorChange}
                 onSelectionChange={handleSelectionChange}
