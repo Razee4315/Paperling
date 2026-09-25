@@ -1259,7 +1259,13 @@ export function useFileSession({
   const getOpenBuffer = useCallback((path: string): string | null => {
     const tab = findTabByPath(tabsRef.current, path);
     if (!tab) return null;
-    return tab.id === activeTabIdRef.current ? liveRef.current.content : tab.content;
+    // Right after a switch the active-tab id already points at `tab`, but the
+    // live buffer still holds the PREVIOUS file until the next render; only
+    // trust it when it really is this file. `[[Note#Heading]]` to an already
+    // open note used to search the wrong text and never jumped. NAV-12.
+    return tab.id === activeTabIdRef.current && samePath(liveRef.current.filePath, tab.filePath)
+      ? liveRef.current.content
+      : tab.content;
   }, []);
   const setOpenBuffer = useCallback(
     (path: string, text: string): boolean => {

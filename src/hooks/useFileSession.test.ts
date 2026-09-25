@@ -64,6 +64,21 @@ describe("useFileSession", () => {
     expect(result.current.isDirty).toBe(true);
   });
 
+  it("getOpenBuffer returns the target file's text right after switching to it (NAV-12)", async () => {
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/a.md"));
+    const aId = result.current.activeTabId!;
+    await act(() => result.current.loadFile("C:/b.md"));
+    act(() => result.current.activateTab(aId));
+    let seen: string | null = null;
+    // Same tick as the switch: the live buffer still holds a.md here.
+    act(() => {
+      result.current.loadFile("C:/b.md");
+      seen = result.current.getOpenBuffer("C:/b.md");
+    });
+    expect(seen).toBe("bravo");
+  });
+
   it("closes a clean tab and activates its neighbour", async () => {
     const { result } = renderHook(() => useFileSession(options()));
     await act(() => result.current.loadFile("C:/a.md"));
