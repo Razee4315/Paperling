@@ -20,6 +20,12 @@ export default defineConfig({
     },
     test: {
         environment: "jsdom",
+        // One jsdom per worker instead of one per file: the default pool spent
+        // ~2/3 of the run building environments, which starved the two
+        // slowest tests (bundle scan, DOCX export) into load-dependent
+        // timeouts — the suite was not reliably green. vmThreads keeps
+        // per-file isolation. TEST-01.
+        pool: "vmThreads",
         // Vitest normally hands node_modules to Node's resolver, which happily
         // loads the nested copies and ignores `resolve.dedupe` above — inline
         // the CodeMirror family so the deduped Vite resolution is used.
