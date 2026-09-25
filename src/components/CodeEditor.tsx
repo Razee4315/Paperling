@@ -1126,6 +1126,8 @@ function CodeEditorImpl({
                 selection: { anchor: docLine.from },
                 effects: EditorView.scrollIntoView(docLine.from, { y: "start", yMargin: 8 }),
             });
+            // Outline clicks ask the visible editor to take focus. PANEL-01.
+            if ((e as CustomEvent).detail?.focus && v.scrollDOM.clientHeight > 0) v.focus();
         };
         window.addEventListener("paperling:goto-line", handler);
         return () => window.removeEventListener("paperling:goto-line", handler);

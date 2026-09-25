@@ -16,13 +16,15 @@ const RESERVED_WINDOWS = /^(con|prn|aux|nul|com\d|lpt\d)$/i;
 const MAX_NAME = 60;
 
 /** Strip inline markdown so "**Big** [idea](x)" becomes "Big idea". */
-function plainText(line: string): string {
+export function stripInlineMarkdown(line: string): string {
     return line
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
         .replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) => alias ?? target)
         .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
         .replace(/`([^`]*)`/g, "$1")
-        .replace(/(\*\*|__|\*|_|~~|==)/g, "")
+        .replace(/(\*\*|\*|~~|==)/g, "")
+        // Underscores only mark emphasis at word edges; snake_case stays.
+        .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, "")
         .replace(/<[^>]+>/g, "")
         .replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/, "")
         .replace(/^\s*>\s?/, "")
@@ -72,11 +74,11 @@ export function suggestFileName(content: string, fallback: string): string {
         if (inFence) continue;
         const heading = line.match(/^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/);
         if (heading) {
-            const name = toFileName(plainText(heading[1]));
+            const name = toFileName(stripInlineMarkdown(heading[1]));
             if (name) return name;
             continue;
         }
-        if (firstText === null && line.trim()) firstText = plainText(line);
+        if (firstText === null && line.trim()) firstText = stripInlineMarkdown(line);
     }
     return (firstText && toFileName(firstText)) || fallback;
 }

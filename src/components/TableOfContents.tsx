@@ -1,5 +1,6 @@
 import { useMemo, useEffect, useRef, useState } from "react";
-import { attachFocusTrap } from "../utils/focusTrap";
+import { useSidePanel } from "../hooks/useSidePanel";
+import { extractHeadings } from "../utils/outline";
 import { IS_MOBILE } from "../utils/platform";
 import mascotReading from "../assets/mascot/mascot-reading.png";
 import mascotMagnify from "../assets/mascot/mascot-magnify.png";
@@ -33,40 +34,9 @@ export function TableOfContents({
         // every line for headings on every keystroke for users who don't
         // currently have the outline visible.
         if (!isOpen || !content) return [];
-        const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        const lines = normalized.split("\n");
-        const items: TocItem[] = [];
-
-        // Fence/frontmatter awareness: `# comment` lines inside a ```/~~~
-        // block (bash/yaml scripts are full of them) or in the frontmatter
-        // block are NOT headings, and clicking one used to jump into the
-        // middle of a code block. TOC-02.
-        let inFence = false;
-        let pastFrontmatter = lines[0]?.trim() !== "---";
-
-        lines.forEach((line, index) => {
-            if (!pastFrontmatter) {
-                if (index > 0 && line.trim() === "---") pastFrontmatter = true;
-                return;
-            }
-            const trimmed = line.trim();
-            if (/^(```|~~~)/.test(trimmed)) {
-                inFence = !inFence;
-                return;
-            }
-            if (inFence) return;
-            const match = trimmed.match(/^(#{1,6})\s+(.+)$/);
-            if (match) {
-                const level = match[1].length;
-                const text = match[2].trim();
-                const id = `heading-${index}-${text
-                    .toLowerCase()
-                    .replace(/[^a-z0-9]+/g, "-")
-                    .replace(/^-|-$/g, "")}`;
-                items.push({ id, text, level, line: index + 1 });
-            }
-        });
-        return items;
+        // Fence/frontmatter aware (TOC-02); clean heading text and setext
+        // headings (TOC-03). See utils/outline.
+        return extractHeadings(content).map((h) => ({ ...h, id: `heading-${h.line}` }));
     }, [content, isOpen]);
 
     // Active heading: the last one whose source line is at-or-above the active line
@@ -93,26 +63,8 @@ export function TableOfContents({
         el?.scrollIntoView({ block: "nearest" });
     }, [activeHeadingIdx]);
 
-    // Escape key to close and focus management
-    useEffect(() => {
-        if (!isOpen) return;
-
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                e.preventDefault();
-                onClose();
-            }
-        };
-
-        document.addEventListener("keydown", handleKeyDown);
-        panelRef.current?.focus();
-        const detachTrap = attachFocusTrap(panelRef.current);
-
-        return () => {
-            document.removeEventListener("keydown", handleKeyDown);
-            detachTrap();
-        };
-    }, [isOpen, onClose]);
+    // Escape / focus behaviour for a docked, non-modal panel. PANEL-01.
+    useSidePanel(panelRef, isOpen, onClose);
 
     // Jump by SOURCE LINE, not heading text (NAV-01). The editor and the
     // preview both listen for this event and scroll themselves, so the click
@@ -122,8 +74,10 @@ export function TableOfContents({
     // On the phone the outline is a full-screen sheet: after navigating it
     // must step aside, or the user stays staring at the list instead of the
     // heading they just picked.
+    // `focus`: a visible editor takes focus at the heading, so typing
+    // continues there instead of going into the outline's button. PANEL-01.
     const handleHeadingClick = (line: number) => {
-        window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
+        window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line, focus: !IS_MOBILE } }));
         if (IS_MOBILE) onClose();
     };
 

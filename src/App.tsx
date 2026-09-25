@@ -118,6 +118,7 @@ import { clearBufferBackups } from "./utils/bufferBackup";
 import { findAnchorLine, splitWikilinkTarget } from "./utils/wikilinkAnchor";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
 import { dirOf, joinPath, lastUsedDirectory, suggestFileName } from "./utils/saveName";
+import { extractHeadings } from "./utils/outline";
 import { errMessage } from "./utils/errors";
 import { revealMainWindow, desktopWindow } from "./utils/appWindow";
 import { TabBar, type TabBarItem } from "./components/TabBar";
@@ -1636,29 +1637,26 @@ function AppContent() {
   const headingPaletteItems = useMemo<PaletteCommand[]>(() => {
     if (!showPalette || !deferredContent) return [];
     const items: PaletteCommand[] = [];
-    const lines = deferredContent.split("\n");
-    lines.forEach((line, idx) => {
-      const m = line.match(/^(#{1,6})\s+(.+)$/);
-      if (m) {
-        const level = m[1].length;
-        const text = m[2].trim();
-        items.push({
-          id: `head.${idx}`,
-          label: text,
-          hint: `H${level}`,
-          section: "Headings",
-          icon: level === 1 ? "title" : level === 2 ? "format_h2" : "format_h3",
-          keywords: "jump heading",
-          run: () => {
-            // Jump both panes to the heading's source line. The editor and the
-            // preview each listen for this event and scroll themselves (hidden
-            // panes scroll harmlessly), so this works in every view mode and
-            // lands on the RIGHT heading even when titles repeat. NAV-01.
-            window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line: idx + 1 } }));
-          },
-        });
-      }
-    });
+    // Same headings as the outline: fence/frontmatter aware, clean text,
+    // setext headings too. The palette used to list `# comments` from code
+    // blocks as headings. TOC-03.
+    for (const h of extractHeadings(deferredContent)) {
+      items.push({
+        id: `head.${h.line}`,
+        label: h.text,
+        hint: `H${h.level}`,
+        section: "Headings",
+        icon: h.level === 1 ? "title" : h.level === 2 ? "format_h2" : "format_h3",
+        keywords: "jump heading",
+        run: () => {
+          // Jump both panes to the heading's source line. The editor and the
+          // preview each listen for this event and scroll themselves (hidden
+          // panes scroll harmlessly), so this works in every view mode and
+          // lands on the RIGHT heading even when titles repeat. NAV-01.
+          window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line: h.line, focus: true } }));
+        },
+      });
+    }
     return items;
   }, [showPalette, deferredContent]);
 

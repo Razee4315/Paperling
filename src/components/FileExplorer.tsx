@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { attachFocusTrap } from "../utils/focusTrap";
+import { useSidePanel } from "../hooks/useSidePanel";
 import { IS_MOBILE } from "../utils/platform";
 import { openSystemFilePicker } from "../utils/nativePicker";
 import { errMessage } from "../utils/errors";
@@ -94,26 +94,8 @@ export function FileExplorer({
         return () => window.removeEventListener("focus", onFocus);
     }, [isOpen, currentViewDir]);
 
-    // Escape key to close and focus management + focus trap
-    useEffect(() => {
-        if (!isOpen) return;
-
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                e.preventDefault();
-                onClose();
-            }
-        };
-
-        document.addEventListener("keydown", handleKeyDown);
-        panelRef.current?.focus();
-        const detachTrap = attachFocusTrap(panelRef.current);
-
-        return () => {
-            document.removeEventListener("keydown", handleKeyDown);
-            detachTrap();
-        };
-    }, [isOpen, onClose]);
+    // Escape / focus behaviour for a docked, non-modal panel. PANEL-01.
+    useSidePanel(panelRef, isOpen, onClose);
 
     const loadFiles = async (directory: string) => {
         setIsLoading(true);
