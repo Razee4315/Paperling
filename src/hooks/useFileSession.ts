@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { readTextFile, saveTextFile } from "../utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
@@ -304,7 +305,7 @@ export function useFileSession({
       snapshotActiveTab();
       setIsLoading(true);
       try {
-        const fileData = await invoke<FileData>("read_file", { path });
+        const fileData = await readTextFile<FileData>(path);
         // A fresh load is a clean slate for every overlay: a review pending from
         // the PREVIOUS file must not survive into this one (its merge view would
         // diff old-file content against the new document, and its chunk buttons
@@ -553,7 +554,7 @@ export function useFileSession({
       }
     }
     try {
-      await invoke("save_file", { path, content: data.content });
+      await saveTextFile(path, data.content);
     } catch (error) {
       showToast(errMessage(error) || "Failed to save file", "error");
       return;
@@ -692,7 +693,7 @@ export function useFileSession({
       viaDownloads = true;
     }
     try {
-      knownMtimeRef.current = await invoke<number>("save_file", { path: selected, content });
+      knownMtimeRef.current = await saveTextFile(selected, content);
       const savedPath = selected;
       // Saving over a file that is open in ANOTHER tab left two tabs for one
       // file whose saves clobbered each other. A clean duplicate just closes;
@@ -769,7 +770,7 @@ export function useFileSession({
       return;
     }
     try {
-      knownMtimeRef.current = await invoke<number>("save_file", { path: filePath, content });
+      knownMtimeRef.current = await saveTextFile(filePath, content);
       setOriginalContent(content);
       showToast("File saved", "success");
     } catch (error) {
@@ -902,7 +903,7 @@ export function useFileSession({
             }
             continue;
           }
-          const mtime = await invoke<number>("save_file", { path, content: tab.content });
+          const mtime = await saveTextFile(path, tab.content);
           // Only mark saved if the snapshot still holds exactly what we wrote.
           commitTabs(
             tabsRef.current.map((current) =>
@@ -931,7 +932,7 @@ export function useFileSession({
           const info = await invoke<{ modified: number }>("get_file_info", { path: tab.filePath! });
           if (!(tab.knownMtime > 0 && info.modified > tab.knownMtime)) continue;
           if (tab.content === tab.originalContent) {
-            const fileData = await invoke<FileData>("read_file", { path: tab.filePath! });
+            const fileData = await readTextFile<FileData>(tab.filePath!);
             commitTabs(
               tabsRef.current.map((current) =>
                 current.id === tab.id
@@ -1075,7 +1076,7 @@ export function useFileSession({
       let recoveredCount = 0;
       for (const path of paths) {
         try {
-          const fileData = await invoke<FileData>("read_file", { path });
+          const fileData = await readTextFile<FileData>(path);
           const id = newTabId();
           const backup = backupByPath.get(path);
           // Dirty backup for this file: restore the BUFFER text over the disk

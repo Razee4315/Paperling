@@ -14,6 +14,8 @@ import { parseFrontmatter, serializeFrontmatter, type FrontmatterValue } from ".
 import { IS_MOBILE } from "../utils/platform";
 import type { Scroller } from "../utils/scrollSync";
 import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
+import { wikilinkLabel } from "../utils/wikilinkAnchor";
+import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
 
 // Detect KaTeX-style math so we only load the heavy katex bundle when needed.
 // $$...$$ for block math, $...$ for inline math (not preceded/followed by digit
@@ -79,8 +81,12 @@ const SANITIZE_SCHEMA = {
     tagNames: [...(defaultSchema.tagNames ?? []), "mark"],
     attributes: {
         ...defaultSchema.attributes,
-        span: [...(defaultSchema.attributes?.span ?? []), ["className", "math", "math-inline", "math-display"]],
-        div: [...(defaultSchema.attributes?.div ?? []), ["className", "math", "math-inline", "math-display"]],
+        // Extended note syntax (remarkNoteSyntax, SYNTAX-02): callout boxes carry
+        // their type in data-callout; #tags carry theirs in data-tag.
+        span: [...(defaultSchema.attributes?.span ?? []), ["className", "math", "math-inline", "math-display", "md-tag"], "dataTag"],
+        div: [...(defaultSchema.attributes?.div ?? []), ["className", "math", "math-inline", "math-display", "callout", "callout-title", "callout-content"], "dataCallout"],
+        details: [...(defaultSchema.attributes?.details ?? []), ["className", "callout"], "dataCallout", "open"],
+        summary: [...(defaultSchema.attributes?.summary ?? []), ["className", "callout-title"]],
     },
     protocols: {
         ...defaultSchema.protocols,
@@ -247,7 +253,9 @@ const INLINE_PROTECTED_RE = /(`+[^`]*`+|\$\$[^$]*\$\$|\$[^$\n]+\$)/;
 const rewriteWikilinks = (text: string): string =>
     text.replace(WIKILINK_RE, (_m, target: string, alias?: string) => {
         const t = target.trim();
-        const a = (alias ?? target).trim();
+        // No alias: show Obsidian's label (`Note › Heading`, `Heading` for a
+        // same-note link) instead of the raw `Note#Heading`. NAV-09.
+        const a = alias != null ? alias.trim() : wikilinkLabel(t);
         return `[${a}](wikilink:${encodeURIComponent(t)})`;
     });
 
@@ -723,12 +731,16 @@ function HeadingWithAnchor(
 // changes across renders — react-markdown then won't remount these node types
 // when the components map is rebuilt (e.g. on file change). PREVIEW-06.
 const PreRenderer = (props: React.HTMLAttributes<HTMLPreElement>) => <CodeBlock {...props} />;
-const H1Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={1} {...props} />;
-const H2Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={2} {...props} />;
-const H3Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={3} {...props} />;
-const H4Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={4} {...props} />;
-const H5Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={5} {...props} />;
-const H6Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={6} {...props} />;
+// react-markdown passes its hast `node` as a prop; spreading it onto the DOM
+// rendered node="[object Object]" on every heading (and into exports), so
+// the renderers drop it. EXPORT-06.
+type HeadingProps = React.HTMLAttributes<HTMLHeadingElement> & { node?: unknown };
+const H1Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={1} {...props} />;
+const H2Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={2} {...props} />;
+const H3Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={3} {...props} />;
+const H4Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={4} {...props} />;
+const H5Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={5} {...props} />;
+const H6Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={6} {...props} />;
 // Wide tables scroll left/right INSIDE their own box (like code blocks do)
 // instead of stretching the whole document — a table wider than the column
 // used to make the entire preview pannable sideways, so a vertical reading
@@ -819,7 +831,7 @@ function MarkdownPreviewImpl({
         img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
             <LocalImage src={src || ''} alt={alt || 'image'} baseDir={baseDir} {...props} />
         ),
-        a: ({ href, children, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+        a: ({ href, children, node, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) => {
             // Wikilink: open same-folder file via callback
             if (href && href.startsWith("wikilink:")) {
                 const target = decodeURIComponent(href.slice("wikilink:".length));
@@ -827,6 +839,9 @@ function MarkdownPreviewImpl({
                     <a
                         {...rest}
                         href="#"
+                        // Marker for the exporter, which turns wikilinks into
+                        // plain text (they're meaningless outside the app).
+                        data-wikilink={target}
                         onClick={(e) => {
                             e.preventDefault();
                             onWikilinkClick?.(target);
@@ -992,7 +1007,7 @@ function MarkdownPreviewImpl({
     // text). Fenced blocks are skipped by line scanning; inline code spans and
     // math are protected by splitting the line on those spans first. NAV-08.
     const renderBody = useMemo(
-        () => rewriteWikilinksOutsideCode(parsedBody),
+        () => rewriteWikilinksOutsideCode(stripNoteComments(parsedBody)),
         [parsedBody],
     );
 
@@ -1015,8 +1030,8 @@ function MarkdownPreviewImpl({
     // extended syntaxes: ==mark==, ^sup^/~sub~, definition lists, {#id}. SYNTAX-01.
     const remarkPlugins = useMemo(
         () => (mathPlugins
-            ? [[remarkGfm, GFM_OPTIONS], mathPlugins.remark, remarkFlexibleMarkers, remarkSupersub, remarkDefinitionList, remarkCustomHeadingId]
-            : [[remarkGfm, GFM_OPTIONS], remarkFlexibleMarkers, remarkSupersub, remarkDefinitionList, remarkCustomHeadingId]),
+            ? [[remarkGfm, GFM_OPTIONS], mathPlugins.remark, remarkFlexibleMarkers, remarkSupersub, remarkDefinitionList, remarkCustomHeadingId, remarkNoteSyntax]
+            : [[remarkGfm, GFM_OPTIONS], remarkFlexibleMarkers, remarkSupersub, remarkDefinitionList, remarkCustomHeadingId, remarkNoteSyntax]),
         [mathPlugins]
     );
     const rehypePlugins = useMemo(
@@ -1169,7 +1184,15 @@ function MarkdownPreviewImpl({
                             }}
                         />
                     )}
-                    <div className="markdown-body" ref={markdownBodyRef}>
+                    <div
+                        className="markdown-body"
+                        ref={markdownBodyRef}
+                        // #tag pills: search the folder for the tag. SYNTAX-02.
+                        onClick={(e) => {
+                            const tag = (e.target as HTMLElement).closest<HTMLElement>(".md-tag")?.dataset.tag;
+                            if (tag) window.dispatchEvent(new CustomEvent("paperling:search", { detail: { query: `#${tag}` } }));
+                        }}
+                    >
                         <Markdown
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             remarkPlugins={remarkPlugins as any}

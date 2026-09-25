@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { saveTextFile } from "../utils/fileIO";
 
 export interface UseAutosaveOptions {
   /** Master toggle (Settings → Editor). */
@@ -74,7 +74,7 @@ export function useAutosave({
     const id = window.setTimeout(async () => {
       try {
         if (beforeWrite && !(await beforeWrite(filePath))) return;
-        const mtime = await invoke<number>("save_file", { path: filePath, content });
+        const mtime = await saveTextFile(filePath, content);
         onSaved(mtime, content, filePath);
         lastErrorRef.current = 0;
       } catch (err) {

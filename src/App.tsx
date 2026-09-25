@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
+import { saveTextFile } from "./utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { save, ask } from "@tauri-apps/plugin-dialog";
 import { listen, TauriEvent } from "@tauri-apps/api/event";
@@ -113,6 +114,7 @@ import {
 } from "./utils/persistence";
 import { getAutoSave } from "./utils/persistence";
 import { clearBufferBackups } from "./utils/bufferBackup";
+import { findAnchorLine, splitWikilinkTarget } from "./utils/wikilinkAnchor";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
 import { errMessage } from "./utils/errors";
 import { revealMainWindow, desktopWindow } from "./utils/appWindow";
@@ -171,6 +173,8 @@ function AppContent() {
   const [showTour, setShowTour] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  // Query to pre-fill when search opens from a clicked #tag. SYNTAX-02.
+  const [searchSeed, setSearchSeed] = useState<string | undefined>(undefined);
   const [splitRatio, setSplitRatioState] = usePersistedState<number>(getSplitRatio, setSplitRatio);
   const [aiConfig, setAiConfigState] = useState(() => getAIConfig());
   const [aiEnabled, setAiEnabledState] = usePersistedState<boolean>(getAIEnabled, setAIEnabled);
@@ -547,6 +551,12 @@ function AppContent() {
       }],
       ["paperling:autosave-toggle", (e) => setAutoSaveEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:readable-toggle", (e) => setReadableLineLengthState(!!(e as CustomEvent).detail?.enabled)],
+      // A #tag clicked in the preview searches the folder for it. SYNTAX-02.
+      ["paperling:search", (e) => {
+        const query = (e as CustomEvent).detail?.query;
+        setSearchSeed(typeof query === "string" ? query : undefined);
+        setShowSearch(true);
+      }],
       // Opened from the title-bar settings dropdown's "More settings…" entry.
       ["paperling:open-settings", () => setShowSettings(true)],
       // Alt+J with no selection opens the docked AI side panel. The editor's
@@ -692,7 +702,7 @@ function AppContent() {
         path = cachePath.path;
       }
       try {
-        await invoke("save_file", { path, content: t.content });
+        await saveTextFile(path, t.content);
       } catch (err) {
         const msg = errMessage(err);
         showToast(msg || `Failed to save ${t.fileName}`, "error");
@@ -719,7 +729,7 @@ function AppContent() {
       return;
     }
     try {
-      await invoke("save_file", { path: selected, content });
+      await saveTextFile(selected, content);
       showToast("Copy saved — the conflicted file is untouched", "success");
     } catch (err) {
       showToast(errMessage(err) || "Could not save the copy", "error");
@@ -768,7 +778,7 @@ function AppContent() {
     });
     if (!confirmed) return;
     try {
-      await invoke<number>("save_file", { path, content: "" });
+      await saveTextFile(path, "");
       await loadFile(path);
     } catch (err) {
       const msg = errMessage(err);
@@ -776,13 +786,36 @@ function AppContent() {
     }
   }, [loadFile, showToast]);
 
+  // Live document text for callbacks that must keep a stable identity (the
+  // preview's link renderers are rebuilt whenever their handlers change).
+  const liveContentRef = useRef(content);
+  liveContentRef.current = content;
+
   // Wikilink click: resolve target relative to the current file's folder.
   // Tries `<target>.md` first, then `<target>` literal. Silently fails if neither exists.
   // SECURITY: rejects path-traversal and absolute paths so a crafted document
   // can't load arbitrary files outside the current folder.
   const handleWikilinkClick = useCallback(async (target: string) => {
+    // `[[Note#Heading]]` / `[[Note#^block]]` / `[[#Heading]]`: the part after
+    // `#` is an anchor inside the note, not part of its file name. NAV-09.
+    const { file, anchor } = splitWikilinkTarget(target);
+    const jumpTo = (text: string | null) => {
+      if (!anchor || text == null) return;
+      const line = findAnchorLine(text, anchor);
+      if (line == null) {
+        showToast(`No "${anchor}" in this note`, "info");
+        return;
+      }
+      requestAnimationFrame(() =>
+        window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } })),
+      );
+    };
+    if (!file) {
+      jumpTo(liveContentRef.current);
+      return;
+    }
     if (!filePath) return;
-    const cleaned = target.trim();
+    const cleaned = file;
     // Block traversal (`..`), path separators, drive letters, and absolute paths.
     // Wikilinks should only reference siblings in the same folder.
     if (
@@ -808,14 +841,17 @@ function AppContent() {
       try {
         // get_file_info errors when the file doesn't exist; use it as a probe
         await invoke("get_file_info", { path: c });
-        loadFile(c);
-        return;
-      } catch {/* try next */}
+      } catch {
+        continue; // try the next candidate
+      }
+      await loadFile(c);
+      jumpTo(getOpenBuffer(c));
+      return;
     }
     // Nothing matched — offer to create the note next to the current file, the
     // way Obsidian turns a dangling [[link]] into a new file. NAV-07.
     offerCreateNote(`${dir}${sep}${cleaned}.md`, `${cleaned}.md`);
-  }, [filePath, loadFile, showToast, offerCreateNote]);
+  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote]);
 
   // Standard relative markdown links — `[text](note.md)`, `[x](sub/note.md)`,
   // `[y](../other.md)` — open in-app like wikilinks (the preview only routes
@@ -2027,7 +2063,8 @@ function AppContent() {
           <GlobalSearch
             isOpen={showSearch}
             directory={currentDirectory ?? (IS_MOBILE ? notesDir : null)}
-            onClose={() => setShowSearch(false)}
+            onClose={() => { setShowSearch(false); setSearchSeed(undefined); }}
+            initialQuery={searchSeed}
             onOpenResult={handleOpenSearchResult}
             onNotify={showToast}
             getOpenBuffer={getOpenBuffer}

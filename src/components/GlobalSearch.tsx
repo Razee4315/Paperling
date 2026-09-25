@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { readTextFile, saveTextFile } from "../utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { attachFocusTrap } from "../utils/focusTrap";
 import { errMessage } from "../utils/errors";
@@ -26,6 +27,8 @@ interface GlobalSearchProps {
     /** Write a new buffer for an open file (marks the tab dirty; it saves
      *  through the normal, conflict-guarded save paths). */
     setOpenBuffer?: (path: string, text: string) => boolean;
+    /** Pre-fill the query when the panel opens (e.g. a clicked #tag). */
+    initialQuery?: string;
     /** Toast access for replace progress/errors. */
     onNotify?: (message: string, type: "success" | "error" | "info") => void;
 }
@@ -72,7 +75,7 @@ interface FlatItem {
     line: number;
 }
 
-export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpenBuffer, setOpenBuffer, onNotify }: GlobalSearchProps) {
+export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpenBuffer, setOpenBuffer, initialQuery, onNotify }: GlobalSearchProps) {
     const [query, setQuery] = useState("");
     const [replacement, setReplacement] = useState("");
     const [confirmPending, setConfirmPending] = useState(false);
@@ -104,10 +107,13 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
         setConfirmPending(false);
         setReplacing(false);
         setUndoEntries(null);
+        if (initialQuery) setQuery(initialQuery);
         const t = window.setTimeout(() => inputRef.current?.focus(), 0);
         const detachTrap = attachFocusTrap(panelRef.current);
         return () => { window.clearTimeout(t); detachTrap(); };
-    }, [isOpen]);
+        // Seed only on open; typing afterwards is the user's.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, initialQuery]);
 
     // Keep the keyboard-active match in view (same pattern as the command
     // palette). Without this, arrow-key navigation silently disappeared below
@@ -190,10 +196,10 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                     totalReplaced += count;
                     continue;
                 }
-                const data = await invoke<{ content: string }>("read_file", { path: file.path });
+                const data = await readTextFile<{ content: string }>(file.path);
                 const { text, count } = replaceLiteral(data.content, q, replacement, caseSensitive);
                 if (count === 0) continue;
-                await invoke("save_file", { path: file.path, content: text });
+                await saveTextFile(file.path, text);
                 undo.push({ path: file.path, before: data.content, after: text, inBuffer: false });
                 totalReplaced += count;
             }
@@ -231,12 +237,12 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                     else skipped += 1;
                     continue;
                 }
-                const data = await invoke<{ content: string }>("read_file", { path: entry.path });
+                const data = await readTextFile<{ content: string }>(entry.path);
                 if (data.content !== entry.after) {
                     skipped += 1;
                     continue;
                 }
-                await invoke("save_file", { path: entry.path, content: entry.before });
+                await saveTextFile(entry.path, entry.before);
                 restored += 1;
             }
             onNotify?.(

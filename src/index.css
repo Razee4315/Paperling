@@ -1229,6 +1229,78 @@ html.touch ::-webkit-scrollbar {
   border-radius: 0 0.25rem 0.25rem 0;
 }
 
+/* Callouts (remarkNoteSyntax, SYNTAX-02): `> [!TYPE] Title`. Each
+   type sets --callout; the tint is mixed from it so every theme gets a
+   readable box without per-theme overrides. Foldable callouts are
+   <details>/<summary>. */
+.markdown-body .callout {
+  --callout: #4a8fe7;
+  border-left: 4px solid var(--callout);
+  background: color-mix(in srgb, var(--callout) 10%, transparent);
+  border-radius: 0 0.375rem 0.375rem 0;
+  padding: 0.6rem 1rem;
+  margin: 1rem 0;
+}
+.markdown-body [data-callout="note"], .markdown-body [data-callout="info"], .markdown-body [data-callout="todo"] { --callout: #4a8fe7; }
+.markdown-body [data-callout="abstract"], .markdown-body [data-callout="summary"], .markdown-body [data-callout="tldr"] { --callout: #2ab3c4; }
+.markdown-body [data-callout="tip"], .markdown-body [data-callout="hint"], .markdown-body [data-callout="important"] { --callout: #1fb89a; }
+.markdown-body [data-callout="success"], .markdown-body [data-callout="check"], .markdown-body [data-callout="done"] { --callout: #3fb950; }
+.markdown-body [data-callout="question"], .markdown-body [data-callout="help"], .markdown-body [data-callout="faq"] { --callout: #d99a1e; }
+.markdown-body [data-callout="warning"], .markdown-body [data-callout="caution"], .markdown-body [data-callout="attention"] { --callout: #e8792b; }
+.markdown-body [data-callout="failure"], .markdown-body [data-callout="fail"], .markdown-body [data-callout="missing"], .markdown-body [data-callout="danger"], .markdown-body [data-callout="error"], .markdown-body [data-callout="bug"] { --callout: #e5534b; }
+.markdown-body [data-callout="example"] { --callout: #9b72e8; }
+.markdown-body [data-callout="quote"], .markdown-body [data-callout="cite"] { --callout: #8b949e; }
+.markdown-body .callout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--callout);
+}
+.markdown-body summary.callout-title {
+  cursor: pointer;
+  list-style: none;
+}
+.markdown-body summary.callout-title::-webkit-details-marker { display: none; }
+.markdown-body summary.callout-title::after {
+  content: "expand_more";
+  font-family: "Material Symbols Outlined";
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+.markdown-body details.callout:not([open]) > summary.callout-title::after { transform: rotate(-90deg); }
+.markdown-body .callout-title::before {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-size: 1.15em;
+  content: "info";
+}
+.markdown-body [data-callout="abstract"] > .callout-title::before, .markdown-body [data-callout="summary"] > .callout-title::before, .markdown-body [data-callout="tldr"] > .callout-title::before { content: "summarize"; }
+.markdown-body [data-callout="todo"] > .callout-title::before { content: "check_circle"; }
+.markdown-body [data-callout="tip"] > .callout-title::before, .markdown-body [data-callout="hint"] > .callout-title::before, .markdown-body [data-callout="important"] > .callout-title::before { content: "local_fire_department"; }
+.markdown-body [data-callout="success"] > .callout-title::before, .markdown-body [data-callout="check"] > .callout-title::before, .markdown-body [data-callout="done"] > .callout-title::before { content: "check"; }
+.markdown-body [data-callout="question"] > .callout-title::before, .markdown-body [data-callout="help"] > .callout-title::before, .markdown-body [data-callout="faq"] > .callout-title::before { content: "help"; }
+.markdown-body [data-callout="warning"] > .callout-title::before, .markdown-body [data-callout="caution"] > .callout-title::before, .markdown-body [data-callout="attention"] > .callout-title::before { content: "warning"; }
+.markdown-body [data-callout="failure"] > .callout-title::before, .markdown-body [data-callout="fail"] > .callout-title::before, .markdown-body [data-callout="missing"] > .callout-title::before { content: "close"; }
+.markdown-body [data-callout="danger"] > .callout-title::before, .markdown-body [data-callout="error"] > .callout-title::before { content: "bolt"; }
+.markdown-body [data-callout="bug"] > .callout-title::before { content: "bug_report"; }
+.markdown-body [data-callout="example"] > .callout-title::before { content: "list"; }
+.markdown-body [data-callout="quote"] > .callout-title::before, .markdown-body [data-callout="cite"] > .callout-title::before { content: "format_quote"; }
+.markdown-body .callout-content { margin-top: 0.35rem; }
+.markdown-body .callout-content > :last-child { margin-bottom: 0; }
+
+/* #tags (remarkNoteSyntax): clickable pills that search the folder. */
+.markdown-body .md-tag {
+  display: inline-block;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.markdown-body .md-tag:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
 .markdown-body strong {
   font-weight: 600;
   color: var(--syntax-bold);

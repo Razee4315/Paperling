@@ -340,6 +340,36 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
             margin-bottom: 0;
         }
 
+        /* Callouts + #tags (SYNTAX-02) — icon-free for portability. */
+        .callout {
+            --callout: #4a8fe7;
+            border-left: 4px solid var(--callout);
+            background: color-mix(in srgb, var(--callout) 10%, transparent);
+            border-radius: 0 0.375rem 0.375rem 0;
+            padding: 0.6rem 1rem;
+            margin: 1rem 0;
+        }
+        [data-callout="note"], [data-callout="info"], [data-callout="todo"] { --callout: #4a8fe7; }
+        [data-callout="abstract"], [data-callout="summary"], [data-callout="tldr"] { --callout: #2ab3c4; }
+        [data-callout="tip"], [data-callout="hint"], [data-callout="important"] { --callout: #1fb89a; }
+        [data-callout="success"], [data-callout="check"], [data-callout="done"] { --callout: #3fb950; }
+        [data-callout="question"], [data-callout="help"], [data-callout="faq"] { --callout: #d99a1e; }
+        [data-callout="warning"], [data-callout="caution"], [data-callout="attention"] { --callout: #e8792b; }
+        [data-callout="failure"], [data-callout="fail"], [data-callout="missing"], [data-callout="danger"], [data-callout="error"], [data-callout="bug"] { --callout: #e5534b; }
+        [data-callout="example"] { --callout: #9b72e8; }
+        [data-callout="quote"], [data-callout="cite"] { --callout: #8b949e; }
+        .callout-title { font-weight: 600; color: var(--callout); }
+        summary.callout-title { cursor: pointer; }
+        .callout-content { margin-top: 0.35rem; }
+        .callout-content > :last-child { margin-bottom: 0; }
+        .md-tag {
+            padding: 0 0.45em;
+            border-radius: 999px;
+            background: color-mix(in srgb, ${colors.accent} 14%, transparent);
+            color: ${colors.accent};
+            font-size: 0.9em;
+        }
+
         hr {
             border: none;
             border-top: 1px solid ${colors.border};
@@ -438,10 +468,22 @@ export async function prepareExportHtml(rawHtml: string): Promise<string> {
     root.querySelectorAll("button").forEach((b) => b.remove());
     root.querySelectorAll(".material-symbols-outlined").forEach((s) => s.remove());
 
-    root.querySelectorAll("a[href^='wikilink:']").forEach((a) => {
+    // The preview renders wikilinks as href="#" + data-wikilink (the old
+    // `href^='wikilink:'` selector never matched, so exports shipped dead
+    // "#" links). EXPORT-06.
+    root.querySelectorAll("a[data-wikilink], a[href^='wikilink:']").forEach((a) => {
         const span = doc.createElement("span");
         span.textContent = a.textContent;
         a.replaceWith(span);
+    });
+
+    // Preview-only plumbing: source-line anchors for scroll sync and any
+    // stray react-markdown `node` attribute. Classes stay — KaTeX and
+    // highlight.js styling depends on them.
+    root.querySelectorAll("[data-source-line], [node], [data-relative-md]").forEach((el) => {
+        el.removeAttribute("data-source-line");
+        el.removeAttribute("node");
+        el.removeAttribute("data-relative-md");
     });
 
     for (const img of Array.from(root.querySelectorAll("img"))) {
