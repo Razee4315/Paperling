@@ -25,6 +25,7 @@ import {
   findReusableUntitledTab,
   findTabByPath,
   samePath,
+  pathKey,
   moveTab,
   nextActiveAfterClose,
   nextUntitledName,
@@ -1252,7 +1253,60 @@ export function useFileSession({
     [commitTabs],
   );
 
+  // The explorer renamed or trashed `oldPath` (a file, or a folder and
+  // everything under it). Open tabs follow a rename. For a trash, a clean
+  // tab closes and a dirty one keeps its text but loses its path — its
+  // autosave would otherwise silently re-create the file the user just
+  // deleted; saving it now asks where. FILES-01.
+  const retargetPaths = useCallback(
+    (oldPath: string, newPath: string | null): number => {
+      const oldKey = pathKey(oldPath);
+      const mapPath = (p: string | null): string | null | undefined => {
+        if (!p) return undefined;
+        const key = pathKey(p);
+        if (key === oldKey) return newPath;
+        if (key.startsWith(`${oldKey}/`)) return newPath ? newPath + p.slice(oldPath.length) : null;
+        return undefined;
+      };
+      const baseName = (p: string) => p.replace(/\\/g, "/").split("/").pop() || p;
+      const activeId = activeTabIdRef.current;
+      let affected = 0;
+      const toClose: string[] = [];
+      const next = tabsRef.current.map((tab) => {
+        const isActive = tab.id === activeId;
+        const currentPath = isActive ? liveRef.current.filePath : tab.filePath;
+        const mapped = mapPath(currentPath);
+        if (mapped === undefined) return tab;
+        affected += 1;
+        if (currentPath) parkedAutosavePathsRef.current.delete(currentPath);
+        const dirty = isActive
+          ? liveRef.current.content !== liveRef.current.originalContent
+          : tab.content !== tab.originalContent;
+        if (mapped === null && !dirty) {
+          toClose.push(tab.id);
+          return tab;
+        }
+        const updated = { ...tab, filePath: mapped, fileName: mapped ? baseName(mapped) : tab.fileName };
+        if (isActive) {
+          setFilePath(mapped);
+          if (mapped) {
+            setFileName(baseName(mapped));
+            setLastFile(mapped);
+          } else {
+            setLastFile(null);
+          }
+        }
+        return updated;
+      });
+      commitTabs(next);
+      for (const id of toClose) finalizeCloseTab(id);
+      return affected;
+    },
+    [commitTabs, finalizeCloseTab],
+  );
+
   return {
+    retargetPaths,
     getOpenBuffer,
     setOpenBuffer,
     filePath,

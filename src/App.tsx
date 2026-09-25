@@ -357,6 +357,7 @@ function AppContent() {
   // any review because a proposal belongs to the file it was created for.
   const clearReview = useCallback(() => setProposedDoc(null), []);
   const {
+    retargetPaths,
     getOpenBuffer,
     setOpenBuffer,
     filePath,
@@ -2049,6 +2050,13 @@ function AppContent() {
             fallbackDirectory={notesDir}
             onFileSelect={loadFile}
             onClose={closeAllPanels}
+            onPathChanged={(oldPath, newPath) => {
+              const affected = retargetPaths(oldPath, newPath);
+              if (newPath === null && affected > 0) {
+                showToast("An open tab's file was deleted — its unsaved text stays open; saving will ask where", "info");
+              }
+            }}
+            onNotify={showToast}
           />
         </Suspense>
       )}

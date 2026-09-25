@@ -3,9 +3,9 @@ mod commands;
 mod pdf;
 
 use commands::{
-    exit_app, find_backlinks, get_ai_key, get_file_info, get_incoming_file, get_notes_dir,
-    list_directory_files, read_file, read_image_file, save_file, save_image, search_files,
-    set_ai_key, write_export_file,
+    create_folder, exit_app, find_backlinks, get_ai_key, get_file_info, get_incoming_file,
+    get_notes_dir, list_directory_files, read_file, read_image_file, rename_path, save_file,
+    save_image, search_files, set_ai_key, trash_path, write_export_file,
 };
 use std::sync::Mutex;
 // Both traits are only exercised by the desktop single-instance closure
@@ -136,6 +136,9 @@ pub fn run() {
             list_directory_files,
             search_files,
             find_backlinks,
+            create_folder,
+            rename_path,
+            trash_path,
             save_image,
             read_image_file,
             get_ai_key,

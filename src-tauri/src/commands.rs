@@ -103,6 +103,47 @@ fn apply_eol(content: &str, eol: Eol) -> String {
     }
 }
 
+/// A temp-file path beside `path` that is unique per CALL, not just per
+/// process. Two saves of the same file used to share `path.PID.paperling-tmp`
+/// (Ctrl+S during an in-flight autosave, replace-in-files racing autosave):
+/// both `File::create`d — truncated — the same temp file, so a rename could
+/// publish interleaved bytes and the other rename failed. SAVE-03.
+fn unique_temp_path(path: &str, tag: &str) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{}.{}.{}.{}", path, std::process::id(), n, tag)
+}
+
+/// The file a save should actually replace. If `path` is a symlink, the
+/// atomic temp+rename would replace the LINK with a regular file (breaking
+/// dotfile/stow setups and notes linked into several folders), so the write
+/// goes to the link's target instead. A dangling link falls back to `path`.
+/// SAVE-04.
+async fn resolve_save_target(path: &str) -> String {
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(meta) if meta.file_type().is_symlink() => match tokio::fs::canonicalize(path).await {
+            Ok(real) => real.to_string_lossy().into_owned(),
+            Err(_) => path.to_string(),
+        },
+        _ => path.to_string(),
+    }
+}
+
+/// Carry the replaced file's permissions over to the temp file before the
+/// rename, so a 0600 note doesn't come back 0644 after a save. Unix only: on
+/// Windows the only "permission" is read-only, and a read-only temp file
+/// couldn't be cleaned up if the rename failed. SAVE-04.
+#[cfg(unix)]
+async fn copy_permissions(from: &str, to: &str) {
+    if let Ok(meta) = tokio::fs::metadata(from).await {
+        let _ = tokio::fs::set_permissions(to, meta.permissions()).await;
+    }
+}
+
+#[cfg(not(unix))]
+async fn copy_permissions(_from: &str, _to: &str) {}
+
 /// Last-modified time in ms since the Unix epoch (0 when unavailable).
 fn mtime_ms(metadata: &std::fs::Metadata) -> u64 {
     metadata
@@ -208,7 +249,7 @@ async fn write_export_file_inner(path: String, data: Vec<u8>) -> Result<(), Comm
     // directory (so the rename never crosses a filesystem boundary), fsync
     // before the rename, no temp left behind on failure. A crash mid-export
     // can leave a `.paperling-export-tmp` file, never a truncated export.
-    let tmp = format!("{}.{}.paperling-export-tmp", path, std::process::id());
+    let tmp = unique_temp_path(&path, "paperling-export-tmp");
     {
         use tokio::io::AsyncWriteExt;
         let mut f = tokio::fs::File::create(&tmp)
@@ -331,6 +372,10 @@ async fn save_file_inner(path: String, content: String) -> Result<u64, CommandEr
         )));
     }
 
+    // Write through a symlink to its target instead of replacing the link.
+    // SAVE-04.
+    let path = resolve_save_target(&path).await;
+
     // Preserve the on-disk file's line ending. The editor hands us `\n`-only
     // content; if the existing file uses CRLF we write CRLF back, so opening and
     // saving a Windows file doesn't rewrite every line and produce a noisy diff.
@@ -345,7 +390,7 @@ async fn save_file_inner(path: String, content: String) -> Result<u64, CommandEr
 
     // Same directory as the target so the rename never crosses a filesystem
     // boundary (cross-device renames aren't atomic and can fail outright).
-    let tmp = format!("{}.{}.paperling-tmp", path, std::process::id());
+    let tmp = unique_temp_path(&path, "paperling-tmp");
 
     // Write, then fsync BEFORE the rename. Without the sync, a crash right after
     // the rename can leave the (renamed) file present but empty/partial on disk,
@@ -365,6 +410,9 @@ async fn save_file_inner(path: String, content: String) -> Result<u64, CommandEr
             let _ = tokio::fs::remove_file(&tmp).await;
             return Err(CommandError::WriteError(e.to_string()));
         }
+    }
+    if file_exists {
+        copy_permissions(&path, &tmp).await;
     }
 
     if let Err(e) = tokio::fs::rename(&tmp, &path).await {
@@ -485,15 +533,13 @@ pub async fn list_directory_files(
                 is_dir: true,
             });
         } else if path.is_file() {
-            // Only include .md files
-            if let Some(ext) = path.extension() {
-                if ext == "md" || ext == "markdown" {
-                    entries.push(FileEntry {
-                        name: entry_name,
-                        path: path.to_string_lossy().to_string(),
-                        is_dir: false,
-                    });
-                }
+            // Notes only: markdown plus the plain-text files the app opens.
+            if is_note_file(&path) {
+                entries.push(FileEntry {
+                    name: entry_name,
+                    path: path.to_string_lossy().to_string(),
+                    is_dir: false,
+                });
             }
         }
     }
@@ -506,6 +552,151 @@ pub async fn list_directory_files(
     });
 
     Ok(entries)
+}
+
+// ===== Explorer file management (FILES-01) =====
+//
+// Create folder / rename / delete for the file explorer. Names are validated
+// to a single path component (no separators, traversal, reserved characters)
+// so these commands can only act INSIDE the folder the frontend names. Delete
+// never destroys anything: it moves the item into a `.trash` folder beside it
+// (hidden from the explorer and search, recoverable from the OS file manager),
+// the same safety net Obsidian offers.
+
+/// A new entry name: one path component, portable across Windows/macOS/Linux.
+fn validate_entry_name(name: &str) -> Result<String, CommandError> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        return Err(CommandError::WriteError("Name is empty".into()));
+    }
+    if trimmed.len() > 255 {
+        return Err(CommandError::WriteError("Name is too long".into()));
+    }
+    const FORBIDDEN: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0'];
+    if trimmed.chars().any(|c| FORBIDDEN.contains(&c) || c.is_control()) {
+        return Err(CommandError::WriteError(
+            "Names can't contain / \\ : * ? \" < > |".into(),
+        ));
+    }
+    if trimmed.ends_with('.') {
+        return Err(CommandError::WriteError("Names can't end with a dot".into()));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Create a folder named `name` inside `parent`; returns its path.
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
+#[tauri::command]
+pub async fn create_folder(
+    app: tauri::AppHandle,
+    parent: String,
+    name: String,
+) -> Result<String, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&parent)).map_err(CommandError::WriteError)?;
+    create_folder_inner(parent, name).await
+}
+
+async fn create_folder_inner(parent: String, name: String) -> Result<String, CommandError> {
+    let name = validate_entry_name(&name)?;
+    let parent = PathBuf::from(parent);
+    if !parent.is_dir() {
+        return Err(CommandError::FileNotFound(parent.to_string_lossy().into_owned()));
+    }
+    let target = parent.join(&name);
+    if tokio::fs::symlink_metadata(&target).await.is_ok() {
+        return Err(CommandError::WriteError(format!("\"{}\" already exists", name)));
+    }
+    tokio::fs::create_dir(&target)
+        .await
+        .map_err(|e| CommandError::WriteError(e.to_string()))?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+/// Rename a file or folder in place (same parent); returns the new path.
+/// Refuses to overwrite an existing entry.
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
+#[tauri::command]
+pub async fn rename_path(
+    app: tauri::AppHandle,
+    path: String,
+    new_name: String,
+) -> Result<String, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&path)).map_err(CommandError::WriteError)?;
+    rename_path_inner(path, new_name).await
+}
+
+async fn rename_path_inner(path: String, new_name: String) -> Result<String, CommandError> {
+    let new_name = validate_entry_name(&new_name)?;
+    let source = PathBuf::from(&path);
+    if tokio::fs::symlink_metadata(&source).await.is_err() {
+        return Err(CommandError::FileNotFound(path));
+    }
+    let parent = source
+        .parent()
+        .ok_or_else(|| CommandError::WriteError("Can't rename a root folder".into()))?;
+    let target = parent.join(&new_name);
+    // A case-only rename ("note.md" -> "Note.md") is the same entry on
+    // case-insensitive file systems; allow it, refuse any other existing name.
+    let same_entry = source
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase() == new_name.to_lowercase())
+        .unwrap_or(false);
+    if !same_entry && tokio::fs::symlink_metadata(&target).await.is_ok() {
+        return Err(CommandError::WriteError(format!("\"{}\" already exists", new_name)));
+    }
+    tokio::fs::rename(&source, &target)
+        .await
+        .map_err(|e| CommandError::WriteError(e.to_string()))?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+/// "Delete": move a file or folder into `.trash` beside it (created on
+/// demand). A name collision in the trash gets a numeric suffix, so nothing
+/// already there is overwritten. Returns the path inside the trash.
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
+#[tauri::command]
+pub async fn trash_path(app: tauri::AppHandle, path: String) -> Result<String, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&path)).map_err(CommandError::WriteError)?;
+    trash_path_inner(path).await
+}
+
+async fn trash_path_inner(path: String) -> Result<String, CommandError> {
+    let source = PathBuf::from(&path);
+    if tokio::fs::symlink_metadata(&source).await.is_err() {
+        return Err(CommandError::FileNotFound(path));
+    }
+    let parent = source
+        .parent()
+        .ok_or_else(|| CommandError::WriteError("Can't delete a root folder".into()))?;
+    let name = source
+        .file_name()
+        .ok_or_else(|| CommandError::WriteError("Invalid path".into()))?
+        .to_string_lossy()
+        .into_owned();
+    if name == ".trash" {
+        return Err(CommandError::WriteError("The trash folder can't be moved to itself".into()));
+    }
+    let trash = parent.join(".trash");
+    tokio::fs::create_dir_all(&trash)
+        .await
+        .map_err(|e| CommandError::WriteError(e.to_string()))?;
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (name[..i].to_string(), name[i..].to_string()),
+        _ => (name.clone(), String::new()),
+    };
+    let mut target = trash.join(&name);
+    let mut n = 1;
+    while tokio::fs::symlink_metadata(&target).await.is_ok() {
+        target = trash.join(format!("{} ({}){}", stem, n, ext));
+        n += 1;
+    }
+    tokio::fs::rename(&source, &target)
+        .await
+        .map_err(|e| CommandError::WriteError(e.to_string()))?;
+    Ok(target.to_string_lossy().into_owned())
 }
 
 /// A single matching line within a file.
@@ -545,6 +736,8 @@ pub async fn search_files(
     directory: String,
     query: String,
     case_sensitive: bool,
+    // Optional so an older frontend (no toggle) keeps working. GS-05.
+    whole_word: Option<bool>,
 ) -> Result<Vec<FileSearchResult>, CommandError> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     ensure_mobile_path_allowed(&app, std::path::Path::new(&directory))
@@ -560,7 +753,8 @@ pub async fn search_files(
     }
 
     // The walk is blocking I/O; keep it off the async runtime's worker threads.
-    tokio::task::spawn_blocking(move || Ok(search_markdown_tree(root, &q, case_sensitive)))
+    let whole_word = whole_word.unwrap_or(false);
+    tokio::task::spawn_blocking(move || Ok(search_markdown_tree(root, &q, case_sensitive, whole_word)))
         .await
         .map_err(|e| CommandError::ReadError(e.to_string()))?
 }
@@ -608,7 +802,30 @@ pub async fn find_backlinks(
 /// Synchronous, bounded recursive search used by `search_files`. Pulled out so
 /// it can be unit-tested without a Tauri/async harness. `query` is assumed
 /// non-empty and already trimmed.
-fn search_markdown_tree(root: PathBuf, query: &str, case_sensitive: bool) -> Vec<FileSearchResult> {
+/// Does `haystack` contain `needle` as a whole word (not inside a longer run
+/// of letters/digits/underscores)? Both are already case-folded the same way.
+fn contains_whole_word(haystack: &str, needle: &str) -> bool {
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    haystack.match_indices(needle).any(|(i, m)| {
+        let before = haystack[..i].chars().next_back();
+        let after = haystack[i + m.len()..].chars().next();
+        !before.is_some_and(is_word) && !after.is_some_and(is_word)
+    })
+}
+
+/// Text files the app opens (the Open dialog and drag-drop accept these), so
+/// search, replace and the explorer cover them too. GS-05.
+fn is_note_file(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            let e = e.to_ascii_lowercase();
+            e == "md" || e == "markdown" || e == "txt" || e == "text"
+        })
+        .unwrap_or(false)
+}
+
+fn search_markdown_tree(root: PathBuf, query: &str, case_sensitive: bool, whole_word: bool) -> Vec<FileSearchResult> {
     let needle = if case_sensitive {
         query.to_string()
     } else {
@@ -641,11 +858,7 @@ fn search_markdown_tree(root: PathBuf, query: &str, case_sensitive: bool) -> Vec
                 stack.push(path);
                 continue;
             }
-            let is_md = path
-                .extension()
-                .map(|e| e == "md" || e == "markdown")
-                .unwrap_or(false);
-            if !is_md {
+            if !is_note_file(&path) {
                 continue;
             }
             files_scanned += 1;
@@ -668,7 +881,12 @@ fn search_markdown_tree(root: PathBuf, query: &str, case_sensitive: bool) -> Vec
                 } else {
                     line.to_lowercase()
                 };
-                if haystack.contains(&needle) {
+                let hit = if whole_word {
+                    contains_whole_word(&haystack, &needle)
+                } else {
+                    haystack.contains(&needle)
+                };
+                if hit {
                     let trimmed = line.trim();
                     // Char-boundary-safe truncation (byte slicing could panic on
                     // multibyte UTF-8).
@@ -1337,9 +1555,96 @@ pub fn exit_app() {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_eol, find_backlinks_in_tree, read_file_inner, sanitize_image_name, save_file_inner,
-        search_markdown_tree, validate_rel_path, write_export_file_inner, Eol,
+        apply_eol, contains_whole_word, create_folder_inner, find_backlinks_in_tree,
+        read_file_inner, rename_path_inner, sanitize_image_name, save_file_inner,
+        search_markdown_tree, trash_path_inner, unique_temp_path, validate_entry_name,
+        validate_rel_path, write_export_file_inner, Eol,
     };
+
+    #[test]
+    fn temp_paths_are_unique_per_call() {
+        let a = unique_temp_path("C:/n/a.md", "paperling-tmp");
+        let b = unique_temp_path("C:/n/a.md", "paperling-tmp");
+        assert_ne!(a, b);
+        assert!(a.starts_with("C:/n/a.md.") && a.ends_with(".paperling-tmp"));
+    }
+
+    #[test]
+    fn whole_word_matching_respects_word_boundaries() {
+        assert!(contains_whole_word("the cat sat", "cat"));
+        assert!(contains_whole_word("cat", "cat"));
+        assert!(contains_whole_word("(cat)", "cat"));
+        assert!(!contains_whole_word("concatenate", "cat"));
+        assert!(!contains_whole_word("cat_food", "cat"));
+        assert!(contains_whole_word("scat cat", "cat"));
+        assert!(!contains_whole_word("écat", "cat"));
+    }
+
+    #[test]
+    fn entry_names_are_single_portable_components() {
+        assert_eq!(validate_entry_name("  Notes ").unwrap(), "Notes");
+        for bad in ["", ".", "..", "a/b", "a\\b", "c:x", "x?", "trail."] {
+            assert!(validate_entry_name(bad).is_err(), "{bad:?} should be refused");
+        }
+    }
+
+    #[test]
+    fn explorer_ops_create_rename_and_trash_without_overwriting() {
+        tauri::async_runtime::block_on(async {
+            let dir = std::env::temp_dir().join(format!("paperling-files-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let root = dir.to_string_lossy().into_owned();
+
+            let folder = create_folder_inner(root.clone(), "Ideas".into()).await.unwrap();
+            assert!(std::path::Path::new(&folder).is_dir());
+            assert!(create_folder_inner(root.clone(), "Ideas".into()).await.is_err());
+
+            let a = dir.join("a.md");
+            std::fs::write(&a, "A").unwrap();
+            std::fs::write(dir.join("b.md"), "B").unwrap();
+            // Renaming onto an existing file is refused; nothing is lost.
+            assert!(rename_path_inner(a.to_string_lossy().into_owned(), "b.md".into()).await.is_err());
+            let renamed = rename_path_inner(a.to_string_lossy().into_owned(), "c.md".into()).await.unwrap();
+            assert_eq!(std::fs::read_to_string(&renamed).unwrap(), "A");
+
+            // Trash twice with the same name: both survive in .trash.
+            let t1 = trash_path_inner(renamed.clone()).await.unwrap();
+            std::fs::write(dir.join("c.md"), "C2").unwrap();
+            let t2 = trash_path_inner(dir.join("c.md").to_string_lossy().into_owned()).await.unwrap();
+            assert_ne!(t1, t2);
+            assert_eq!(std::fs::read_to_string(&t1).unwrap(), "A");
+            assert_eq!(std::fs::read_to_string(&t2).unwrap(), "C2");
+            assert!(!dir.join("c.md").exists());
+
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_writes_through_symlinks_and_keeps_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        tauri::async_runtime::block_on(async {
+            let dir = std::env::temp_dir().join(format!("paperling-link-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let real = dir.join("real.md");
+            let link = dir.join("link.md");
+            std::fs::write(&real, "old").unwrap();
+            std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+
+            save_file_inner(link.to_string_lossy().into_owned(), "new".into()).await.unwrap();
+
+            assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+            assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
+            let mode = std::fs::metadata(&real).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
 
     #[test]
     fn search_finds_matches_recursively_and_case_insensitively() {
@@ -1348,12 +1653,14 @@ mod tests {
         std::fs::create_dir_all(&sub).unwrap();
         std::fs::write(dir.join("a.md"), "Hello World\nsecond line").unwrap();
         std::fs::write(sub.join("b.md"), "nothing here\nanother WORLD ref").unwrap();
-        std::fs::write(dir.join("c.txt"), "world but not markdown").unwrap();
+        std::fs::write(dir.join("c.txt"), "world in a plain-text note").unwrap();
+        std::fs::write(dir.join("d.json"), "world but not a note").unwrap();
 
-        let results = search_markdown_tree(dir.clone(), "world", false);
+        let results = search_markdown_tree(dir.clone(), "world", false, false);
 
-        // Two markdown files match; the .txt is ignored.
-        assert_eq!(results.len(), 2);
+        // Markdown and plain-text notes match; other files are ignored.
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|r| r.name != "d.json"));
         let a = results.iter().find(|r| r.name == "a.md").unwrap();
         assert_eq!(a.matches.len(), 1);
         assert_eq!(a.matches[0].line, 1);
@@ -1362,8 +1669,13 @@ mod tests {
         assert_eq!(b.matches[0].line, 2);
 
         // Case-sensitive search misses the lowercase/uppercase variants.
-        let cs = search_markdown_tree(dir.clone(), "world", true);
-        assert!(cs.is_empty());
+        let cs = search_markdown_tree(dir.clone(), "world", true, false);
+        assert_eq!(cs.len(), 1); // only the all-lowercase .txt line
+
+        // Whole word: "worlds" must not count.
+        std::fs::write(dir.join("e.md"), "worlds apart").unwrap();
+        let ww = search_markdown_tree(dir.clone(), "world", false, true);
+        assert!(ww.iter().all(|r| r.name != "e.md"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1380,7 +1692,7 @@ mod tests {
         std::fs::write(hidden.join("x.md"), "needle").unwrap();
         std::fs::write(modules.join("y.md"), "needle").unwrap();
 
-        let results = search_markdown_tree(dir.clone(), "needle", false);
+        let results = search_markdown_tree(dir.clone(), "needle", false, false);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "keep.md");
 

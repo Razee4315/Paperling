@@ -36,9 +36,12 @@ interface GlobalSearchProps {
 /** Literal (non-regex) matcher honoring the search's case toggle (GS-03).
  *  Counting and replacing share it, so the reported count can't disagree
  *  with what was actually replaced. */
-function literalRegex(query: string, caseSensitive: boolean): RegExp {
+function literalRegex(query: string, caseSensitive: boolean, wholeWord = false): RegExp {
     const esc = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(esc, caseSensitive ? "g" : "gi");
+    // Whole word mirrors the Rust search: not inside a run of letters,
+    // digits or underscores (Unicode-aware). GS-05.
+    const body = wholeWord ? `(?<![\\p{L}\\p{N}_])${esc}(?![\\p{L}\\p{N}_])` : esc;
+    return new RegExp(body, (caseSensitive ? "g" : "gi") + "u");
 }
 
 /** Replace every occurrence; returns the new text and how many were replaced. */
@@ -47,10 +50,11 @@ export function replaceLiteral(
     query: string,
     replacement: string,
     caseSensitive: boolean,
+    wholeWord = false,
 ): { text: string; count: number } {
     if (!query) return { text: content, count: 0 };
     let count = 0;
-    const text = content.replace(literalRegex(query, caseSensitive), () => {
+    const text = content.replace(literalRegex(query, caseSensitive, wholeWord), () => {
         count += 1;
         return replacement;
     });
@@ -81,6 +85,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
     const [confirmPending, setConfirmPending] = useState(false);
     const [replacing, setReplacing] = useState(false);
     const [caseSensitive, setCaseSensitive] = useState(false);
+    const [wholeWord, setWholeWord] = useState(false);
     const [results, setResults] = useState<FileResult[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -139,7 +144,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
         const id = ++reqIdRef.current;
         setLoading(true);
         const handle = window.setTimeout(() => {
-            invoke<FileResult[]>("search_files", { directory, query: q, caseSensitive })
+            invoke<FileResult[]>("search_files", { directory, query: q, caseSensitive, wholeWord })
                 .then((res) => {
                     if (reqIdRef.current !== id) return;
                     setResults(res);
@@ -156,7 +161,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                 });
         }, 200);
         return () => window.clearTimeout(handle);
-    }, [isOpen, query, caseSensitive, directory]);
+    }, [isOpen, query, caseSensitive, wholeWord, directory]);
 
     const openItem = (item: FlatItem | undefined) => {
         if (!item) return;
@@ -169,7 +174,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
 
     const refreshResults = async () => {
         const id = ++reqIdRef.current;
-        const res = await invoke<FileResult[]>("search_files", { directory, query: query.trim(), caseSensitive });
+        const res = await invoke<FileResult[]>("search_files", { directory, query: query.trim(), caseSensitive, wholeWord });
         if (reqIdRef.current === id) {
             setResults(res);
             setActive(0);
@@ -190,14 +195,14 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                 if (file.matches.length === 0) continue;
                 const buffered = getOpenBuffer?.(file.path) ?? null;
                 if (buffered !== null) {
-                    const { text, count } = replaceLiteral(buffered, q, replacement, caseSensitive);
+                    const { text, count } = replaceLiteral(buffered, q, replacement, caseSensitive, wholeWord);
                     if (count === 0 || !setOpenBuffer?.(file.path, text)) continue;
                     undo.push({ path: file.path, before: buffered, after: text, inBuffer: true });
                     totalReplaced += count;
                     continue;
                 }
                 const data = await readTextFile<{ content: string }>(file.path);
-                const { text, count } = replaceLiteral(data.content, q, replacement, caseSensitive);
+                const { text, count } = replaceLiteral(data.content, q, replacement, caseSensitive, wholeWord);
                 if (count === 0) continue;
                 await saveTextFile(file.path, text);
                 undo.push({ path: file.path, before: data.content, after: text, inBuffer: false });
@@ -314,6 +319,15 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                     >
                         Aa
                     </button>
+                    <button
+                        onClick={() => setWholeWord((v) => !v)}
+                        aria-pressed={wholeWord}
+                        title="Match whole word"
+                        aria-label="Match whole word"
+                        className={`flex items-center justify-center w-7 h-7 rounded-md text-xs font-semibold underline underline-offset-2 transition-colors ${wholeWord ? "bg-[var(--accent)] text-[var(--accent-text)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"}`}
+                    >
+                        ab
+                    </button>
                     <button onClick={onClose} aria-label="Close search" className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]">
                         <span className="material-symbols-outlined text-[18px]">close</span>
                     </button>
@@ -385,7 +399,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                     {error ? (
                         <div className="p-6 text-sm text-[var(--danger)]" role="alert">{error}</div>
                     ) : !query.trim() ? (
-                        <div className="p-6 text-sm text-[var(--text-muted)]">Type to search every markdown file in the current folder.</div>
+                        <div className="p-6 text-sm text-[var(--text-muted)]">Type to search every note (.md, .txt) in this folder and its subfolders.</div>
                     ) : loading && results.length === 0 ? (
                         <div className="p-6 text-sm text-[var(--text-secondary)]">Searching…</div>
                     ) : totalMatches === 0 ? (
