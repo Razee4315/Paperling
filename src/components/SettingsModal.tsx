@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useTheme, ACCENT_CHOICES, type Theme, type FontFamily, type FontSize } from "../context/ThemeContext";
+import { ShortcutSettings } from "./ShortcutSettings";
 import { getInstalledFontFamilies } from "../utils/fontDiscovery";
 import { IS_MOBILE } from "../utils/platform";
 import {
@@ -33,14 +34,27 @@ interface SettingsModalProps {
     onClose: () => void;
 }
 
-type Section = "appearance" | "editor" | "ai" | "about";
+type Section = "appearance" | "editor" | "shortcuts" | "ai" | "about";
 
 const sections: Array<{ id: Section; label: string; icon: string }> = [
     { id: "appearance", label: "Appearance", icon: "palette" },
     { id: "editor", label: "Editor", icon: "edit" },
+    { id: "shortcuts", label: "Shortcuts", icon: "keyboard" },
     { id: "ai", label: "AI", icon: "auto_awesome" },
     { id: "about", label: "About", icon: "info" },
 ];
+
+// What each section contains, for the settings search: typing jumps to the
+// first section that has a match (the search used to filter only the section
+// already on screen, so "accent" or "vim" from another section found
+// nothing). SET-05.
+const SECTION_KEYWORDS: Record<Section, string> = {
+    appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small",
+    editor: "typewriter toolbar word wrap spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode",
+    shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
+    ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
+    about: "about version update tour guide help license",
+};
 
 const themes: Array<{ id: Theme; name: string; colors: [string, string]; textColor: string; icon?: string }> = [
     { id: "dark", name: "Dark", colors: ["#0a0a0a", "#141414"], textColor: "#ffffff" },
@@ -224,7 +238,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     if (!isOpen) return null;
 
-    const matches = (text: string) => !filter || text.toLowerCase().includes(filter.toLowerCase());
+    const matches = (text: string) => !filter || text.toLowerCase().includes(filter.trim().toLowerCase());
+    // Searching for the section itself ("shortcuts", "keyboard"…) shows every
+    // row; a command name ("bold") narrows the list.
+    const shortcutRowFilter = /^(shortcuts?|keyboard|key ?bindings?|hotkeys?|rebind)$/i.test(filter.trim()) ? "" : filter;
+    const noResults =
+        !!filter.trim() &&
+        !sections.some((s) => SECTION_KEYWORDS[s.id].includes(filter.trim().toLowerCase()));
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Settings">
@@ -249,7 +269,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         <input
                             type="text"
                             value={filter}
-                            onChange={(e) => setFilter(e.target.value)}
+                            onChange={(e) => {
+                                const next = e.target.value;
+                                setFilter(next);
+                                const q = next.trim().toLowerCase();
+                                if (q && !SECTION_KEYWORDS[section].includes(q)) {
+                                    const hit = sections.find(
+                                        (s) => SECTION_KEYWORDS[s.id].includes(q) && (!IS_MOBILE || (s.id !== "ai" && s.id !== "shortcuts")),
+                                    );
+                                    if (hit) setSection(hit.id);
+                                }
+                            }}
                             placeholder="Search…"
                             aria-label="Search settings"
                             className="w-full px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
@@ -260,7 +290,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             switched off by default; on the phone it's just a
                             dead section, so it isn't offered. */}
                         {sections
-                            .filter((s) => !IS_MOBILE || s.id !== "ai")
+                            .filter((s) => !IS_MOBILE || (s.id !== "ai" && s.id !== "shortcuts"))
                             .map((s) => (
                             <button
                                 key={s.id}
@@ -322,7 +352,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         </div>
                                     </section>
                                 )}
-                                {matches("theme") && (
+                                {matches("theme accent color colour") && (
                                     <section>
                                         <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Accent color</h3>
                                         <div className="flex items-center gap-2 flex-wrap">
@@ -476,6 +506,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
                                 )}
                             </div>
+                        )}
+
+                        {noResults && (
+                            <p className="text-sm text-[var(--text-secondary)]">No settings match “{filter.trim()}”.</p>
+                        )}
+
+                        {section === "shortcuts" && !IS_MOBILE && !noResults && (
+                            <ShortcutSettings filter={shortcutRowFilter} />
                         )}
 
                         {section === "ai" && !IS_MOBILE && (

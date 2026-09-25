@@ -125,3 +125,33 @@ describe("keybindings on Windows/Linux", () => {
         expect(kb.matchesBinding(kev({ key: "F9" }), "fullscreen")).toBe(false);
     });
 });
+
+describe("user binding overrides (SHC-10)", () => {
+    const press = (key: string, init: KeyboardEventInit = {}) => new KeyboardEvent("keydown", { key, ...init });
+
+    it("a rebind replaces the default (and its aliases) everywhere, and reset restores it", async () => {
+        const kb = await import("./keybindings");
+        const ctrl = kb.isMac ? { metaKey: true } : { ctrlKey: true };
+        kb.resetAllBindings();
+        kb.setBindingOverride("palette", { key: "k", mod: true, shift: true });
+        expect(kb.matchesBinding(press("K", { ...ctrl, shiftKey: true }), "palette")).toBe(true);
+        expect(kb.matchesBinding(press("p", ctrl), "palette")).toBe(false);
+        expect(kb.matchesBinding(press("F1"), "palette")).toBe(false); // alias off once rebound
+        expect(kb.findConflict("save", { key: "k", mod: true, shift: true })).toBe("palette");
+        // Survives a reload of the persisted map.
+        kb.__reloadBindingOverrides();
+        expect(kb.isOverridden("palette")).toBe(true);
+        kb.setBindingOverride("palette", null);
+        expect(kb.matchesBinding(press("p", ctrl), "palette")).toBe(true);
+        expect(kb.matchesBinding(press("F1"), "palette")).toBe(true);
+    });
+
+    it("records physical keys and refuses unmodified combos", async () => {
+        const kb = await import("./keybindings");
+        const ctrl = kb.isMac ? { metaKey: true } : { ctrlKey: true };
+        expect(kb.bindingFromEvent(press("D", { ...ctrl, shiftKey: true, code: "KeyD" }))).toEqual({ key: "d", mod: true, shift: true });
+        expect(kb.bindingFromEvent(press("d", { code: "KeyD" }))).toBeNull();
+        expect(kb.bindingFromEvent(press("F7", { code: "F7" }))).toEqual({ key: "F7" });
+        expect(kb.bindingFromEvent(press("Control", ctrl))).toBeNull();
+    });
+});

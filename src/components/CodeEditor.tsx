@@ -318,6 +318,8 @@ function CodeEditorImpl({
     // history() lives in a compartment so a document swap can reset undo state
     // (reconfigure to [] then back) without rebuilding the whole editor. TABS-03.
     const historyCompRef = useRef(new Compartment());
+    // The editing keymap (bold/italic/find/…), rebuilt on rebinds. SHC-10.
+    const keymapCompRef = useRef(new Compartment());
     // AI review (merge view) state.
     const mergeCompRef = useRef(new Compartment());
     const reviewingRef = useRef(false);
@@ -413,8 +415,12 @@ function CodeEditorImpl({
         const vimComp = vimCompRef.current;
         const mergeComp = mergeCompRef.current;
         const historyComp = historyCompRef.current;
+        const keymapComp = keymapCompRef.current;
 
-        const editingKeymap = Prec.highest(keymap.of([
+        // Built from the (user-overridable) binding config and kept in a
+        // compartment, so a rebind in Settings → Shortcuts applies to the
+        // open editor immediately. SHC-10.
+        const buildEditingKeymap = () => Prec.highest(keymap.of([
             { key: "Tab", run: (v) => runAction(v, (st) => handleTab(st, false)), shift: (v) => runAction(v, (st) => handleTab(st, true)) },
             { key: "Enter", run: (v) => runAction(v, handleEnter) },
             { key: toCmKey("bold"), run: (v) => wrapEachRange(v, "**") || (applyResultToView(v, wrapSelection(toEdState(v), "**", "**", "bold")), true) },
@@ -563,7 +569,7 @@ function CodeEditorImpl({
                     spellComp.of(EditorView.contentAttributes.of(spellAttrs(spellCheck))),
                     vimComp.of(vimMode ? vim() : []),
                     mergeComp.of([]),
-                    editingKeymap,
+                    keymapComp.of(buildEditingKeymap()),
                     keymap.of([...closeBracketsKeymap, ...editorDefaultKeymap, ...historyKeymap]),
                     updateListener,
                     pasteHandler,
@@ -575,8 +581,13 @@ function CodeEditorImpl({
         lastEmittedRef.current = content;
         view.focus();
 
+        const onBindingsChanged = () =>
+            view.dispatch({ effects: keymapComp.reconfigure(buildEditingKeymap()) });
+        window.addEventListener("paperling:keybindings-changed", onBindingsChanged);
+
         return () => {
             window.removeEventListener("keydown", onPasteShortcutKeydown);
+            window.removeEventListener("paperling:keybindings-changed", onBindingsChanged);
             view.destroy();
             viewRef.current = null;
         };

@@ -106,9 +106,121 @@ export function isPlainModCombo(e: KeyboardEvent): boolean {
 // so we must NOT additionally require shiftKey to be a particular value for them.
 const isSymbolKey = (key: string) => key.length === 1 && !/[a-z0-9]/i.test(key);
 
+// ── User overrides (SHC-10) ──────────────────────────────────────────────────
+//
+// Settings → Shortcuts lets the user rebind any command. Overrides are a small
+// persisted map layered over BINDINGS; everything (window handler, editor
+// keymap, cheatsheet, menus, palette hints) reads through getBinding(), so a
+// rebind shows up everywhere at once. Changes broadcast
+// `paperling:keybindings-changed` so the editor can rebuild its keymap live.
+
+const OVERRIDES_KEY = "paperling:keybindings";
+
+function loadOverrides(): Partial<Record<BindingId, Binding>> {
+    try {
+        const raw = typeof localStorage !== "undefined" ? localStorage.getItem(OVERRIDES_KEY) : null;
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as Record<string, Binding>;
+        const out: Partial<Record<BindingId, Binding>> = {};
+        for (const [id, b] of Object.entries(parsed)) {
+            if (id in BINDINGS && b && typeof b.key === "string" && b.key) out[id as BindingId] = b;
+        }
+        return out;
+    } catch {
+        return {};
+    }
+}
+
+let overrides = loadOverrides();
+
+/** The effective binding: the user's override, else the default. */
+export function getBinding(id: BindingId): Binding {
+    return overrides[id] ?? BINDINGS[id];
+}
+
+export function isOverridden(id: BindingId): boolean {
+    return overrides[id] !== undefined;
+}
+
+function persistOverrides() {
+    try {
+        localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides));
+    } catch {
+        /* storage unavailable: the override still applies for this session */
+    }
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("paperling:keybindings-changed"));
+}
+
+/** Rebind a command; null restores its default. */
+export function setBindingOverride(id: BindingId, binding: Binding | null): void {
+    const next = { ...overrides };
+    if (binding) next[id] = binding;
+    else delete next[id];
+    overrides = next;
+    persistOverrides();
+}
+
+export function resetAllBindings(): void {
+    overrides = {};
+    persistOverrides();
+}
+
+/** Test-only: re-read overrides from storage. */
+export function __reloadBindingOverrides(): void {
+    overrides = loadOverrides();
+}
+
+const sameCombo = (a: Binding, b: Binding) =>
+    a.key.toLowerCase() === b.key.toLowerCase() &&
+    !!a.mod === !!b.mod &&
+    !!a.ctrl === !!b.ctrl &&
+    !!a.alt === !!b.alt &&
+    !!a.shift === !!b.shift;
+
+/** Another command already using this combo (effective bindings), if any. */
+export function findConflict(id: BindingId, binding: Binding): BindingId | null {
+    for (const other of Object.keys(BINDINGS) as BindingId[]) {
+        if (other === id) continue;
+        if (sameCombo(getBinding(other), binding)) return other;
+    }
+    return null;
+}
+
+const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta", "OS", "AltGraph", "CapsLock"]);
+
+/**
+ * The binding a key press describes, for the shortcut recorder. Letters and
+ * digits come from `code` so ⌥-combos on macOS (which produce "å", "∑"…) and
+ * Shift (uppercase) still record the physical key. Returns null while only
+ * modifiers are held, and for combos a text editor can't give up (plain keys
+ * without a modifier, other than F1–F12).
+ */
+export function bindingFromEvent(e: KeyboardEvent): Binding | null {
+    if (MODIFIER_KEYS.has(e.key)) return null;
+    let key = e.key;
+    const letter = /^Key([A-Z])$/.exec(e.code);
+    const digit = /^Digit(\d)$/.exec(e.code);
+    if (letter) key = letter[1].toLowerCase();
+    else if (digit) key = digit[1];
+    const isFn = /^F([1-9]|1[0-2])$/.test(key);
+    const mod = isModPressed(e);
+    const ctrl = isMac && e.ctrlKey;
+    if (!mod && !ctrl && !e.altKey && !isFn) return null;
+    const b: Binding = { key };
+    if (mod) b.mod = true;
+    if (ctrl) b.ctrl = true;
+    if (e.altKey) b.alt = true;
+    // Symbol keys carry shift inside `key` ("?" vs "/"), matching matchesOne.
+    if (e.shiftKey && !isSymbolKey(key)) b.shift = true;
+    return b;
+}
+
 /** Does a keyboard event match the given binding, resolving `mod` per platform? */
 export function matchesBinding(e: KeyboardEvent, id: BindingId): boolean {
-    if (matchesOne(e, BINDINGS[id])) return true;
+    if (matchesOne(e, getBinding(id))) return true;
+    // Aliases are extra muscle-memory combos for the DEFAULT binding; once the
+    // user rebinds a command, only their choice triggers it.
+    if (isOverridden(id)) return false;
     return (ALIASES[id] ?? []).some((alias) => matchesOne(e, alias));
 }
 
@@ -178,12 +290,12 @@ export function formatBinding(b: Binding): string {
 
 /** Display string for a registered binding, e.g. formatShortcut("saveAs"). */
 export function formatShortcut(id: BindingId): string {
-    return formatBinding(BINDINGS[id]);
+    return formatBinding(getBinding(id));
 }
 
 /** Display strings for a binding's secondary combos, if it has any (#147). */
 export function formatAliases(id: BindingId): string[] {
-    return (ALIASES[id] ?? []).map(formatBinding);
+    return isOverridden(id) ? [] : (ALIASES[id] ?? []).map(formatBinding);
 }
 
 /** Prefix an arbitrary label with the primary modifier: mod("1–8") → "⌘1–8". */
@@ -209,9 +321,10 @@ const CM_KEY: Record<string, string> = {
  * find/replace), which are all mod-based and shift-free.
  */
 export function toCmKey(id: BindingId): string {
-    const b: Binding = BINDINGS[id];
+    const b: Binding = getBinding(id);
     const parts: string[] = [];
     if (b.mod) parts.push("Mod");
+    if (b.ctrl) parts.push("Ctrl");
     if (b.alt) parts.push("Alt");
     if (b.shift) parts.push("Shift");
     parts.push(CM_KEY[b.key] ?? b.key);
