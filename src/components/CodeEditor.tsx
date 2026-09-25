@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect, useState, useMemo, memo } from "react";
-import { EditorState as CMEditorState, EditorSelection, Compartment, Prec } from "@codemirror/state";
+import { EditorState as CMEditorState, EditorSelection, Compartment, Prec, type Extension, type StateEffect } from "@codemirror/state";
 import { selectNextOccurrence, highlightSelectionMatches } from "@codemirror/search";
 import {
     EditorView,
@@ -53,7 +53,7 @@ import { matchWikilinkPrefix, rankFileNames, toWikiName } from "../utils/wikilin
 import { applyTableOp, findTableAt, locateCell, type Align } from "../utils/tableModel";
 import { toCmKey, isMac } from "../config/keybindings";
 import { highlightCaretLine } from "../utils/caretLineHighlight";
-import type { Scroller } from "../utils/scrollSync";
+import type { HandoffOptions, Scroller } from "../utils/scrollSync";
 
 interface CodeEditorProps {
     content: string;
@@ -88,6 +88,10 @@ interface CodeEditorProps {
      *  its undo history so Ctrl+Z can't reach back into the previous document (a
      *  data-loss bug: undo used to "un-swap" the file). TABS-03. */
     docSwapId?: number;
+    /** Identity of the document on screen (the tab id). Each document keeps
+     *  its own editor state (caret, selection, scroll and undo history) so
+     *  switching tabs and back is lossless. TABS-20. */
+    docKey?: string | null;
 }
 
 /**
@@ -261,6 +265,7 @@ function CodeEditorImpl({
     reviewDoc,
     onReviewResolve,
     docSwapId,
+    docKey = null,
 }: CodeEditorProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
@@ -309,6 +314,27 @@ function CodeEditorImpl({
     // making `content` one of its deps (it must fire ONLY on docSwapId).
     const contentPropRef = useRef(content);
     contentPropRef.current = content;
+
+    // Per-document editor states, keyed by docKey (TABS-20). A tab switch
+    // stores the outgoing EditorState (it carries the undo history, the
+    // selection and every extension's state) plus its scroll offset, and
+    // restores the incoming one when its text still matches. Before, every
+    // switch replaced the text wholesale and wiped the history: the caret
+    // jumped to the start of its line, the viewport jumped, and Ctrl+Z no
+    // longer worked after looking at another tab.
+    const stateCacheRef = useRef(new Map<string, { state: CMEditorState; scroll: StateEffect<unknown> }>());
+    const docKeyRef = useRef(docKey);
+    docKeyRef.current = docKey;
+    const shownKeyRef = useRef(docKey);
+    const appliedSwapRef = useRef(docSwapId);
+    // Set when a swap restored a cached state; the tab-restore goto-line /
+    // scroll-top that useFileSession fires for the same switch is then
+    // skipped, or it would throw away the exact position just restored.
+    const restoredFromCacheRef = useRef(false);
+    // Live setting values for rebuilding extensions on a restored state.
+    const liveSettingsRef = useRef({ wordWrap, spellCheck, vimMode });
+    liveSettingsRef.current = { wordWrap, spellCheck, vimMode };
+    const buildEditingKeymapRef = useRef<() => Extension>(() => []);
 
     // Reconfigurable extensions.
     const wrapCompRef = useRef(new Compartment());
@@ -449,6 +475,8 @@ function CodeEditorImpl({
             // so it fires regardless of editor focus — see App.tsx. The editor
             // opens the bubble via the paperling:ai-assist event listener below.
         ]));
+
+        buildEditingKeymapRef.current = buildEditingKeymap;
 
         const updateListener = EditorView.updateListener.of((update: ViewUpdate) => {
             if (reviewingRef.current) {
@@ -770,6 +798,11 @@ function CodeEditorImpl({
     // preview (#111).
     useEffect(() => {
         if (content === lastEmittedRef.current) return;
+        // A document swap is being committed in this same render: the swap
+        // effect below owns it. Diffing the new file into the OLD state here
+        // would record the swap in the outgoing tab's history and poison its
+        // cached state. TABS-20.
+        if (docSwapId !== appliedSwapRef.current) return;
         const view = viewRef.current;
         if (!view) return;
         const old = view.state.doc.toString();
@@ -791,15 +824,68 @@ function CodeEditorImpl({
     useEffect(() => {
         const view = viewRef.current;
         if (!view) return;
+        if (appliedSwapRef.current === docSwapId) return;
+        appliedSwapRef.current = docSwapId;
         const doc = contentPropRef.current;
-        if (doc !== view.state.doc.toString()) {
-            view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } });
+        const cache = stateCacheRef.current;
+        const outgoingKey = shownKeyRef.current;
+        const incomingKey = docKeyRef.current;
+        shownKeyRef.current = incomingKey;
+        restoredFromCacheRef.current = false;
+
+        if (outgoingKey && outgoingKey === incomingKey && !reviewingRef.current) {
+            // Same document reloaded (external change, "Load from disk"):
+            // apply the difference as an edit so the caret, the viewport and
+            // the undo history survive; Ctrl+Z can even bring back what was
+            // there before the reload, like VS Code. TABS-20.
+            const old = view.state.doc.toString();
+            if (doc !== old) view.dispatch({ changes: minimalDiff(old, doc) });
+            lastEmittedRef.current = doc;
+        } else {
+            // Park the outgoing document's state (never mid-review: that state
+            // carries the merge view of a proposal that is being discarded).
+            if (outgoingKey && !reviewingRef.current) {
+                cache.delete(outgoingKey);
+                // scrollSnapshot() anchors the viewport to a document
+                // position, not a pixel offset: setState rebuilds the height
+                // map from estimates, so a raw scrollTop restored to the
+                // wrong place on long documents.
+                cache.set(outgoingKey, { state: view.state, scroll: view.scrollSnapshot() });
+                // Bounded: closed tabs are never looked up again.
+                while (cache.size > 40) cache.delete(cache.keys().next().value as string);
+            }
+            const cached = incomingKey ? cache.get(incomingKey) : undefined;
+            if (cached && cached.state.doc.toString() === doc) {
+                view.setState(cached.state);
+                // The cached state was built with the settings of its time; the
+                // user may have toggled wrap/spellcheck/vim or rebound keys since.
+                const live = liveSettingsRef.current;
+                view.dispatch({
+                    effects: [
+                        wrapCompRef.current.reconfigure(live.wordWrap ? EditorView.lineWrapping : []),
+                        spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(live.spellCheck))),
+                        vimCompRef.current.reconfigure(live.vimMode ? vim() : []),
+                        keymapCompRef.current.reconfigure(buildEditingKeymapRef.current()),
+                        mergeCompRef.current.reconfigure([]),
+                        cached.scroll,
+                    ],
+                });
+                restoredFromCacheRef.current = true;
+                const sel = view.state.selection.main;
+                const line = view.state.doc.lineAt(sel.head);
+                onCursorChangeRef.current?.(line.number, sel.head - line.from + 1);
+                onSelectionChangeRef.current?.(sel.from, sel.to);
+            } else {
+                if (doc !== view.state.doc.toString()) {
+                    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } });
+                }
+                // Reconfigure the history compartment to a fresh instance: the
+                // documented way to clear CodeMirror's undo/redo stacks.
+                view.dispatch({ effects: historyCompRef.current.reconfigure([]) });
+                view.dispatch({ effects: historyCompRef.current.reconfigure(history()) });
+            }
+            lastEmittedRef.current = doc;
         }
-        lastEmittedRef.current = doc;
-        // Reconfigure the history compartment to a fresh instance — this is the
-        // documented way to clear CodeMirror's undo/redo stacks.
-        view.dispatch({ effects: historyCompRef.current.reconfigure([]) });
-        view.dispatch({ effects: historyCompRef.current.reconfigure(history()) });
         // Anything anchored to the previous document is now meaningless: an
         // open AI bubble would write its result into THIS file at the old
         // file's offsets (AI-06), and a slash menu would replace text here.
@@ -921,12 +1007,19 @@ function CodeEditorImpl({
         scroller.addEventListener("scroll", onScroll, { passive: true });
         return () => {
             scroller.removeEventListener("scroll", onScroll);
+            // Reset the id too: StrictMode (dev) remounts effects, and a stale
+            // non-zero id made every later scroll bail out as "frame pending".
             if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+            scrollRafRef.current = 0;
         };
     }, []);
 
     useEffect(() => {
         if (!registerScroller) return;
+        // Offset of the document's first line inside the scroller's content
+        // (the content padding), so line heights map onto scrollTop.
+        const docOffset = (view: EditorView) =>
+            view.documentTop - view.scrollDOM.getBoundingClientRect().top + view.scrollDOM.scrollTop;
         registerScroller({
             setFraction: (f: number) => {
                 const view = viewRef.current;
@@ -934,6 +1027,44 @@ function CodeEditorImpl({
                 const s = view.scrollDOM;
                 const max = s.scrollHeight - s.clientHeight;
                 if (max > 0) s.scrollTop = max * f;
+            },
+            // Line-anchored sync + mode handoff (SYNC-01 / MODE-01).
+            getTopLine: () => {
+                const view = viewRef.current;
+                if (!view || view.scrollDOM.clientHeight === 0) return null; // hidden
+                const h = Math.max(0, view.scrollDOM.scrollTop - docOffset(view));
+                const block = view.lineBlockAtHeight(h);
+                const line = view.state.doc.lineAt(block.from).number;
+                const frac = block.height > 0 ? Math.min(1, Math.max(0, (h - block.top) / block.height)) : 0;
+                return line + frac;
+            },
+            scrollToLine: (target: number, opts?: HandoffOptions) => {
+                const view = viewRef.current;
+                if (!view || view.scrollDOM.clientHeight === 0) return;
+                const doc = view.state.doc;
+                const n = Math.min(Math.max(1, Math.floor(target)), doc.lines);
+                if (opts?.handoff) {
+                    // The editor was just shown: its height map may be stale
+                    // or estimated, so let CodeMirror resolve the scroll in
+                    // its own measure cycle. A caret left somewhere off
+                    // screen comes to the first visible line, or the next
+                    // keystroke would yank the view back to it.
+                    const first = Math.min(doc.lines, target - n > 0.5 ? n + 1 : n);
+                    const lineStart = doc.line(first).from;
+                    const topBlock = view.lineBlockAt(doc.line(n).from);
+                    const viewportBottom = topBlock.top + view.scrollDOM.clientHeight;
+                    const caretTop = view.lineBlockAt(view.state.selection.main.head).top;
+                    const caretVisible = caretTop >= topBlock.top && caretTop < viewportBottom - 24;
+                    view.dispatch({
+                        ...(caretVisible ? {} : { selection: { anchor: lineStart } }),
+                        effects: EditorView.scrollIntoView(doc.line(n).from, { y: "start", yMargin: 0 }),
+                    });
+                    if (opts.focus) view.focus();
+                    return;
+                }
+                const frac = Math.max(0, target - Math.floor(target));
+                const block = view.lineBlockAt(doc.line(n).from);
+                view.scrollDOM.scrollTop = docOffset(view) + block.top + frac * block.height;
             },
         });
         return () => registerScroller(null);
@@ -944,6 +1075,8 @@ function CodeEditorImpl({
     // pane is display:none so the scroll is a harmless no-op.
     useEffect(() => {
         const handler = (e: Event) => {
+            // The tab switch already restored the exact caret and viewport.
+            if ((e as CustomEvent).detail?.source === "tab-restore" && restoredFromCacheRef.current) return;
             const line = Number((e as CustomEvent).detail?.line);
             const v = viewRef.current;
             if (!v || !Number.isFinite(line) || line < 1) return;
@@ -995,7 +1128,8 @@ function CodeEditorImpl({
     // Snap the caret and viewport to the start when a different file opens, so
     // you don't begin a new file at the previous file's cursor/scroll. NAV-04.
     useEffect(() => {
-        const toTop = () => {
+        const toTop = (e: Event) => {
+            if ((e as CustomEvent).detail?.source === "tab-restore" && restoredFromCacheRef.current) return;
             const v = viewRef.current;
             if (!v) return;
             v.dispatch({

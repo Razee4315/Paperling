@@ -264,10 +264,12 @@ export function useFileSession({
       if (tab.filePath) setLastFile(tab.filePath);
       // Restore where you were in this tab — jump to the remembered line, or fall
       // back to the top for a never-focused / line-1 tab. TABS-02.
+      // `source: "tab-restore"` lets the editor skip this when it restored the
+      // tab's full state (exact caret + viewport) itself. TABS-20.
       const line = tab.cursorLine ?? 1;
       requestAnimationFrame(() => {
-        if (line > 1) window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
-        else window.dispatchEvent(new CustomEvent("paperling:scroll-top"));
+        if (line > 1) window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line, source: "tab-restore" } }));
+        else window.dispatchEvent(new CustomEvent("paperling:scroll-top", { detail: { source: "tab-restore" } }));
       });
     },
     [bumpDocSwap, clearReview, setConflictPrompt],

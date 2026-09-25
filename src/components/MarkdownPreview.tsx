@@ -12,7 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseFrontmatter, serializeFrontmatter, type FrontmatterValue } from "../utils/frontmatter";
 import { IS_MOBILE } from "../utils/platform";
-import type { Scroller } from "../utils/scrollSync";
+import { lineToOffset, offsetToLine, type AnchorList, type Scroller } from "../utils/scrollSync";
 import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
 import { wikilinkLabel } from "../utils/wikilinkAnchor";
 import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
@@ -1113,7 +1113,13 @@ function MarkdownPreviewImpl({
         return () => ro.disconnect();
     }, [refreshScrollMax]);
     useEffect(() => { refreshScrollMax(); }, [renderedBody, refreshScrollMax]);
-    useEffect(() => () => { if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); }, []);
+    // Reset the id on cleanup: StrictMode (dev) remounts effects, and a stale
+    // non-zero id left handleScroll bailing out forever (no line reports, no
+    // split sync).
+    useEffect(() => () => {
+        if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = 0;
+    }, []);
 
     // Jump-to-line requests from the TOC / command palette (NAV-01). Finds the
     // last rendered block whose source line is at-or-above the target line via
@@ -1153,19 +1159,74 @@ function MarkdownPreviewImpl({
         return () => window.removeEventListener("paperling:scroll-top", toTop);
     }, []);
 
+    // Source-line anchors for scroll sync and mode handoff (SYNC-01 /
+    // MODE-01): every top-level block carries data-source-line (body-relative;
+    // the frontmatter offset makes it content-relative like the editor's).
+    // Rects are read lazily by the binary search, so a scroll frame measures
+    // O(log n) blocks, not all of them.
+    const lineCountRef = useRef(lineCount);
+    lineCountRef.current = lineCount;
+    const anchorList = useCallback((): AnchorList | null => {
+        const el = mainRef.current;
+        if (!el || el.clientHeight === 0) return null; // hidden pane
+        const blocks = el.querySelectorAll<HTMLElement>("[data-source-line]");
+        const base = el.getBoundingClientRect().top - el.scrollTop;
+        const off = fmOffsetRef.current;
+        const tops = new Map<number, number>();
+        return {
+            count: blocks.length,
+            lineAt: (i) => Number(blocks[i].getAttribute("data-source-line")) + off,
+            topAt: (i) => {
+                let t = tops.get(i);
+                if (t === undefined) {
+                    t = blocks[i].getBoundingClientRect().top - base;
+                    tops.set(i, t);
+                }
+                return t;
+            },
+            endLine: lineCountRef.current + 1,
+            endTop: el.scrollHeight,
+        };
+    }, []);
+
+    // A handoff/sync target set just before the body re-renders (switching
+    // out of code mode refreshes the preview) is re-applied once the new
+    // body lands, so the reader ends up on the right paragraph, not on where
+    // that line sat in the stale render.
+    const pendingLineRef = useRef<{ line: number; until: number } | null>(null);
+    useEffect(() => {
+        const pending = pendingLineRef.current;
+        const el = mainRef.current;
+        if (!pending || !el || Date.now() > pending.until) return;
+        const list = anchorList();
+        if (list) el.scrollTop = lineToOffset(list, pending.line);
+    }, [renderedBody, anchorList]);
+
     // Register imperative scroller for split-view sync
     useEffect(() => {
         if (!registerScroller) return;
         registerScroller({
             setFraction: (f: number) => {
+                pendingLineRef.current = null;
                 const el = mainRef.current;
                 if (!el) return;
                 const max = el.scrollHeight - el.clientHeight;
                 if (max > 0) el.scrollTop = max * f;
             },
+            getTopLine: () => {
+                const el = mainRef.current;
+                const list = anchorList();
+                return el && list && list.count > 0 ? offsetToLine(list, el.scrollTop) : null;
+            },
+            scrollToLine: (line: number) => {
+                const el = mainRef.current;
+                const list = anchorList();
+                pendingLineRef.current = { line, until: Date.now() + 800 };
+                if (el && list) el.scrollTop = lineToOffset(list, line);
+            },
         });
         return () => registerScroller(null);
-    }, [registerScroller]);
+    }, [registerScroller, anchorList]);
 
     return (
         <>

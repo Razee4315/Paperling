@@ -1879,6 +1879,7 @@ function AppContent() {
               <CodeEditor
                 content={content}
                 docSwapId={docSwapId}
+                docKey={activeTabId}
                 onChange={handleContentChange}
                 onCursorChange={handleCursorChange}
                 onSelectionChange={handleSelectionChange}
