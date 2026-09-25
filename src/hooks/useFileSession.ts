@@ -15,6 +15,7 @@ import {
   addRecentFile,
   getLastFile,
   getOpenInReader,
+  getRecentFiles,
   getSession,
   setLastFile,
   setSession,
@@ -33,6 +34,7 @@ import {
   type TabState,
 } from "../utils/tabsModel";
 import { loadBufferBackups, saveBufferBackups } from "../utils/bufferBackup";
+import { dirOf, joinPath, lastUsedDirectory, suggestFileName } from "../utils/saveName";
 
 interface FileData {
   path: string;
@@ -59,7 +61,7 @@ export interface UseFileSessionOptions {
      * OS panel are unreadable by the Rust file commands). Resolves null on
      * cancel.
      */
-    promptSavePath?: (defaultName: string | null) => Promise<string | null>;
+    promptSavePath?: (defaultName: string | null, defaultDir?: string | null) => Promise<string | null>;
     /** Tests can disable launch restoration without changing production behavior. */
     restoreOnMount?: boolean;
 }
@@ -489,11 +491,11 @@ export function useFileSession({
   // Ask where an untitled buffer should live: the injected strategy when the
   // shell provides one (mobile name prompt), otherwise the OS save panel.
   const promptForPath = useCallback(
-    (defaultName: string | null): Promise<string | null> => {
-      if (promptSavePath) return promptSavePath(defaultName);
+    (defaultName: string | null, defaultDir?: string | null): Promise<string | null> => {
+      if (promptSavePath) return promptSavePath(defaultName, defaultDir);
       return save({
         filters: [{ name: "Markdown", extensions: ["md"] }],
-        defaultPath: defaultName ?? undefined,
+        defaultPath: defaultName && defaultDir ? joinPath(defaultDir, defaultName) : defaultName ?? undefined,
       }).then((selected) => (typeof selected === "string" ? selected : null));
     },
     [promptSavePath],
@@ -544,7 +546,8 @@ export function useFileSession({
     }
     let path = data.filePath;
     if (!path) {
-      const selected = await promptForPath(data.fileName);
+      // A title-based name in the last-used folder, not "Untitled-1.md". SAVE-05.
+      const selected = await promptForPath(suggestFileName(data.content, data.fileName), lastUsedDirectory(getRecentFiles()));
       if (!selected) return;
       if (selected === DOWNLOADS_SENTINEL) {
         // The prompt can only hand back the sentinel; this hook owns the
@@ -686,7 +689,12 @@ export function useFileSession({
 
   // Save As — always prompts for a new path, even if a path is already set.
   const handleSaveAs = useCallback(async () => {
-    let selected = await promptForPath(fileName ?? null);
+    // Save As of a saved file opens in its own folder; a new note gets a
+    // title-based name in the last-used folder. SAVE-05.
+    let selected = await promptForPath(
+      filePath ? fileName ?? null : suggestFileName(content, fileName ?? "Untitled.md"),
+      filePath ? dirOf(filePath) : lastUsedDirectory(getRecentFiles()),
+    );
     if (!selected) return;
     let viaDownloads = false;
     if (selected === DOWNLOADS_SENTINEL) {

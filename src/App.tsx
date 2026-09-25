@@ -116,6 +116,7 @@ import { getAutoSave } from "./utils/persistence";
 import { clearBufferBackups } from "./utils/bufferBackup";
 import { findAnchorLine, splitWikilinkTarget } from "./utils/wikilinkAnchor";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
+import { dirOf, joinPath, lastUsedDirectory, suggestFileName } from "./utils/saveName";
 import { errMessage } from "./utils/errors";
 import { revealMainWindow, desktopWindow } from "./utils/appWindow";
 import { TabBar, type TabBarItem } from "./components/TabBar";
@@ -346,11 +347,13 @@ function AppContent() {
   // close-tab save, close-window save): OS panel on desktop, name prompt on
   // mobile. Same contract: resolve a full path, or null to cancel.
   const promptForSavePath = useCallback(
-    (defaultName: string | null): Promise<string | null> => {
+    (defaultName: string | null, defaultDir?: string | null): Promise<string | null> => {
       if (IS_MOBILE) return mobilePromptSavePath(defaultName);
       return save({
         filters: [{ name: "Markdown", extensions: ["md"] }],
-        defaultPath: defaultName ?? undefined,
+        // Open the dialog in the relevant folder, not wherever the OS last
+        // was. SAVE-05.
+        defaultPath: defaultName && defaultDir ? joinPath(defaultDir, defaultName) : defaultName ?? undefined,
       }).then((selected) => (typeof selected === "string" ? selected : null));
     },
     [mobilePromptSavePath],
@@ -707,7 +710,7 @@ function AppContent() {
     for (const t of collectDirtyTabs()) {
       let path = t.filePath;
       if (!path) {
-        const selected = await promptForSavePath(t.fileName);
+        const selected = await promptForSavePath(suggestFileName(t.content, t.fileName), lastUsedDirectory(getRecentFiles()));
         if (!selected) return; // cancelled a save-as → keep the app open
         path = selected;
       }
@@ -735,7 +738,7 @@ function AppContent() {
   // untouched. Gives "keep both" without deciding which version wins. EXT-02.
   const handleConflictSaveCopy = useCallback(async () => {
     const copyName = `${(fileName ?? "Untitled.md").replace(/\.md$/i, "")} (copy).md`;
-    let selected = await promptForSavePath(copyName);
+    let selected = await promptForSavePath(copyName, dirOf(filePath));
     if (!selected) return;
     if (selected === DOWNLOADS_SENTINEL) {
       const res = await saveToDownloads(normalizeMarkdownFileName(copyName), content);
