@@ -1145,6 +1145,18 @@ export function useFileSession({
         setBooting(false);
         return;
       }
+      // The user already opened or started something while the restore was
+      // reading files (Ctrl+N, a drag-drop, a double-clicked .md forwarded by
+      // the single-instance plugin). Replacing the tab list here silently
+      // discarded that buffer, including anything typed into it. Merge the
+      // restored tabs in instead and leave the user's tab on screen. BOOT-01.
+      if (tabsRef.current.length > 0) {
+        snapshotActiveTab();
+        const fresh = loaded.filter((tab) => !tab.filePath || !findTabByPath(tabsRef.current, tab.filePath));
+        commitTabs([...fresh, ...tabsRef.current]);
+        setBooting(false);
+        return;
+      }
       if (!activeId) activeId = loaded[0].id;
       const activeTab = loaded.find((tab) => tab.id === activeId)!;
       bumpDocSwap();

@@ -161,6 +161,29 @@ describe("useFileSession crash recovery (HOT-02/04)", () => {
     expect(localStorage.getItem("paperling.buffer-backup.v1")).toContain("alpha plus unsaved work");
   });
 
+  it("never discards a buffer the user started while the session was restoring (BOOT-01)", async () => {
+    localStorage.setItem("paperling:session", JSON.stringify({ tabs: [{ path: "C:/a.md" }, { path: "C:/b.md" }], activeIndex: 0 }));
+    // Hold the restore's file reads until the user has acted.
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    (invoke as Mock).mockImplementation(async (command: string, args?: { path?: string }) => {
+      if (command === "get_cli_file") return null;
+      if (command === "read_file" && args?.path) { await gate; return files.get(args.path); }
+      return 30;
+    });
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    act(() => result.current.handleNewFile());
+    act(() => result.current.setContent("typed during boot"));
+    const userTab = result.current.activeTabId;
+
+    await act(async () => { release(); });
+    await waitFor(() => expect(result.current.booting).toBe(false));
+
+    expect(result.current.activeTabId).toBe(userTab);
+    expect(result.current.content).toBe("typed during boot");
+    expect(result.current.tabs.map((t) => t.fileName)).toEqual(["a.md", "b.md", expect.stringMatching(/^Untitled/)]);
+  });
+
   it("raises the conflict when the file changed on disk after the crash", async () => {
     seedBackup("an older alpha");
     const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
