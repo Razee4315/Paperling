@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
+import { saveTextFile } from "./utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { save, ask } from "@tauri-apps/plugin-dialog";
 import { listen, TauriEvent } from "@tauri-apps/api/event";
 
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+import type { EditorLink } from "./utils/editorLinks";
 
 import { ThemeProvider, useTheme, type Theme } from "./context/ThemeContext";
 import { TitleBar } from "./components/TitleBar";
@@ -108,9 +110,15 @@ import {
   setWordWrap,
   getZenMode,
   setZenMode,
+  getReadableLineLength,
+  setReadableLineLength,
 } from "./utils/persistence";
 import { getAutoSave } from "./utils/persistence";
+import { clearBufferBackups } from "./utils/bufferBackup";
+import { findAnchorLine, splitWikilinkTarget } from "./utils/wikilinkAnchor";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
+import { dirOf, joinPath, lastUsedDirectory, suggestFileName } from "./utils/saveName";
+import { extractHeadings } from "./utils/outline";
 import { errMessage } from "./utils/errors";
 import { revealMainWindow, desktopWindow } from "./utils/appWindow";
 import { TabBar, type TabBarItem } from "./components/TabBar";
@@ -120,7 +128,7 @@ import {
 } from "./utils/tabsModel";
 import { countSourceWords, countWords } from "./utils/documentStats";
 import { Tour } from "./components/Tour";
-import { FindBar } from "./components/FindBar";
+import { FindBar, findSeedFromSelection } from "./components/FindBar";
 import { createPreviewFindController } from "./utils/previewFind";
 // The interactive feature guide, shipped as raw markdown so it opens as a real,
 // editable document (offered at the end of the welcome tour / from the palette).
@@ -164,10 +172,16 @@ function AppContent() {
   const [mode, setMode] = usePersistedState<ViewMode>(getSavedViewMode, setSavedViewMode);
   const [showCheatsheet, setShowCheatsheet] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
+  // Palette opened in a mode (":" = go to line, via Ctrl+G). NAV-10.
+  const [paletteSeed, setPaletteSeed] = useState<string | undefined>(undefined);
+  // Markdown files next to the open one, for the palette's quick switcher.
+  const [folderFiles, setFolderFiles] = useState<{ name: string; path: string }[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  // Query to pre-fill when search opens from a clicked #tag. SYNTAX-02.
+  const [searchSeed, setSearchSeed] = useState<string | undefined>(undefined);
   const [splitRatio, setSplitRatioState] = usePersistedState<number>(getSplitRatio, setSplitRatio);
   const [aiConfig, setAiConfigState] = useState(() => getAIConfig());
   const [aiEnabled, setAiEnabledState] = usePersistedState<boolean>(getAIEnabled, setAIEnabled);
@@ -182,6 +196,9 @@ function AppContent() {
   zenModeRef.current = zenMode;
   const zenToggleRef = useRef<() => void>(() => {});
   const [spellCheckEnabled, setSpellCheckEnabled] = usePersistedState<boolean>(getSpellCheck, setSpellCheck);
+  // Readable line length: centered ~800px preview column (Obsidian-style
+  // default ON). RLL-01.
+  const [readableLineLength, setReadableLineLengthState] = usePersistedState<boolean>(getReadableLineLength, setReadableLineLength);
   // Optional vim modal editing (issue #119). Toggled in Settings → Editor.
   const [vimModeEnabled, setVimModeEnabled] = usePersistedState<boolean>(getVimMode, setVimMode);
   const [cursorPosition, setCursorPosition] = useState({ line: 1, col: 1 });
@@ -194,6 +211,14 @@ function AppContent() {
   const [showUnsavedBeforeClose, setShowUnsavedBeforeClose] = useState(false);
   // Find bar over the reader-mode preview (Ctrl+F when mode === "preview").
   const [previewFindOpen, setPreviewFindOpen] = useState(false);
+  // Reader-mode find open requests carry the selected text as the query,
+  // matching the editor's find. FIND-06/07.
+  const [previewFindRequest, setPreviewFindRequest] = useState<{ nonce: number; text?: string }>({ nonce: 0 });
+  const openPreviewFindBar = useCallback(() => {
+    const text = typeof window !== "undefined" ? window.getSelection()?.toString() : undefined;
+    setPreviewFindOpen(true);
+    setPreviewFindRequest((r) => ({ nonce: r.nonce + 1, text: findSeedFromSelection(text) }));
+  }, []);
   // Autosave: save a moment after the user stops typing (Settings → Editor).
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => getAutoSave());
 
@@ -324,11 +349,13 @@ function AppContent() {
   // close-tab save, close-window save): OS panel on desktop, name prompt on
   // mobile. Same contract: resolve a full path, or null to cancel.
   const promptForSavePath = useCallback(
-    (defaultName: string | null): Promise<string | null> => {
+    (defaultName: string | null, defaultDir?: string | null): Promise<string | null> => {
       if (IS_MOBILE) return mobilePromptSavePath(defaultName);
       return save({
         filters: [{ name: "Markdown", extensions: ["md"] }],
-        defaultPath: defaultName ?? undefined,
+        // Open the dialog in the relevant folder, not wherever the OS last
+        // was. SAVE-05.
+        defaultPath: defaultName && defaultDir ? joinPath(defaultDir, defaultName) : defaultName ?? undefined,
       }).then((selected) => (typeof selected === "string" ? selected : null));
     },
     [mobilePromptSavePath],
@@ -343,6 +370,9 @@ function AppContent() {
   // any review because a proposal belongs to the file it was created for.
   const clearReview = useCallback(() => setProposedDoc(null), []);
   const {
+    retargetPaths,
+    getOpenBuffer,
+    setOpenBuffer,
     filePath,
     fileName,
     content,
@@ -361,6 +391,7 @@ function AppContent() {
     handleConflictKeepMine,
     handleConflictLoadFromDisk,
     collectDirtyTabs,
+    isAutosaveParked,
     activateTab,
     cycleTab,
     loadFile,
@@ -497,7 +528,7 @@ function AppContent() {
   // (still heavy) full re-parse fires. Combined with the preview's startTransition
   // render, this keeps typing responsive on large files. PREVIEW-01.
   const previewDebounceMs = content.length > 40_000 ? 250 : content.length > 12_000 ? 160 : 80;
-  const deferredContent = useDebouncedValue(content, previewDebounceMs);
+  const [deferredContent, flushDeferredPreview] = useDebouncedValue(content, previewDebounceMs);
 
   // Word/char counts feed the status bar — fine to lag a frame behind on huge
   // docs, so they read deferred too. countSourceWords is the SAME pipeline the
@@ -537,6 +568,18 @@ function AppContent() {
         if (!!(e as CustomEvent).detail?.enabled !== zenModeRef.current) zenToggleRef.current();
       }],
       ["paperling:autosave-toggle", (e) => setAutoSaveEnabled(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:readable-toggle", (e) => setReadableLineLengthState(!!(e as CustomEvent).detail?.enabled)],
+      // Toasts from components without toast access (diagram export).
+      ["paperling:notify", (e) => {
+        const d = (e as CustomEvent).detail;
+        if (d && typeof d.message === "string") showToast(d.message, d.type === "error" || d.type === "success" ? d.type : "info");
+      }],
+      // A #tag clicked in the preview searches the folder for it. SYNTAX-02.
+      ["paperling:search", (e) => {
+        const query = (e as CustomEvent).detail?.query;
+        setSearchSeed(typeof query === "string" ? query : undefined);
+        setShowSearch(true);
+      }],
       // Opened from the title-bar settings dropdown's "More settings…" entry.
       ["paperling:open-settings", () => setShowSettings(true)],
       // Alt+J with no selection opens the docked AI side panel. The editor's
@@ -634,6 +677,12 @@ function AppContent() {
   // the exit_app command instead. Without it a back-press with unsaved work
   // could trap the user in the dialog forever.
   const forceCloseWindow = useCallback(() => {
+    // Every caller has just resolved ALL unsaved work explicitly (saved it or
+    // chose Discard). The hot-exit store is only rewritten on an 800ms
+    // debounce that never runs once the window is destroyed, so without this
+    // the next launch "recovered" edits the user threw away — and untitled
+    // buffers "Save all" had just written to disk. HOT-03.
+    clearBufferBackups();
     if (IS_MOBILE) {
       invoke("exit_app").catch(() => {/* nothing left to fall back to */});
       return;
@@ -643,12 +692,27 @@ function AppContent() {
 
   // Save EVERY dirty tab, then close. An untitled tab prompts for a location;
   // cancelling that (or any failed save) aborts the close so nothing is lost. TABS-04.
+  // A tab parked by the external-change guard is refused outright: its file
+  // changed on disk under unsaved edits, so auto-saving it would overwrite the
+  // external version and closing would silently discard the buffer. EXT-03.
   const handleSaveAndCloseWindow = useCallback(async () => {
+    // The active tab's own conflict dialog counts too: saving it would
+    // overwrite the external version the dialog is asking about. CLOSE-02.
+    const parked = collectDirtyTabs().find(
+      (t) => isAutosaveParked(t.filePath) || (conflictPrompt != null && t.filePath === filePath),
+    );
+    if (parked) {
+      showToast(
+        `"${parked.fileName}" changed on disk and has unsaved edits. Resolve the conflict before closing.`,
+        "error",
+      );
+      return;
+    }
     setShowUnsavedBeforeClose(false);
     for (const t of collectDirtyTabs()) {
       let path = t.filePath;
       if (!path) {
-        const selected = await promptForSavePath(t.fileName);
+        const selected = await promptForSavePath(suggestFileName(t.content, t.fileName), lastUsedDirectory(getRecentFiles()));
         if (!selected) return; // cancelled a save-as → keep the app open
         path = selected;
       }
@@ -661,7 +725,7 @@ function AppContent() {
         path = cachePath.path;
       }
       try {
-        await invoke("save_file", { path, content: t.content });
+        await saveTextFile(path, t.content);
       } catch (err) {
         const msg = errMessage(err);
         showToast(msg || `Failed to save ${t.fileName}`, "error");
@@ -669,7 +733,31 @@ function AppContent() {
       }
     }
     forceCloseWindow();
-  }, [collectDirtyTabs, forceCloseWindow, promptForSavePath, showToast]);
+  }, [collectDirtyTabs, conflictPrompt, filePath, forceCloseWindow, isAutosaveParked, promptForSavePath, showToast]);
+
+  // "Save a copy" from the disk-conflict dialog: write the current buffer to a
+  // NEW file the user picks, leaving the conflicted file and the pending choice
+  // untouched. Gives "keep both" without deciding which version wins. EXT-02.
+  const handleConflictSaveCopy = useCallback(async () => {
+    const copyName = `${(fileName ?? "Untitled.md").replace(/\.md$/i, "")} (copy).md`;
+    let selected = await promptForSavePath(copyName, dirOf(filePath));
+    if (!selected) return;
+    if (selected === DOWNLOADS_SENTINEL) {
+      const res = await saveToDownloads(normalizeMarkdownFileName(copyName), content);
+      if (!res.ok || !res.path) {
+        showToast(res.error || "Could not save the copy", "error");
+        return;
+      }
+      showToast("Copy saved — the conflicted file is untouched", "success");
+      return;
+    }
+    try {
+      await saveTextFile(selected, content);
+      showToast("Copy saved — the conflicted file is untouched", "success");
+    } catch (err) {
+      showToast(errMessage(err) || "Could not save the copy", "error");
+    }
+  }, [content, fileName, promptForSavePath, showToast]);
 
   const handleDiscardAndCloseWindow = useCallback(() => {
     setShowUnsavedBeforeClose(false);
@@ -713,7 +801,7 @@ function AppContent() {
     });
     if (!confirmed) return;
     try {
-      await invoke<number>("save_file", { path, content: "" });
+      await saveTextFile(path, "");
       await loadFile(path);
     } catch (err) {
       const msg = errMessage(err);
@@ -721,13 +809,41 @@ function AppContent() {
     }
   }, [loadFile, showToast]);
 
+  // Live document text for callbacks that must keep a stable identity (the
+  // preview's link renderers are rebuilt whenever their handlers change).
+  const liveContentRef = useRef(content);
+  liveContentRef.current = content;
+  // The text the preview DOM currently shows (reported after each commit).
+  const renderedPreviewContentRef = useRef<string | null>(null);
+  const handlePreviewRendered = useCallback((rendered: string) => {
+    renderedPreviewContentRef.current = rendered;
+  }, []);
+
   // Wikilink click: resolve target relative to the current file's folder.
   // Tries `<target>.md` first, then `<target>` literal. Silently fails if neither exists.
   // SECURITY: rejects path-traversal and absolute paths so a crafted document
   // can't load arbitrary files outside the current folder.
   const handleWikilinkClick = useCallback(async (target: string) => {
+    // `[[Note#Heading]]` / `[[Note#^block]]` / `[[#Heading]]`: the part after
+    // `#` is an anchor inside the note, not part of its file name. NAV-09.
+    const { file, anchor } = splitWikilinkTarget(target);
+    const jumpTo = (text: string | null) => {
+      if (!anchor || text == null) return;
+      const line = findAnchorLine(text, anchor);
+      if (line == null) {
+        showToast(`No "${anchor}" in this note`, "info");
+        return;
+      }
+      requestAnimationFrame(() =>
+        window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } })),
+      );
+    };
+    if (!file) {
+      jumpTo(liveContentRef.current);
+      return;
+    }
     if (!filePath) return;
-    const cleaned = target.trim();
+    const cleaned = file;
     // Block traversal (`..`), path separators, drive letters, and absolute paths.
     // Wikilinks should only reference siblings in the same folder.
     if (
@@ -753,14 +869,17 @@ function AppContent() {
       try {
         // get_file_info errors when the file doesn't exist; use it as a probe
         await invoke("get_file_info", { path: c });
-        loadFile(c);
-        return;
-      } catch {/* try next */}
+      } catch {
+        continue; // try the next candidate
+      }
+      await loadFile(c);
+      jumpTo(getOpenBuffer(c));
+      return;
     }
     // Nothing matched — offer to create the note next to the current file, the
     // way Obsidian turns a dangling [[link]] into a new file. NAV-07.
     offerCreateNote(`${dir}${sep}${cleaned}.md`, `${cleaned}.md`);
-  }, [filePath, loadFile, showToast, offerCreateNote]);
+  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote]);
 
   // Standard relative markdown links — `[text](note.md)`, `[x](sub/note.md)`,
   // `[y](../other.md)` — open in-app like wikilinks (the preview only routes
@@ -780,6 +899,24 @@ function AppContent() {
       offerCreateNote(resolved, name);
     }
   }, [filePath, loadFile, offerCreateNote]);
+
+  // Ctrl/Cmd+click on a link in the editor (NAV-11): the same destinations a
+  // click in the reader reaches.
+  const handleEditorOpenLink = useCallback((link: EditorLink) => {
+    if (link.kind === "wikilink") {
+      void handleWikilinkClick(link.target);
+    } else if (link.kind === "url") {
+      openUrl(link.target).catch((err) => console.error("Failed to open external URL:", err));
+    } else if (link.kind === "relative") {
+      if (/\.(md|markdown|txt)(#.*)?$/i.test(link.target)) void handleNavigateRelative(link.target);
+      else showToast("Only notes can be opened from the editor. Use Reader mode for other files.", "info");
+    } else {
+      const text = liveContentRef.current;
+      const line = findAnchorLine(text, link.target) ?? findAnchorLine(text, link.target.replace(/-/g, " "));
+      if (line == null) showToast(`No "${link.target}" heading in this note`, "info");
+      else window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
+    }
+  }, [handleWikilinkClick, handleNavigateRelative, showToast]);
 
   // Open a cross-file search result: load the file (if not already open) and
   // jump to the matching line once it has rendered. The goto-line event is the
@@ -1040,11 +1177,12 @@ function AppContent() {
     handleToggleMode, handleToggleSplit, handleToggleFileExplorer, handleToggleTOC,
     toggleFullscreen, toggleZen: handleToggleZen,
     openCheatsheet: () => setShowCheatsheet(true),
-    openPalette: () => setShowPalette(true),
+    openPalette: () => { setPaletteSeed(undefined); setShowPalette(true); },
+    openGotoLine: () => { setPaletteSeed(":"); setShowPalette(true); },
     openSettings: () => setShowSettings(true),
     // Ctrl+F in reader mode opens the preview find bar (the editor keymap
     // handles find in code/split mode, where the editor has focus). FIND-01.
-    openPreviewFind: () => setPreviewFindOpen(true),
+    openPreviewFind: openPreviewFindBar,
     openSearch: () => setShowSearch(true),
     closeActiveTab: () => { if (activeTabId) closeTab(activeTabId); },
     prevTab: () => cycleTab(-1),
@@ -1054,13 +1192,28 @@ function AppContent() {
     hasFile, content, mode,
   });
 
-  // Get export HTML from the visible preview on demand (avoids duplicate rendering)
-  const getExportHtml = useCallback((): string => {
+  // Get export HTML from the visible preview on demand (avoids duplicate
+  // rendering). The preview renders the DEBOUNCED content, so capturing right
+  // after typing used to ship the document without the last keystrokes — flush
+  // the debounce first and let one frame pass so the preview catches up
+  // (EXPORT-03).
+  const getExportHtml = useCallback(async (): Promise<string> => {
+    flushDeferredPreview();
+    // The preview renders in a transition, so on a long note "two frames"
+    // wasn't always enough and an export could miss the last edits. Wait
+    // until it reports the current text as rendered (bounded). EXPORT-07.
+    const deadline = Date.now() + 5000;
+    while (renderedPreviewContentRef.current !== liveContentRef.current && Date.now() < deadline) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 30));
+    }
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
     if (previewRef.current) {
       return previewRef.current.innerHTML;
     }
     return "";
-  }, []);
+  }, [flushDeferredPreview]);
 
   // Mobile "Export as HTML…": the phone's counterpart of the desktop Export
   // menu (there is no OS save panel to aim it at, so the file lands in the
@@ -1073,7 +1226,7 @@ function AppContent() {
   // getExportHtml so the dependency below isn't in its temporal dead zone.
   const handleExportHtml = useCallback(async () => {
     if (!fileName) return;
-    const raw = getExportHtml();
+    const raw = await getExportHtml();
     if (!raw) {
       showToast("Nothing to export yet", "error");
       return;
@@ -1094,14 +1247,50 @@ function AppContent() {
     }
   }, [fileName, getExportHtml, showToast, theme, font, fontSize, customFont]);
 
+  // Print the RENDERED document (not the app window): the export pipeline's
+  // standalone HTML — which already carries print CSS, KaTeX styles and
+  // inlined images — goes into an off-screen iframe that prints itself.
+  // Ctrl+P is the command palette, so this palette entry is the print path.
+  // PRINT-01.
+  const handlePrint = useCallback(async () => {
+    const raw = await getExportHtml();
+    if (!raw) {
+      showToast("Open the document in Reader or Split view to print it", "info");
+      return;
+    }
+    try {
+      const { prepareExportHtml, generateHTML } = await import("./utils/exportUtils");
+      const cleaned = await prepareExportHtml(raw);
+      const title = (fileName ?? "Untitled").replace(/\.(md|markdown)$/i, "");
+      const html = generateHTML(cleaned, title, "light", font, fontSize, false, customFont);
+      const frame = document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+      document.body.appendChild(frame);
+      const cleanup = () => window.setTimeout(() => frame.remove(), 1000);
+      frame.onload = () => {
+        try {
+          frame.contentWindow?.focus();
+          frame.contentWindow?.print();
+        } catch {
+          showToast("Printing isn't available here — use Export → PDF instead", "error");
+        }
+        cleanup();
+      };
+      frame.srcdoc = html;
+    } catch (err) {
+      showToast(errMessage(err) || "Could not print", "error");
+    }
+  }, [customFont, fileName, font, fontSize, getExportHtml, showToast]);
+
   // Open find / find-and-replace from the Edit menu and command palette. In
   // reader mode "find" uses the preview find bar; "replace" only applies to the
   // editor, so from reader mode we switch to code mode first. The editor listens
   // for these events (CodeEditor's paperling:open-find / paperling:open-replace).
   const openFind = useCallback(() => {
-    if (mode === "preview") setPreviewFindOpen(true);
+    if (mode === "preview") openPreviewFindBar();
     else window.dispatchEvent(new CustomEvent("paperling:open-find"));
-  }, [mode]);
+  }, [mode, openPreviewFindBar]);
   const openReplace = useCallback(() => {
     if (mode === "preview") {
       setMode("code");
@@ -1192,6 +1381,16 @@ function AppContent() {
         keywords: "words count reading time",
         run: () => setShowStats(true),
       });
+      if (!IS_MOBILE) {
+        items.push({
+          id: "file.print",
+          label: "Print…",
+          section: "File",
+          icon: "print",
+          keywords: "print paper pdf printer",
+          run: () => void handlePrint(),
+        });
+      }
       items.push({
         id: "tab.close",
         label: "Close tab",
@@ -1425,7 +1624,7 @@ function AppContent() {
     // separate hook that's gated on the palette actually being open.
     handleNewFile, handleOpenFileAction, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
-    loadFile, filePath, hasFile, showToast, closeTab,
+    loadFile, filePath, hasFile, showToast, closeTab, handlePrint,
     typewriterModeEnabled, toolbarVisible, aiEnabled,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
@@ -1438,31 +1637,56 @@ function AppContent() {
   const headingPaletteItems = useMemo<PaletteCommand[]>(() => {
     if (!showPalette || !deferredContent) return [];
     const items: PaletteCommand[] = [];
-    const lines = deferredContent.split("\n");
-    lines.forEach((line, idx) => {
-      const m = line.match(/^(#{1,6})\s+(.+)$/);
-      if (m) {
-        const level = m[1].length;
-        const text = m[2].trim();
-        items.push({
-          id: `head.${idx}`,
-          label: text,
-          hint: `H${level}`,
-          section: "Headings",
-          icon: level === 1 ? "title" : level === 2 ? "format_h2" : "format_h3",
-          keywords: "jump heading",
-          run: () => {
-            // Jump both panes to the heading's source line. The editor and the
-            // preview each listen for this event and scroll themselves (hidden
-            // panes scroll harmlessly), so this works in every view mode and
-            // lands on the RIGHT heading even when titles repeat. NAV-01.
-            window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line: idx + 1 } }));
-          },
-        });
-      }
-    });
+    // Same headings as the outline: fence/frontmatter aware, clean text,
+    // setext headings too. The palette used to list `# comments` from code
+    // blocks as headings. TOC-03.
+    for (const h of extractHeadings(deferredContent)) {
+      items.push({
+        id: `head.${h.line}`,
+        label: h.text,
+        hint: `H${h.level}`,
+        section: "Headings",
+        icon: h.level === 1 ? "title" : h.level === 2 ? "format_h2" : "format_h3",
+        keywords: "jump heading",
+        run: () => {
+          // Jump both panes to the heading's source line. The editor and the
+          // preview each listen for this event and scroll themselves (hidden
+          // panes scroll harmlessly), so this works in every view mode and
+          // lands on the RIGHT heading even when titles repeat. NAV-01.
+          window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line: h.line, focus: true } }));
+        },
+      });
+    }
     return items;
   }, [showPalette, deferredContent]);
+
+  // Quick switcher: list the open file's folder when the palette opens, so any
+  // sibling note is a few keystrokes away (not just recents and tabs).
+  useEffect(() => {
+    if (!showPalette || !currentDirectory) return;
+    let cancelled = false;
+    invoke<{ name: string; path: string; is_dir: boolean }[]>("list_directory_files", { directory: currentDirectory })
+      .then((entries) => {
+        if (!cancelled) setFolderFiles(entries.filter((e) => !e.is_dir));
+      })
+      .catch(() => { if (!cancelled) setFolderFiles([]); });
+    return () => { cancelled = true; };
+  }, [showPalette, currentDirectory]);
+
+  const folderPaletteItems = useMemo<PaletteCommand[]>(() => {
+    if (!showPalette) return [];
+    const recentPaths = new Set(getRecentFiles().map((r) => r.path));
+    return folderFiles
+      .filter((f) => f.path !== filePath && !recentPaths.has(f.path))
+      .map((f) => ({
+        id: `folder.${f.path}`,
+        label: f.name,
+        section: "Files in this folder",
+        icon: "description",
+        keywords: "open file switch quick",
+        run: () => loadFile(f.path),
+      }));
+  }, [showPalette, folderFiles, filePath, loadFile]);
 
   // "Open tabs" palette section — jump to any open tab by name (only worthwhile
   // with more than one open). Uses the same folder disambiguation as the bar. TABS-11.
@@ -1488,8 +1712,8 @@ function AppContent() {
   // before so the CommandPalette component sees no API change. Reference
   // changes only when one of the sources changes — typically rare.
   const fullPaletteItems = useMemo<PaletteCommand[]>(
-    () => [...paletteItems, ...tabPaletteItems, ...headingPaletteItems],
-    [paletteItems, tabPaletteItems, headingPaletteItems]
+    () => [...paletteItems, ...tabPaletteItems, ...folderPaletteItems, ...headingPaletteItems],
+    [paletteItems, tabPaletteItems, folderPaletteItems, headingPaletteItems]
   );
 
   // Tab-bar items. The active tab's name/dirty come from live state (its stored
@@ -1656,6 +1880,10 @@ function AppContent() {
               isFullscreen={isFullscreen}
               onToggleFullscreen={toggleFullscreen}
               onExitZen={handleToggleZen}
+              outlineOpen={showTOC}
+              onToggleOutline={handleToggleTOC}
+              onNewFile={handleNewFile}
+              onOpenFile={handleOpenFile}
             />
           )}
           <div
@@ -1691,6 +1919,8 @@ function AppContent() {
               <CodeEditor
                 content={content}
                 docSwapId={docSwapId}
+                docKey={activeTabId}
+                onOpenLink={handleEditorOpenLink}
                 onChange={handleContentChange}
                 onCursorChange={handleCursorChange}
                 onSelectionChange={handleSelectionChange}
@@ -1707,6 +1937,7 @@ function AppContent() {
                 wordWrap={wordWrapEnabled}
                 spellCheck={spellCheckEnabled}
                 vimMode={vimModeEnabled}
+                readableLineLength={readableLineLength}
                 aiConfig={aiConfig}
                 reviewDoc={proposedDoc}
                 onReviewResolve={handleReviewResolve}
@@ -1738,6 +1969,7 @@ function AppContent() {
                   content={deferredContent}
                   fileName={fileName || ""}
                   fileSize={fileSize}
+                  readableLineLength={readableLineLength}
                   onEditClick={handleToggleMode}
                   onLineChange={handlePreviewLineChange}
                   filePath={filePath}
@@ -1747,6 +1979,7 @@ function AppContent() {
                   registerScroller={registerPreviewScroller}
                   onWikilinkClick={handleWikilinkClick}
                   onNavigateRelative={handleNavigateRelative}
+                  onRendered={handlePreviewRendered}
                 />
               </Suspense>
 
@@ -1755,6 +1988,7 @@ function AppContent() {
                   highlights matches via the CSS Custom Highlight API. */}
               <FindBar
                 isOpen={previewFindOpen}
+                openRequest={previewFindRequest}
                 controller={previewFindController}
                 revision={content}
                 onClose={() => setPreviewFindOpen(false)}
@@ -1770,7 +2004,7 @@ function AppContent() {
 
           {/* Sidebar Panels — only mount when actually open so they don't
               load their module until first use. */}
-          {!zenActive && showTOC && (
+          {showTOC && (
             <Suspense fallback={null}>
               <TableOfContents
                 isOpen={showTOC}
@@ -1860,6 +2094,13 @@ function AppContent() {
             fallbackDirectory={notesDir}
             onFileSelect={loadFile}
             onClose={closeAllPanels}
+            onPathChanged={(oldPath, newPath) => {
+              const affected = retargetPaths(oldPath, newPath);
+              if (newPath === null && affected > 0) {
+                showToast("An open tab's file was deleted — its unsaved text stays open; saving will ask where", "info");
+              }
+            }}
+            onNotify={showToast}
           />
         </Suspense>
       )}
@@ -1895,7 +2136,9 @@ function AppContent() {
 
       {/* Disk-conflict prompt: the open file changed on disk while the buffer
           had unsaved edits. Autosave and manual save stay paused until the user
-          picks a version. Dismissing resolves as keep-mine. EXT-02. */}
+          picks a version. Escape/backdrop are intentionally inert: silently
+          resolving as keep-mine armed an overwrite of the external version —
+          the choice must be explicit (or deferred via "Save a copy"). EXT-02. */}
       {conflictPrompt && (
         <Suspense fallback={null}>
           <ConflictDialog
@@ -1903,7 +2146,8 @@ function AppContent() {
             fileName={conflictPrompt.fileName}
             onKeepMine={handleConflictKeepMine}
             onLoadFromDisk={handleConflictLoadFromDisk}
-            onClose={handleConflictKeepMine}
+            onSaveCopy={handleConflictSaveCopy}
+            onClose={() => {/* no-op on purpose — see comment above */}}
           />
         </Suspense>
       )}
@@ -1948,7 +2192,13 @@ function AppContent() {
       )}
       {showPalette && (
         <Suspense fallback={null}>
-          <CommandPalette isOpen={showPalette} items={fullPaletteItems} onClose={() => setShowPalette(false)} />
+          <CommandPalette
+            isOpen={showPalette}
+            items={fullPaletteItems}
+            initialQuery={paletteSeed}
+            lineCount={hasFile ? content.split("\n").length : undefined}
+            onClose={() => { setShowPalette(false); setPaletteSeed(undefined); }}
+          />
         </Suspense>
       )}
       {showSearch && (
@@ -1956,8 +2206,12 @@ function AppContent() {
           <GlobalSearch
             isOpen={showSearch}
             directory={currentDirectory ?? (IS_MOBILE ? notesDir : null)}
-            onClose={() => setShowSearch(false)}
+            onClose={() => { setShowSearch(false); setSearchSeed(undefined); }}
+            initialQuery={searchSeed}
             onOpenResult={handleOpenSearchResult}
+            onNotify={showToast}
+            getOpenBuffer={getOpenBuffer}
+            setOpenBuffer={setOpenBuffer}
           />
         </Suspense>
       )}

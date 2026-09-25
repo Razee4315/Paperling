@@ -20,7 +20,7 @@ const commands: SlashCommand[] = [
     { id: "task", label: "Task list", description: "- [ ] todo", snippet: "- [ ] ", caretOffset: 6, icon: "check_box" },
     { id: "quote", label: "Quote", description: "> blockquote", snippet: "> ", caretOffset: 2, icon: "format_quote" },
     { id: "code", label: "Code block", description: "```\\ncode\\n```", snippet: "```\n\n```\n", caretOffset: 4, icon: "code" },
-    { id: "table", label: "Table", description: "| h | h |\\n| - | - |", snippet: "| Header 1 | Header 2 |\n| --- | --- |\n| Cell | Cell |\n", caretOffset: 11, icon: "table_chart" },
+    { id: "table", label: "Table", description: "| h | h |\\n| - | - |", snippet: "| Header 1 | Header 2 |\n| --- | --- |\n| Cell | Cell |\n", caretOffset: 10, icon: "table_chart" },
     { id: "hr", label: "Divider", description: "Horizontal rule", snippet: "\n---\n\n", caretOffset: 6, icon: "horizontal_rule" },
     { id: "math", label: "Math block", description: "$$ ... $$", snippet: "$$\n\n$$\n", caretOffset: 3, icon: "function" },
     { id: "chem", label: "Chemistry equation", description: "$\\ce{...}$ (mhchem)", snippet: "$\\ce{}$", caretOffset: 5, icon: "science" },
@@ -45,11 +45,25 @@ export function SlashMenu({ isOpen, position, query, onSelect, onClose }: SlashM
     const [activeIdx, setActiveIdx] = useState(0);
     const listRef = useRef<HTMLUListElement>(null);
 
+    // Rank: label/word prefix first ("/h" → Headings before "Math"), then any
+    // substring. Stable within a rank, so the menu order is preserved.
     const filtered = query
-        ? commands.filter((c) =>
-            c.label.toLowerCase().includes(query.toLowerCase()) ||
-            c.id.toLowerCase().includes(query.toLowerCase())
-        )
+        ? commands
+              .map((c) => {
+                  const q = query.toLowerCase();
+                  const label = c.label.toLowerCase();
+                  const rank = label.startsWith(q) || c.id.startsWith(q)
+                      ? 0
+                      : label.split(/\s+/).some((w) => w.startsWith(q))
+                        ? 1
+                        : label.includes(q) || c.id.includes(q)
+                          ? 2
+                          : -1;
+                  return { c, rank };
+              })
+              .filter((r) => r.rank !== -1)
+              .sort((a, b) => a.rank - b.rank)
+              .map((r) => r.c)
         : commands;
 
     useEffect(() => { setActiveIdx(0); }, [query, isOpen]);

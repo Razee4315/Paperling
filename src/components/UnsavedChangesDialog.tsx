@@ -22,6 +22,9 @@ export function UnsavedChangesDialog({
 }: UnsavedChangesDialogProps) {
     const saveButtonRef = useRef<HTMLButtonElement>(null);
     const many = (dirtyNames?.length ?? 0) > 1;
+    // With several tabs open, "You have unsaved changes" didn't say WHICH
+    // file the answer applies to. DLG-01.
+    const single = !many && dirtyNames?.[0] ? dirtyNames[0] : null;
 
     return (
         <Modal
@@ -58,7 +61,9 @@ export function UnsavedChangesDialog({
                 <p id="unsaved-dialog-desc" className="text-sm text-[var(--text-secondary)] leading-relaxed">
                     {many
                         ? "These files have unsaved changes. Do you want to save them before closing?"
-                        : "You have unsaved changes. Do you want to save them before closing?"}
+                        : single
+                            ? <>Do you want to save the changes you made to <strong className="font-semibold text-[var(--text-primary)] break-words">{single}</strong>?</>
+                            : "You have unsaved changes. Do you want to save them before closing?"}
                 </p>
                 {many && (
                     <ul className="mt-3 max-h-40 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] divide-y divide-[var(--border)]">

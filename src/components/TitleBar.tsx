@@ -13,7 +13,7 @@ interface TitleBarProps {
     filePath?: string;
     onOpenFile?: () => void;
     onNewFile?: () => void;
-    getExportHtml?: () => string;
+    getExportHtml?: () => Promise<string>;
     onExportSuccess?: (format: string) => void;
     onExportError?: (format: string) => void;
     onToggleAI?: () => void;

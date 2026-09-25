@@ -1,4 +1,5 @@
 import type { EditorResult, EditorState } from "../utils/editorActions";
+import { formatShortcut, aiShortcutLabel } from "../config/keybindings";
 import { wrapSelection, insertLink } from "../utils/editorActions";
 
 interface FormatToolbarProps {
@@ -92,10 +93,14 @@ export function FormatToolbar({ getState, apply, insert, onAIAssist }: FormatToo
         if (!st) return;
         const sel = st.text.slice(st.selStart, st.selEnd) || "code";
         const inserted = `\n\`\`\`\n${sel}\n\`\`\`\n`;
+        // The opening fence including its leading newline is 5 chars ("\n```\n");
+        // +4 parked the caret ON the fence line, where the next keystroke
+        // corrupted the fence ("```x"). SHC-08.
+        const fence = 5;
         apply({
             text: st.text.slice(0, st.selStart) + inserted + st.text.slice(st.selEnd),
-            selStart: st.selStart + 4, // place caret after opening fence
-            selEnd: st.selStart + 4 + sel.length,
+            selStart: st.selStart + fence,
+            selEnd: st.selStart + fence + sel.length,
         });
     };
 
@@ -115,24 +120,24 @@ export function FormatToolbar({ getState, apply, insert, onAIAssist }: FormatToo
             <ToolButton icon="format_h2" title="Heading 2" onClick={heading(2)} />
             <ToolButton icon="format_h3" title="Heading 3" onClick={heading(3)} />
             <Sep />
-            <ToolButton icon="format_bold" title="Bold (Ctrl+B)" onClick={wrap("**", "**", "bold")} />
-            <ToolButton icon="format_italic" title="Italic (Ctrl+I)" onClick={wrap("*", "*", "italic")} />
+            <ToolButton icon="format_bold" title={`Bold (${formatShortcut("bold")})`} onClick={wrap("**", "**", "bold")} />
+            <ToolButton icon="format_italic" title={`Italic (${formatShortcut("italic")})`} onClick={wrap("*", "*", "italic")} />
             <ToolButton icon="strikethrough_s" title="Strikethrough" onClick={wrap("~~", "~~", "text")} />
             <ToolButton icon="code" title="Inline code" onClick={wrap("`", "`", "code")} />
             <Sep />
             <ToolButton icon="format_list_bulleted" title="Bullet list" onClick={block("- ")} />
             <ToolButton icon="format_list_numbered" title="Numbered list" onClick={block("1. ")} />
             <ToolButton icon="check_box" title="Task list" onClick={block("- [ ] ")} />
-            <ToolButton icon="format_quote" title="Blockquote (Ctrl+/)" onClick={block("> ")} />
+            <ToolButton icon="format_quote" title={`Blockquote (${formatShortcut("blockquote")})`} onClick={block("> ")} />
             <Sep />
-            <ToolButton icon="link" title="Link (Ctrl+K)" onClick={link} />
+            <ToolButton icon="link" title={`Link (${formatShortcut("link")})`} onClick={link} />
             <ToolButton icon="data_object" title="Code block" onClick={codeBlock} />
             <ToolButton icon="table_chart" title="Insert table" onClick={insertTable} />
             <ToolButton icon="horizontal_rule" title="Horizontal rule" onClick={insertHr} />
             {onAIAssist && (
                 <>
                     <Sep />
-                    <ToolButton icon="auto_awesome" title="AI assist (Alt+J)" onClick={onAIAssist} />
+                    <ToolButton icon="auto_awesome" title={`AI assist (${aiShortcutLabel})`} onClick={onAIAssist} />
                 </>
             )}
         </div>

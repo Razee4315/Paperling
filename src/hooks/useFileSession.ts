@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { readTextFile, saveTextFile } from "../utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
@@ -14,20 +15,26 @@ import {
   addRecentFile,
   getLastFile,
   getOpenInReader,
+  getRecentFiles,
   getSession,
   setLastFile,
   setSession,
 } from "../utils/persistence";
 import {
+  collectBufferBackups,
   collectDirtyTabs as computeDirtyTabs,
   findReusableUntitledTab,
   findTabByPath,
+  samePath,
+  pathKey,
   moveTab,
   nextActiveAfterClose,
   nextUntitledName,
   type DirtyTab,
   type TabState,
 } from "../utils/tabsModel";
+import { loadBufferBackups, saveBufferBackups } from "../utils/bufferBackup";
+import { dirOf, joinPath, lastUsedDirectory, suggestFileName } from "../utils/saveName";
 
 interface FileData {
   path: string;
@@ -54,7 +61,7 @@ export interface UseFileSessionOptions {
      * OS panel are unreadable by the Rust file commands). Resolves null on
      * cancel.
      */
-    promptSavePath?: (defaultName: string | null) => Promise<string | null>;
+    promptSavePath?: (defaultName: string | null, defaultDir?: string | null) => Promise<string | null>;
     /** Tests can disable launch restoration without changing production behavior. */
     restoreOnMount?: boolean;
 }
@@ -65,6 +72,10 @@ export interface UseFileSessionOptions {
 // a racing last-session restore that can overwrite the just-opened file.
 // Module-level on purpose — StrictMode remounts share module state.
 let bootResolved = false;
+/** Test-only: let a test run the once-per-load boot restore again. */
+export function __resetBootForTests(): void {
+  bootResolved = false;
+}
 
 export function useFileSession({
     currentLine,
@@ -100,7 +111,18 @@ export function useFileSession({
   const [closeTabPrompt, setCloseTabPrompt] = useState<{ id: string; fileName: string } | null>(null);
   // Pending disk-conflict choice: the open file changed on disk while the buffer
   // had unsaved edits, and we're awaiting Keep-mine / Load-from-disk. EXT-02.
-  const [conflictPrompt, setConflictPrompt] = useState<{ fileName: string } | null>(null);
+  // `diskMtime` is the on-disk mtime that raised the conflict, when the
+  // conflict came from a parked tab / pre-write check that did NOT absorb it
+  // into knownMtime — "Keep mine" absorbs it so the same change can't re-raise
+  // the dialog forever. EXT-04.
+  const [conflictPrompt, setConflictPromptState] = useState<{ fileName: string; diskMtime?: number } | null>(null);
+  // Synchronous mirror: snapshotActiveTab (called while leaving a tab, before
+  // any re-render) must know whether the tab being left has an open conflict.
+  const conflictPromptRef = useRef(conflictPrompt);
+  const setConflictPrompt = useCallback((next: { fileName: string; diskMtime?: number } | null) => {
+    conflictPromptRef.current = next;
+    setConflictPromptState(next);
+  }, []);
 
   // === Tabs (snapshot-swap) ===
   // The live state (filePath/content/…) IS the active tab. `tabsRef`/`liveRef`
@@ -125,6 +147,16 @@ export function useFileSession({
   // Known on-disk modified time (ms). Compared against a fresh stat on window
   // focus to detect the file changing under us (sync tools, other editors).
   const knownMtimeRef = useRef(0);
+  // Paths whose background autosave is parked because the file changed on disk
+  // under a dirty buffer (detected by the pre-write stat in the background
+  // autosave effect). A parked path is never written automatically — switching
+  // to its tab raises the conflict dialog, and Keep-mine / Load-from-disk (or
+  // closing the tab) ends the parking. Without this, the 1.5s background timer
+  // would answer the conflict question by silently overwriting the external
+  // changes. EXT-03.
+  // Maps path → the on-disk mtime seen when it was parked, so "Keep mine" can
+  // absorb exactly that change (EXT-04/05).
+  const parkedAutosavePathsRef = useRef<Map<string, number>>(new Map());
   // Latest content + originalContent are read via refs inside `loadFile` so
   // its identity stays stable across keystrokes. Without this, every typed
   // character would change `loadFile`'s reference and churn its listeners.
@@ -166,11 +198,30 @@ export function useFileSession({
     [],
   );
 
+  // True while the background-autosave guard has parked this path because the
+  // file changed on disk under a dirty buffer. The window-close "Save all"
+  // consults this so it can't write (or silently discard) a conflicted buffer.
+  // EXT-03.
+  const isAutosaveParked = useCallback(
+    (path: string | null | undefined): boolean => !!path && parkedAutosavePathsRef.current.has(path),
+    [],
+  );
+
   // Write the live editor state back into the active tab's entry.
   const snapshotActiveTab = useCallback(() => {
     const id = activeTabIdRef.current;
     if (!id) return;
     const live = liveRef.current;
+    // Leaving a tab while its disk-conflict dialog is open must NOT count as
+    // "keep mine": the buffer becomes a dirty background tab whose knownMtime
+    // already equals the external mtime, so background autosave would
+    // overwrite the external version 1.5s later. Park it instead — switching
+    // back re-raises the dialog. A tab switch is reachable behind the modal
+    // (Alt+Arrows, Ctrl+Tab, tab clicks). EXT-04.
+    const pending = conflictPromptRef.current;
+    if (pending && live.filePath && live.content !== live.originalContent) {
+      parkedAutosavePathsRef.current.set(live.filePath, pending.diskMtime ?? knownMtimeRef.current);
+    }
     commitTabs(
       tabsRef.current.map((tab) =>
         tab.id === id
@@ -204,16 +255,26 @@ export function useFileSession({
       setOriginalContent(tab.originalContent);
       setFileSize(tab.fileSize);
       knownMtimeRef.current = tab.knownMtime;
+      // A tab parked by the background-autosave guard has external changes the
+      // user hasn't reviewed. Raising the conflict dialog here parks the
+      // ACTIVE autosave (conflictPending) until Keep-mine / Load-from-disk —
+      // otherwise the first edit after the switch would re-create the exact
+      // overwrite the guard exists to prevent. EXT-03.
+      if (tab.filePath && parkedAutosavePathsRef.current.has(tab.filePath)) {
+        setConflictPrompt({ fileName: tab.fileName, diskMtime: parkedAutosavePathsRef.current.get(tab.filePath) });
+      }
       if (tab.filePath) setLastFile(tab.filePath);
       // Restore where you were in this tab — jump to the remembered line, or fall
       // back to the top for a never-focused / line-1 tab. TABS-02.
+      // `source: "tab-restore"` lets the editor skip this when it restored the
+      // tab's full state (exact caret + viewport) itself. TABS-20.
       const line = tab.cursorLine ?? 1;
       requestAnimationFrame(() => {
-        if (line > 1) window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
-        else window.dispatchEvent(new CustomEvent("paperling:scroll-top"));
+        if (line > 1) window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line, source: "tab-restore" } }));
+        else window.dispatchEvent(new CustomEvent("paperling:scroll-top", { detail: { source: "tab-restore" } }));
       });
     },
-    [bumpDocSwap, clearReview],
+    [bumpDocSwap, clearReview, setConflictPrompt],
   );
 
   // Switch to an already-open tab, snapshotting the current one first.
@@ -249,7 +310,17 @@ export function useFileSession({
       snapshotActiveTab();
       setIsLoading(true);
       try {
-        const fileData = await invoke<FileData>("read_file", { path });
+        const fileData = await readTextFile<FileData>(path);
+        // A fresh load is a clean slate for every overlay: a review pending from
+        // the PREVIOUS file must not survive into this one (its merge view would
+        // diff old-file content against the new document, and its chunk buttons
+        // would write the old file's proposed text here), a stale conflict
+        // prompt must not keep this file's saves parked, and any background
+        // parking for this path is moot — we just read the disk version.
+        // EXT-02 / AI-02.
+        clearReview();
+        setConflictPrompt(null);
+        parkedAutosavePathsRef.current.delete(fileData.path);
         bumpDocSwap();
         setFilePath(fileData.path);
         setFileName(fileData.name);
@@ -276,7 +347,23 @@ export function useFileSession({
           setActiveTab(existing.id);
         } else {
           const id = newTabId();
-          commitTabs([...tabsRef.current, { id, ...loaded }]);
+          // Opening a file from an untouched, empty Untitled tab takes that
+          // tab's place instead of leaving a stray blank tab behind (the
+          // usual "New File, then Open" start). It gets a NEW id so the
+          // editor starts it fresh: reusing the id would make the empty
+          // buffer part of this file's undo history. TABS-22.
+          const live = liveRef.current;
+          const activeIdx = tabsRef.current.findIndex((tab) => tab.id === activeTabIdRef.current);
+          const active = activeIdx >= 0 ? tabsRef.current[activeIdx] : undefined;
+          const pristine =
+            active && !active.filePath && !live.filePath && live.content === "" && live.originalContent === "";
+          if (pristine) {
+            const next = [...tabsRef.current];
+            next[activeIdx] = { id, ...loaded };
+            commitTabs(next);
+          } else {
+            commitTabs([...tabsRef.current, { id, ...loaded }]);
+          }
           setActiveTab(id);
         }
         // Snap the new file to the top — but not on a same-path external reload,
@@ -297,7 +384,7 @@ export function useFileSession({
         setIsLoading(false);
       }
     },
-    [bumpDocSwap, commitTabs, newTabId, setActiveTab, setMode, showToast, snapshotActiveTab],
+    [bumpDocSwap, clearReview, commitTabs, newTabId, setActiveTab, setConflictPrompt, setMode, showToast, snapshotActiveTab],
   );
 
   // Open a file: if it's already in a tab, just switch to it (preserving any
@@ -316,15 +403,16 @@ export function useFileSession({
   );
 
   // Reopen the most recently closed (saved) tab, restoring its caret line. TABS-15.
-  const reopenClosedTab = useCallback(() => {
+  const reopenClosedTab = useCallback(async () => {
     const entry = closedTabsRef.current.pop();
     if (!entry) return;
-    loadFile(entry.path);
+    // Wait for the (async) read before jumping: a fixed 150ms timer lost the
+    // race on slow disks and moved the caret in the PREVIOUS document. TABS-19.
+    await loadFile(entry.path);
     if (entry.cursorLine && entry.cursorLine > 1) {
       const line = entry.cursorLine;
-      window.setTimeout(
-        () => window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } })),
-        150,
+      requestAnimationFrame(() =>
+        window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } })),
       );
     }
   }, [loadFile]);
@@ -419,11 +507,11 @@ export function useFileSession({
   // Ask where an untitled buffer should live: the injected strategy when the
   // shell provides one (mobile name prompt), otherwise the OS save panel.
   const promptForPath = useCallback(
-    (defaultName: string | null): Promise<string | null> => {
-      if (promptSavePath) return promptSavePath(defaultName);
+    (defaultName: string | null, defaultDir?: string | null): Promise<string | null> => {
+      if (promptSavePath) return promptSavePath(defaultName, defaultDir);
       return save({
         filters: [{ name: "Markdown", extensions: ["md"] }],
-        defaultPath: defaultName ?? undefined,
+        defaultPath: defaultName && defaultDir ? joinPath(defaultDir, defaultName) : defaultName ?? undefined,
       }).then((selected) => (typeof selected === "string" ? selected : null));
     },
     [promptSavePath],
@@ -456,9 +544,26 @@ export function useFileSession({
       setCloseTabPrompt(null);
       return;
     }
+    // A conflicted buffer (parked background tab, or the active tab with the
+    // conflict dialog up) must not be written from here either: "Save" would
+    // silently overwrite the external version the user hasn't reviewed.
+    // CLOSE-02.
+    const isActive = prompt.id === activeTabIdRef.current;
+    if (
+      data.filePath &&
+      (parkedAutosavePathsRef.current.has(data.filePath) || (isActive && conflictPromptRef.current))
+    ) {
+      setCloseTabPrompt(null);
+      showToast(
+        `"${data.fileName}" changed on disk. Resolve the conflict (switch to the tab) before saving it.`,
+        "error",
+      );
+      return;
+    }
     let path = data.filePath;
     if (!path) {
-      const selected = await promptForPath(data.fileName);
+      // A title-based name in the last-used folder, not "Untitled-1.md". SAVE-05.
+      const selected = await promptForPath(suggestFileName(data.content, data.fileName), lastUsedDirectory(getRecentFiles()));
       if (!selected) return;
       if (selected === DOWNLOADS_SENTINEL) {
         // The prompt can only hand back the sentinel; this hook owns the
@@ -471,7 +576,7 @@ export function useFileSession({
       }
     }
     try {
-      await invoke("save_file", { path, content: data.content });
+      await saveTextFile(path, data.content);
     } catch (error) {
       showToast(errMessage(error) || "Failed to save file", "error");
       return;
@@ -492,13 +597,16 @@ export function useFileSession({
   // stays open in its tab, so nothing is discarded). Reuses a pristine empty
   // untitled tab if one exists, and numbers new ones Untitled-N.md. TABS-01/08.
   const handleNewFile = useCallback(() => {
+    // Snapshot FIRST: the active tab's stored entry lags the live buffer until
+    // the next switch, so a freshly-typed Untitled tab still looked "pristine
+    // and empty" and New File silently did nothing. TABS-17.
+    snapshotActiveTab();
     const reusable = findReusableUntitledTab(tabsRef.current);
     if (reusable) {
       if (reusable.id !== activeTabIdRef.current) activateTab(reusable.id);
       setMode("code");
       return;
     }
-    snapshotActiveTab();
     // Fresh Untitled buffer → editor resets undo history. TABS-03.
     bumpDocSwap();
     const id = newTabId();
@@ -525,7 +633,13 @@ export function useFileSession({
   const openTutorial = useCallback(
     (tutorialContent: string) => {
       const name = "Welcome to Paperling.md";
-      const bytes = new TextEncoder().encode(tutorialContent).length;
+      // Normalize line endings ONCE, up front: the editor's doc normalizes
+      // \r\n to \n on insert, so a CRLF tutorial.md (Windows checkout) made
+      // the editor's onChange fire with text that differs from
+      // originalContent — the freshly opened guide showed up pre-marked
+      // "unsaved changes". TABS-09.
+      const normalized = tutorialContent.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const bytes = new TextEncoder().encode(normalized).length;
       // Snapshot first so the active tab's latest edits are preserved even when
       // switching to (or reusing) another tab.
       snapshotActiveTab();
@@ -537,8 +651,8 @@ export function useFileSession({
         id,
         filePath: null,
         fileName: name,
-        content: tutorialContent,
-        originalContent: tutorialContent,
+        content: normalized,
+        originalContent: normalized,
         fileSize: bytes,
         knownMtime: 0,
       };
@@ -549,8 +663,8 @@ export function useFileSession({
       clearReview();
       setFilePath(null);
       setFileName(name);
-      setContent(tutorialContent);
-      setOriginalContent(tutorialContent);
+      setContent(normalized);
+      setOriginalContent(normalized);
       setFileSize(bytes);
       knownMtimeRef.current = 0;
       setLastFile(null);
@@ -567,6 +681,9 @@ export function useFileSession({
       const selected = await open({
         multiple: true,
         filters: [{ name: "Markdown & text", extensions: ["md", "markdown", "txt", "text"] }],
+        // Start next to the open note (or the last one used), not wherever
+        // the OS dialog was last. SAVE-05.
+        defaultPath: dirOf(filePathRef.current) ?? lastUsedDirectory(getRecentFiles()) ?? undefined,
       });
       if (typeof selected === "string") await loadFile(selected);
       else if (Array.isArray(selected)) for (const path of selected) await loadFile(path);
@@ -575,9 +692,28 @@ export function useFileSession({
     }
   }, [loadFile]);
 
+  // The on-disk mtime of `path` when it is NEWER than what the active buffer
+  // last read or wrote, else null (unchanged, untracked, or stat failed — the
+  // write itself then surfaces real errors). Shared pre-write guard for the
+  // active tab's manual save and autosave. EXT-06.
+  const diskChangedSince = useCallback(async (path: string): Promise<number | null> => {
+    try {
+      const info = await invoke<{ modified: number }>("get_file_info", { path });
+      const known = knownMtimeRef.current;
+      return known > 0 && typeof info?.modified === "number" && info.modified > known ? info.modified : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   // Save As — always prompts for a new path, even if a path is already set.
   const handleSaveAs = useCallback(async () => {
-    let selected = await promptForPath(fileName ?? null);
+    // Save As of a saved file opens in its own folder; a new note gets a
+    // title-based name in the last-used folder. SAVE-05.
+    let selected = await promptForPath(
+      filePath ? fileName ?? null : suggestFileName(content, fileName ?? "Untitled.md"),
+      filePath ? dirOf(filePath) : lastUsedDirectory(getRecentFiles()),
+    );
     if (!selected) return;
     let viaDownloads = false;
     if (selected === DOWNLOADS_SENTINEL) {
@@ -587,7 +723,24 @@ export function useFileSession({
       viaDownloads = true;
     }
     try {
-      knownMtimeRef.current = await invoke<number>("save_file", { path: selected, content });
+      knownMtimeRef.current = await saveTextFile(selected, content);
+      const savedPath = selected;
+      // Saving over a file that is open in ANOTHER tab left two tabs for one
+      // file whose saves clobbered each other. A clean duplicate just closes;
+      // a dirty one is parked so the conflict dialog decides when it's next
+      // opened (its buffer no longer matches what's on disk). TABS-18.
+      const selfId = activeTabIdRef.current;
+      const duplicates = tabsRef.current.filter((tab) => tab.id !== selfId && samePath(tab.filePath, savedPath));
+      for (const dup of duplicates) {
+        if (dup.content !== dup.originalContent) parkedAutosavePathsRef.current.set(savedPath, knownMtimeRef.current);
+      }
+      if (duplicates.some((dup) => dup.content === dup.originalContent)) {
+        commitTabs(
+          tabsRef.current.filter(
+            (tab) => !duplicates.some((dup) => dup.id === tab.id && dup.content === dup.originalContent),
+          ),
+        );
+      }
       setFilePath(selected);
       const name = selected.replace(/\\/g, "/").split("/").pop() || "Untitled";
       setFileName(name);
@@ -634,16 +787,27 @@ export function useFileSession({
     // A disk conflict is pending: saving now would silently overwrite the
     // external changes the dialog is asking about. Save As stays allowed —
     // it writes to a different path. EXT-02.
-    if (conflictPrompt) return;
+    if (conflictPrompt) {
+      showToast("This file changed on disk — pick a version in the dialog first", "info");
+      return;
+    }
+    // Same pre-write check autosave runs: a file changed by another program
+    // since we last read/wrote it raises the conflict dialog instead of being
+    // overwritten. EXT-06.
+    const newer = await diskChangedSince(filePath);
+    if (newer !== null) {
+      setConflictPrompt({ fileName: fileName ?? "Untitled.md", diskMtime: newer });
+      return;
+    }
     try {
-      knownMtimeRef.current = await invoke<number>("save_file", { path: filePath, content });
+      knownMtimeRef.current = await saveTextFile(filePath, content);
       setOriginalContent(content);
       showToast("File saved", "success");
     } catch (error) {
       console.error("Failed to save file:", error);
       showToast(errMessage(error) || "Failed to save file", "error");
     }
-  }, [conflictPrompt, content, filePath, handleSaveAs, showToast]);
+  }, [conflictPrompt, content, diskChangedSince, fileName, filePath, handleSaveAs, setConflictPrompt, showToast]);
 
   // External-change detection: on window focus, stat the open file and reload
   // a clean buffer or prompt for a dirty buffer. EXT-01. Callbacks are memoised
@@ -654,19 +818,29 @@ export function useFileSession({
   );
   const handleExternalConflict = useCallback(
     () => setConflictPrompt({ fileName: liveRef.current.fileName ?? "Untitled.md" }),
-    [],
+    [setConflictPrompt],
   );
   // Resolution for the disk-conflict dialog. "Keep mine" changes nothing on
   // disk: the watcher already absorbed the new mtime, so the next save (manual
   // or autosave) deliberately overwrites the external version. "Load from disk"
   // reuses the watcher's reload path, which resets content/originalContent and
-  // the known mtime. EXT-02.
-  const handleConflictKeepMine = useCallback(() => setConflictPrompt(null), []);
+  // the known mtime. EXT-02. Both resolutions also end any background-autosave
+  // parking for the path — the user has explicitly decided. EXT-03.
+  const handleConflictKeepMine = useCallback(() => {
+    const path = filePathRef.current;
+    if (path) parkedAutosavePathsRef.current.delete(path);
+    // Absorb the disk change the user just chose to overwrite; otherwise the
+    // pre-write guard would see it again and re-raise the dialog. EXT-04.
+    const diskMtime = conflictPromptRef.current?.diskMtime;
+    if (diskMtime !== undefined && diskMtime > knownMtimeRef.current) knownMtimeRef.current = diskMtime;
+    setConflictPrompt(null);
+  }, [setConflictPrompt]);
   const handleConflictLoadFromDisk = useCallback(() => {
     const path = filePathRef.current;
+    if (path) parkedAutosavePathsRef.current.delete(path);
     setConflictPrompt(null);
     if (path) void loadFileDirect(path);
-  }, [loadFileDirect]);
+  }, [loadFileDirect, setConflictPrompt]);
   useExternalChangeWatcher({
     filePathRef,
     contentRef,
@@ -681,12 +855,33 @@ export function useFileSession({
   // Autosave 1.5s after the last edit. See useAutosave for throttling and the
   // AI-review guard (AI-01); memoised callbacks keep the timer stable. A pending
   // disk conflict parks autosave too — saving is exactly what the dialog is
-  // asking about. EXT-02.
-  const handleAutosaved = useCallback((mtime: number, saved: string) => {
+  // asking about. EXT-02. The saved path lets us ignore a resolution that lands
+  // after the user switched documents mid-write: stamping the NEW buffer with
+  // this file's mtime/originalContent corrupted its dirty flag (a later close
+  // could discard real edits as "clean") and its external-change detection.
+  // TABS-08.
+  const handleAutosaved = useCallback((mtime: number, saved: string, savedPath: string) => {
+    if (savedPath !== filePathRef.current) return;
     knownMtimeRef.current = mtime;
     setOriginalContent(saved);
   }, []);
   const handleAutosaveError = useCallback((message: string) => showToast(message, "error"), [showToast]);
+  // Pre-write guard for the active tab's autosave: the file changed on disk
+  // since we last read/wrote it → raise the conflict dialog (which parks
+  // autosave) instead of overwriting. Before this, only BACKGROUND tabs were
+  // guarded, so an external edit (or a replace-in-files) was silently
+  // reverted ≤1.5s later whenever the active buffer was dirty. EXT-06/GS-04.
+  const autosaveBeforeWrite = useCallback(
+    async (path: string): Promise<boolean> => {
+      const newer = await diskChangedSince(path);
+      if (newer === null) return true;
+      if (path === filePathRef.current) {
+        setConflictPrompt({ fileName: liveRef.current.fileName ?? "Untitled.md", diskMtime: newer });
+      }
+      return false;
+    },
+    [diskChangedSince, setConflictPrompt],
+  );
   useAutosave({
     enabled: autoSaveEnabled,
     filePath,
@@ -696,22 +891,49 @@ export function useFileSession({
     conflictPending: conflictPrompt != null,
     onSaved: handleAutosaved,
     onError: handleAutosaveError,
+    beforeWrite: autosaveBeforeWrite,
   });
 
   // Autosave dirty BACKGROUND tabs too (useAutosave above covers the active
   // buffer). Background snapshots change only when switching away, so this
   // effect keys on `tabs` and settles after saved snapshots are updated. TABS-06.
+  // Each write is guarded by a stat: if the file changed on disk since we last
+  // saw it, saving would silently overwrite the external version — the exact
+  // question the active-tab conflict dialog exists to ask. Park the path
+  // instead and surface it once; the parking ends when the tab is resolved
+  // (Keep-mine / Load-from-disk), reloaded, or closed. EXT-03.
   useEffect(() => {
     if (!autoSaveEnabled) return;
     const activeId = activeTabIdRef.current;
     const dirtyBackgroundTabs = tabs.filter(
       (tab) => tab.id !== activeId && tab.filePath && tab.content !== tab.originalContent,
     );
+    // A path is only parked while a dirty tab still holds it: closing the tab
+    // or reverting the buffer ends the parking.
+    for (const path of [...parkedAutosavePathsRef.current.keys()]) {
+      if (!dirtyBackgroundTabs.some((tab) => tab.filePath === path)) {
+        parkedAutosavePathsRef.current.delete(path);
+      }
+    }
     if (dirtyBackgroundTabs.length === 0) return;
     const timer = window.setTimeout(async () => {
       for (const tab of dirtyBackgroundTabs) {
+        const path = tab.filePath!;
+        if (parkedAutosavePathsRef.current.has(path)) continue;
         try {
-          const mtime = await invoke<number>("save_file", { path: tab.filePath!, content: tab.content });
+          const info = await invoke<{ modified: number }>("get_file_info", { path });
+          if (tab.knownMtime > 0 && info.modified > tab.knownMtime) {
+            const alreadyParked = parkedAutosavePathsRef.current.has(path);
+            parkedAutosavePathsRef.current.set(path, info.modified);
+            if (!alreadyParked) {
+              showToast(
+                `"${tab.fileName}" changed on disk in a background tab. Its autosave is paused until you review the changes.`,
+                "error",
+              );
+            }
+            continue;
+          }
+          const mtime = await saveTextFile(path, tab.content);
           // Only mark saved if the snapshot still holds exactly what we wrote.
           commitTabs(
             tabsRef.current.map((current) =>
@@ -726,7 +948,7 @@ export function useFileSession({
       }
     }, 1500);
     return () => window.clearTimeout(timer);
-  }, [autoSaveEnabled, commitTabs, tabs]);
+  }, [autoSaveEnabled, commitTabs, showToast, tabs]);
 
   // External-change detection for BACKGROUND tabs. The active tab is handled by
   // useExternalChangeWatcher; clean background tabs refresh silently, while a
@@ -740,7 +962,7 @@ export function useFileSession({
           const info = await invoke<{ modified: number }>("get_file_info", { path: tab.filePath! });
           if (!(tab.knownMtime > 0 && info.modified > tab.knownMtime)) continue;
           if (tab.content === tab.originalContent) {
-            const fileData = await invoke<FileData>("read_file", { path: tab.filePath! });
+            const fileData = await readTextFile<FileData>(tab.filePath!);
             commitTabs(
               tabsRef.current.map((current) =>
                 current.id === tab.id
@@ -754,14 +976,14 @@ export function useFileSession({
                   : current,
               ),
             );
-          } else {
-            commitTabs(
-              tabsRef.current.map((current) =>
-                current.id === tab.id ? { ...current, knownMtime: info.modified } : current,
-              ),
-            );
+          } else if (!parkedAutosavePathsRef.current.has(tab.filePath!)) {
+            // Park — do NOT absorb the new mtime into the snapshot. Absorbing
+            // it made the background-autosave guard see "nothing new" and
+            // overwrite the very change this branch just warned about.
+            // Switching to the tab raises the conflict dialog. EXT-05.
+            parkedAutosavePathsRef.current.set(tab.filePath!, info.modified);
             showToast(
-              `"${tab.fileName}" changed on disk in a background tab. Saving it will overwrite those changes.`,
+              `"${tab.fileName}" changed on disk in a background tab. Its autosave is paused until you review the changes.`,
               "error",
             );
           }
@@ -794,6 +1016,20 @@ export function useFileSession({
     const activeIndex = persistable.findIndex((tab) => tab.id === activeId);
     setSession({ tabs: sessionTabs, activeIndex: activeIndex < 0 ? 0 : activeIndex });
   }, [activeTabId, booting, tabs]);
+
+  // Hot exit (HOT-01): mirror every DIRTY buffer's full text to the backup
+  // store, debounced, so a crash / force-quit / OS reboot costs at most the
+  // debounce window of work. Clean tabs are skipped (disk holds their state),
+  // so saved/closed/reverted tabs age out of the store automatically.
+  useEffect(() => {
+    if (booting) return;
+    const id = window.setTimeout(() => {
+      saveBufferBackups(
+        collectBufferBackups(tabsRef.current, activeTabIdRef.current, liveRef.current, currentLineRef.current),
+      );
+    }, 800);
+    return () => window.clearTimeout(id);
+  }, [booting, tabs, content]);
 
   // Resolve the launch file once on app start. PULL model: ask the backend for
   // an OS-opened file when the UI is ready instead of racing a pushed event
@@ -848,7 +1084,17 @@ export function useFileSession({
         if (!paths.includes(forcedFile)) paths.push(forcedFile);
         activePath = forcedFile;
       }
-      if (paths.length === 0) {
+      // Hot exit (HOT-01): unsaved buffers from the previous run overlay the
+      // restored session (and can seed one when nothing else restores).
+      const backups = loadBufferBackups();
+      const backupByPath = new Map(backups.filter((b) => b.filePath).map((b) => [b.filePath as string, b]));
+      const untitledBackups = backups.filter((b) => !b.filePath);
+      const hadNoSessionPaths = paths.length === 0;
+      // Saved-file backups also pull their file back into the restore set.
+      for (const b of backupByPath.keys()) {
+        if (!paths.includes(b)) paths.push(b);
+      }
+      if (paths.length === 0 && backups.length === 0) {
         setBooting(false);
         return;
       }
@@ -857,19 +1103,34 @@ export function useFileSession({
       // requested it from outside the app.
       const loaded: TabState[] = [];
       let activeId: string | null = null;
+      let recoveredCount = 0;
       for (const path of paths) {
         try {
-          const fileData = await invoke<FileData>("read_file", { path });
+          const fileData = await readTextFile<FileData>(path);
           const id = newTabId();
+          const backup = backupByPath.get(path);
+          // Dirty backup for this file: restore the BUFFER text over the disk
+          // content (disk stays `originalContent`, so the buffer reads dirty).
+          const hasBackup = backup !== undefined && backup.content !== fileData.content;
+          if (hasBackup) recoveredCount += 1;
+          // The file changed on disk AFTER the backup was taken (edited in
+          // another program between the crash and this launch): the backup's
+          // base no longer matches the disk. Restore the buffer but park the
+          // path, so the conflict dialog (Keep mine / Load from disk / Save a
+          // copy) decides — never let autosave lay stale recovered text over
+          // newer work. HOT-04.
+          if (hasBackup && backup && backup.originalContent !== fileData.content) {
+            parkedAutosavePathsRef.current.set(fileData.path, fileData.modified ?? 0);
+          }
           loaded.push({
             id,
             filePath: fileData.path,
             fileName: fileData.name,
-            content: fileData.content,
+            content: hasBackup && backup ? backup.content : fileData.content,
             originalContent: fileData.content,
             fileSize: fileData.size,
             knownMtime: fileData.modified ?? 0,
-            cursorLine: cursorByPath.get(path),
+            cursorLine: backup?.cursorLine ?? cursorByPath.get(path),
           });
           if (path === activePath) activeId = id;
         } catch (error) {
@@ -878,9 +1139,48 @@ export function useFileSession({
           else if (/too large/i.test(message)) showToast(`Could not restore "${path}": ${message}`, "error");
         }
       }
+      // Untitled dirty buffers become tabs of their own.
+      for (const b of untitledBackups) {
+        recoveredCount += 1;
+        const id = newTabId();
+        loaded.push({
+          id,
+          filePath: null,
+          fileName: b.fileName,
+          content: b.content,
+          originalContent: b.originalContent,
+          fileSize: new TextEncoder().encode(b.content).length,
+          knownMtime: 0,
+          cursorLine: b.cursorLine,
+        });
+        if (activeId === null) activeId = id;
+      }
+      if (recoveredCount > 0) {
+        showToast(
+          recoveredCount === 1
+            ? "Recovered 1 unsaved buffer from the last session"
+            : `Recovered ${recoveredCount} unsaved buffers from the last session`,
+          "info",
+        );
+      }
       if (loaded.length === 0) {
-        setSession(null);
-        setLastFile(null);
+        if (hadNoSessionPaths) {
+          // Nothing restored at all — no session, no readable backups.
+          setSession(null);
+          setLastFile(null);
+        }
+        setBooting(false);
+        return;
+      }
+      // The user already opened or started something while the restore was
+      // reading files (Ctrl+N, a drag-drop, a double-clicked .md forwarded by
+      // the single-instance plugin). Replacing the tab list here silently
+      // discarded that buffer, including anything typed into it. Merge the
+      // restored tabs in instead and leave the user's tab on screen. BOOT-01.
+      if (tabsRef.current.length > 0) {
+        snapshotActiveTab();
+        const fresh = loaded.filter((tab) => !tab.filePath || !findTabByPath(tabsRef.current, tab.filePath));
+        commitTabs([...fresh, ...tabsRef.current]);
         setBooting(false);
         return;
       }
@@ -892,10 +1192,23 @@ export function useFileSession({
       setFilePath(activeTab.filePath);
       setFileName(activeTab.fileName);
       setContent(activeTab.content);
-      setOriginalContent(activeTab.content);
+      // The snapshot's originalContent, NOT its content: for a recovered
+      // buffer they differ, and seeding originalContent with the recovered
+      // text made the tab read "Saved" — no close prompt, no autosave, and the
+      // hot-exit store dropped the backup 800ms later, so the recovered work
+      // was lost on the next close or crash. HOT-02.
+      setOriginalContent(activeTab.originalContent);
       setFileSize(activeTab.fileSize);
       knownMtimeRef.current = activeTab.knownMtime;
-      addRecentFile(activeTab.filePath!, activeTab.fileName);
+      if (activeTab.filePath) {
+        addRecentFile(activeTab.filePath, activeTab.fileName);
+        if (parkedAutosavePathsRef.current.has(activeTab.filePath)) {
+          setConflictPrompt({
+            fileName: activeTab.fileName,
+            diskMtime: parkedAutosavePathsRef.current.get(activeTab.filePath),
+          });
+        }
+      }
       setLastFile(activeTab.filePath);
       // Restore the active tab's caret line once the editor has mounted.
       const line = activeTab.cursorLine ?? 1;
@@ -958,7 +1271,91 @@ export function useFileSession({
     [activateTab, closeManyClean],
   );
 
+  // Buffer access by path for cross-file operations (replace in files). A file
+  // open in a tab is edited IN ITS BUFFER — writing the disk behind the tab's
+  // back was silently reverted by that tab's next autosave. The edit then
+  // saves through the normal (guarded) save paths. GS-04.
+  const getOpenBuffer = useCallback((path: string): string | null => {
+    const tab = findTabByPath(tabsRef.current, path);
+    if (!tab) return null;
+    // Right after a switch the active-tab id already points at `tab`, but the
+    // live buffer still holds the PREVIOUS file until the next render; only
+    // trust it when it really is this file. `[[Note#Heading]]` to an already
+    // open note used to search the wrong text and never jumped. NAV-12.
+    return tab.id === activeTabIdRef.current && samePath(liveRef.current.filePath, tab.filePath)
+      ? liveRef.current.content
+      : tab.content;
+  }, []);
+  const setOpenBuffer = useCallback(
+    (path: string, text: string): boolean => {
+      const tab = findTabByPath(tabsRef.current, path);
+      if (!tab) return false;
+      if (tab.id === activeTabIdRef.current) {
+        setContent(text);
+      } else {
+        commitTabs(tabsRef.current.map((t) => (t.id === tab.id ? { ...t, content: text } : t)));
+      }
+      return true;
+    },
+    [commitTabs],
+  );
+
+  // The explorer renamed or trashed `oldPath` (a file, or a folder and
+  // everything under it). Open tabs follow a rename. For a trash, a clean
+  // tab closes and a dirty one keeps its text but loses its path — its
+  // autosave would otherwise silently re-create the file the user just
+  // deleted; saving it now asks where. FILES-01.
+  const retargetPaths = useCallback(
+    (oldPath: string, newPath: string | null): number => {
+      const oldKey = pathKey(oldPath);
+      const mapPath = (p: string | null): string | null | undefined => {
+        if (!p) return undefined;
+        const key = pathKey(p);
+        if (key === oldKey) return newPath;
+        if (key.startsWith(`${oldKey}/`)) return newPath ? newPath + p.slice(oldPath.length) : null;
+        return undefined;
+      };
+      const baseName = (p: string) => p.replace(/\\/g, "/").split("/").pop() || p;
+      const activeId = activeTabIdRef.current;
+      let affected = 0;
+      const toClose: string[] = [];
+      const next = tabsRef.current.map((tab) => {
+        const isActive = tab.id === activeId;
+        const currentPath = isActive ? liveRef.current.filePath : tab.filePath;
+        const mapped = mapPath(currentPath);
+        if (mapped === undefined) return tab;
+        affected += 1;
+        if (currentPath) parkedAutosavePathsRef.current.delete(currentPath);
+        const dirty = isActive
+          ? liveRef.current.content !== liveRef.current.originalContent
+          : tab.content !== tab.originalContent;
+        if (mapped === null && !dirty) {
+          toClose.push(tab.id);
+          return tab;
+        }
+        const updated = { ...tab, filePath: mapped, fileName: mapped ? baseName(mapped) : tab.fileName };
+        if (isActive) {
+          setFilePath(mapped);
+          if (mapped) {
+            setFileName(baseName(mapped));
+            setLastFile(mapped);
+          } else {
+            setLastFile(null);
+          }
+        }
+        return updated;
+      });
+      commitTabs(next);
+      for (const id of toClose) finalizeCloseTab(id);
+      return affected;
+    },
+    [commitTabs, finalizeCloseTab],
+  );
+
   return {
+    retargetPaths,
+    getOpenBuffer,
+    setOpenBuffer,
     filePath,
     fileName,
     content,
@@ -978,6 +1375,8 @@ export function useFileSession({
     handleConflictKeepMine,
     handleConflictLoadFromDisk,
     collectDirtyTabs,
+    isAutosaveParked,
+    loadFileDirect,
     activateTab,
     cycleTab,
     loadFile,

@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect, useState, useMemo, memo } from "react";
-import { EditorState as CMEditorState, Compartment, Prec } from "@codemirror/state";
+import { EditorState as CMEditorState, EditorSelection, Compartment, Prec, type Extension, type StateEffect } from "@codemirror/state";
+import { selectNextOccurrence, highlightSelectionMatches } from "@codemirror/search";
 import {
     EditorView,
     keymap,
@@ -22,10 +23,11 @@ import {
     handleEnter,
     wrapSelection,
     insertLink,
+    toggleTask,
     type EditorResult,
     type EditorState,
 } from "../utils/editorActions";
-import { FindBar, type FindController } from "./FindBar";
+import { FindBar, findSeedFromSelection, type FindController, type FindOpts } from "./FindBar";
 import { replaceOne, replaceAllMatches, isValidPattern } from "../utils/findReplace";
 import { findHighlightField, setFindMatches } from "../utils/editorFindHighlight";
 import {
@@ -50,9 +52,10 @@ import { getAIEnabled } from "../utils/persistence";
 import { invoke } from "@tauri-apps/api/core";
 import { matchWikilinkPrefix, rankFileNames, toWikiName } from "../utils/wikilinkComplete";
 import { applyTableOp, findTableAt, locateCell, type Align } from "../utils/tableModel";
-import { toCmKey } from "../config/keybindings";
+import { toCmKey, isMac } from "../config/keybindings";
+import { linkAt, type EditorLink } from "../utils/editorLinks";
 import { highlightCaretLine } from "../utils/caretLineHighlight";
-import type { Scroller } from "../utils/scrollSync";
+import type { HandoffOptions, Scroller } from "../utils/scrollSync";
 
 interface CodeEditorProps {
     content: string;
@@ -69,6 +72,9 @@ interface CodeEditorProps {
     showToolbar?: boolean;
     wordWrap?: boolean;
     spellCheck?: boolean;
+    /** Centre the text in a ~80-character column (Settings → Readable line
+     *  length), matching the preview. Only applies while word wrap is on. */
+    readableLineLength?: boolean;
     /** Optional vim modal editing (issue #119): h/j/k/l, modes, operators —
      *  the official @replit/codemirror-vim implementation. Off by default. */
     vimMode?: boolean;
@@ -84,7 +90,30 @@ interface CodeEditorProps {
      *  its undo history so Ctrl+Z can't reach back into the previous document (a
      *  data-loss bug: undo used to "un-swap" the file). TABS-03. */
     docSwapId?: number;
+    /** Identity of the document on screen (the tab id). Each document keeps
+     *  its own editor state (caret, selection, scroll and undo history) so
+     *  switching tabs and back is lossless. TABS-20. */
+    docKey?: string | null;
+    /** Ctrl/Cmd+click on a link in the source follows it. NAV-11. */
+    onOpenLink?: (link: EditorLink) => void;
 }
+
+/**
+ * CodeMirror's default keymap, minus the unshifted Alt+←/→ on Windows/Linux.
+ * There CM binds them to cursorSyntaxLeft/Right, and handling a key calls
+ * preventDefault — which the app's window handler (SHC-01) treats as
+ * "already handled", so Alt+←/→ stopped switching tabs whenever the editor
+ * had focus. Shift+Alt+←/→ (select by syntax node) keeps working, and macOS
+ * is untouched (its binding is Ctrl+←/→ and Option+Arrows move by word).
+ * SHC-09.
+ */
+const editorDefaultKeymap = isMac
+    ? defaultKeymap
+    : defaultKeymap.map((binding) =>
+          binding.key === "Alt-ArrowLeft" || binding.key === "Alt-ArrowRight"
+              ? { ...binding, run: undefined }
+              : binding,
+      );
 
 const EDITOR_FONT_FAMILY =
     "'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
@@ -111,11 +140,13 @@ const editorTheme = EditorView.theme({
         height: "100%",
         color: "var(--text-primary)",
         backgroundColor: "var(--bg-editor)",
-        fontSize: "14px",
+        // Follows Settings → Font size (was a hardcoded 14px, so the setting
+        // never touched the editor). Line height scales with it.
+        fontSize: "var(--editor-font-size, 14px)",
     },
     ".cm-scroller": {
         fontFamily: EDITOR_FONT_FAMILY,
-        lineHeight: "24px",
+        lineHeight: "1.72",
         overflow: "auto",
     },
     ".cm-content": {
@@ -146,6 +177,46 @@ const editorTheme = EditorView.theme({
         backgroundColor: "var(--selection-bg)",
     },
     ".cm-foldPlaceholder": { backgroundColor: "var(--bg-hover)", color: "var(--text-secondary)", border: "none" },
+});
+
+/** Bold/italic across several cursors (Ctrl+D): wrap every range. Returns
+ *  false for a single range so the tested single-range toggle handles it. */
+function wrapEachRange(view: EditorView, mark: string): boolean {
+    if (view.state.selection.ranges.length < 2) return false;
+    view.dispatch(
+        view.state.changeByRange((r) => ({
+            changes: [
+                { from: r.from, insert: mark },
+                { from: r.to, insert: mark },
+            ],
+            range: EditorSelection.range(r.from + mark.length, r.to + mark.length),
+        })),
+    );
+    return true;
+}
+
+/**
+ * Typing an emphasis marker over a selection wraps it instead of replacing
+ * it (`*` → *text*, `_`, `~`, `=` for ==highlight==), like Typora. The
+ * cheatsheet promised this for years, backed by helpers that were never
+ * wired; closeBrackets already covers brackets and quotes. EDIT-01.
+ */
+const WRAP_ON_TYPE = new Set(["*", "_", "~", "="]);
+const wrapSelectionOnType = EditorView.inputHandler.of((view, from, to, text) => {
+    if (!WRAP_ON_TYPE.has(text) || from === to) return false;
+    const { ranges } = view.state.selection;
+    if (ranges.some((r) => r.empty)) return false;
+    view.dispatch(
+        view.state.changeByRange((r) => ({
+            changes: [
+                { from: r.from, insert: text },
+                { from: r.to, insert: text },
+            ],
+            range: EditorSelection.range(r.from + 1, r.to + 1),
+        })),
+        { userEvent: "input.type" },
+    );
+    return true;
 });
 
 /** Build the EditorState shape the (tested) editorActions helpers expect. */
@@ -193,16 +264,32 @@ function CodeEditorImpl({
     wordWrap = true,
     spellCheck = false,
     vimMode = false,
+    readableLineLength = false,
     aiConfig,
     reviewDoc,
     onReviewResolve,
     docSwapId,
+    docKey = null,
+    onOpenLink,
 }: CodeEditorProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
 
     const [findOpen, setFindOpen] = useState(false);
     const [findMode, setFindMode] = useState<"find" | "replace">("find");
+    // Each open request (incl. a repeat Ctrl+F) carries the selection to
+    // search for. FIND-06/07.
+    const [findRequest, setFindRequest] = useState<{ nonce: number; text?: string }>({ nonce: 0 });
+    const requestFind = useCallback((mode: "find" | "replace") => {
+        const v = viewRef.current;
+        const sel = v?.state.selection.main;
+        const text = v && sel && !sel.empty ? v.state.sliceDoc(sel.from, sel.to) : undefined;
+        setFindMode(mode);
+        setFindOpen(true);
+        setFindRequest((r) => ({ nonce: r.nonce + 1, text: findSeedFromSelection(text) }));
+    }, []);
+    const requestFindRef = useRef(requestFind);
+    requestFindRef.current = requestFind;
     const [slashState, setSlashState] = useState<{ from: number; pos: { x: number; y: number } } | null>(null);
     const [slashQuery, setSlashQuery] = useState("");
     const [aiBubble, setAIBubble] = useState<{ x: number; y: number; selStart: number; selEnd: number; text: string } | null>(null);
@@ -220,13 +307,23 @@ function CodeEditorImpl({
     const onErrorRef = useRef(onError); onErrorRef.current = onError;
     const onNoticeRef = useRef(onNotice); onNoticeRef.current = onNotice;
     const onReviewResolveRef = useRef(onReviewResolve); onReviewResolveRef.current = onReviewResolve;
+    const onOpenLinkRef = useRef(onOpenLink); onOpenLinkRef.current = onOpenLink;
     const filePathRef = useRef(filePath); filePathRef.current = filePath;
+    // One-shot latch for Ctrl+Shift+V ("paste as plain text"): the keydown sets
+    // it, the very next paste event consumes it and skips HTML conversion
+    // (PASTE-03).
+    const forcePlainTextRef = useRef(false);
     // Base names (without .md) of the sibling files, for `[[` autocomplete. Kept
     // in a ref so the once-created completion source always sees the latest list.
     const wikiNamesRef = useRef<string[]>([]);
     const aiConfigRef = useRef(aiConfig); aiConfigRef.current = aiConfig;
     const typewriterRef = useRef(typewriterMode); typewriterRef.current = typewriterMode;
     const slashStateRef = useRef(slashState); slashStateRef.current = slashState;
+    // The range the AI bubble will act on, MAPPED through every later edit.
+    // It used to be the raw offsets captured when the bubble opened, so typing
+    // while the model generated made Replace splice the wrong text. Null when
+    // no bubble is open. AI-06.
+    const aiRangeRef = useRef<{ from: number; to: number; text: string } | null>(null);
 
     // The last value WE emitted via onChange — lets the external-content sync
     // effect below skip the O(n) doc.toString() comparison on the common case
@@ -237,6 +334,27 @@ function CodeEditorImpl({
     const contentPropRef = useRef(content);
     contentPropRef.current = content;
 
+    // Per-document editor states, keyed by docKey (TABS-20). A tab switch
+    // stores the outgoing EditorState (it carries the undo history, the
+    // selection and every extension's state) plus its scroll offset, and
+    // restores the incoming one when its text still matches. Before, every
+    // switch replaced the text wholesale and wiped the history: the caret
+    // jumped to the start of its line, the viewport jumped, and Ctrl+Z no
+    // longer worked after looking at another tab.
+    const stateCacheRef = useRef(new Map<string, { state: CMEditorState; scroll: StateEffect<unknown> }>());
+    const docKeyRef = useRef(docKey);
+    docKeyRef.current = docKey;
+    const shownKeyRef = useRef(docKey);
+    const appliedSwapRef = useRef(docSwapId);
+    // Set when a swap restored a cached state; the tab-restore goto-line /
+    // scroll-top that useFileSession fires for the same switch is then
+    // skipped, or it would throw away the exact position just restored.
+    const restoredFromCacheRef = useRef(false);
+    // Live setting values for rebuilding extensions on a restored state.
+    const liveSettingsRef = useRef({ wordWrap, spellCheck, vimMode });
+    liveSettingsRef.current = { wordWrap, spellCheck, vimMode };
+    const buildEditingKeymapRef = useRef<() => Extension>(() => []);
+
     // Reconfigurable extensions.
     const wrapCompRef = useRef(new Compartment());
     const spellCompRef = useRef(new Compartment());
@@ -245,6 +363,8 @@ function CodeEditorImpl({
     // history() lives in a compartment so a document swap can reset undo state
     // (reconfigure to [] then back) without rebuilding the whole editor. TABS-03.
     const historyCompRef = useRef(new Compartment());
+    // The editing keymap (bold/italic/find/…), rebuilt on rebinds. SHC-10.
+    const keymapCompRef = useRef(new Compartment());
     // AI review (merge view) state.
     const mergeCompRef = useRef(new Compartment());
     const reviewingRef = useRef(false);
@@ -327,6 +447,7 @@ function CodeEditorImpl({
         const rect = view.scrollDOM.getBoundingClientRect();
         const x = coords ? coords.left : rect.left + 28;
         const y = (coords ? coords.bottom : rect.top + 24) + 6;
+        aiRangeRef.current = { from: sel.from, to: sel.to, text: view.state.doc.sliceString(sel.from, sel.to) };
         setAIBubble({ x, y, selStart: sel.from, selEnd: sel.to, text: view.state.doc.sliceString(sel.from, sel.to) });
     }, []);
 
@@ -339,13 +460,22 @@ function CodeEditorImpl({
         const vimComp = vimCompRef.current;
         const mergeComp = mergeCompRef.current;
         const historyComp = historyCompRef.current;
+        const keymapComp = keymapCompRef.current;
 
-        const editingKeymap = Prec.highest(keymap.of([
+        // Built from the (user-overridable) binding config and kept in a
+        // compartment, so a rebind in Settings → Shortcuts applies to the
+        // open editor immediately. SHC-10.
+        const buildEditingKeymap = () => Prec.highest(keymap.of([
             { key: "Tab", run: (v) => runAction(v, (st) => handleTab(st, false)), shift: (v) => runAction(v, (st) => handleTab(st, true)) },
             { key: "Enter", run: (v) => runAction(v, handleEnter) },
-            { key: toCmKey("bold"), run: (v) => { applyResultToView(v, wrapSelection(toEdState(v), "**", "**", "bold")); return true; } },
-            { key: toCmKey("italic"), run: (v) => { applyResultToView(v, wrapSelection(toEdState(v), "*", "*", "italic")); return true; } },
+            { key: toCmKey("bold"), run: (v) => wrapEachRange(v, "**") || (applyResultToView(v, wrapSelection(toEdState(v), "**", "**", "bold")), true) },
+            { key: toCmKey("italic"), run: (v) => wrapEachRange(v, "*") || (applyResultToView(v, wrapSelection(toEdState(v), "*", "*", "italic")), true) },
+            // Ctrl+D: add the next occurrence of the selection/word as another
+            // cursor (VS Code). @codemirror/search was bundled but unused.
+            { key: toCmKey("selectNextOccurrence"), run: selectNextOccurrence, preventDefault: true },
             { key: toCmKey("link"), run: (v) => { applyResultToView(v, insertLink(toEdState(v))); return true; } },
+            // Ctrl/Cmd+Enter ticks the task on the caret line(s). TASK-01.
+            { key: toCmKey("toggleTask"), run: (v) => runAction(v, toggleTask) },
             {
                 key: toCmKey("blockquote"), run: (v) => {
                     const st = toEdState(v);
@@ -360,12 +490,14 @@ function CodeEditorImpl({
                     return true;
                 }
             },
-            { key: toCmKey("find"), run: () => { setFindMode("find"); setFindOpen(true); return true; } },
-            { key: toCmKey("replace"), run: () => { setFindMode("replace"); setFindOpen(true); return true; } },
+            { key: toCmKey("find"), run: () => { requestFindRef.current("find"); return true; } },
+            { key: toCmKey("replace"), run: () => { requestFindRef.current("replace"); return true; } },
             // NB: the AI shortcut (Alt+J / ⌘J) is handled at the App window level
             // so it fires regardless of editor focus — see App.tsx. The editor
             // opens the bubble via the paperling:ai-assist event listener below.
         ]));
+
+        buildEditingKeymapRef.current = buildEditingKeymap;
 
         const updateListener = EditorView.updateListener.of((update: ViewUpdate) => {
             if (reviewingRef.current) {
@@ -406,6 +538,14 @@ function CodeEditorImpl({
                     });
                 }
             } else if (update.docChanged) {
+                const range = aiRangeRef.current;
+                if (range) {
+                    aiRangeRef.current = {
+                        ...range,
+                        from: update.changes.mapPos(range.from, 1),
+                        to: Math.max(update.changes.mapPos(range.from, 1), update.changes.mapPos(range.to, -1)),
+                    };
+                }
                 const value = update.state.doc.toString();
                 lastEmittedRef.current = value;
                 onChangeRef.current?.(value);
@@ -416,7 +556,10 @@ function CodeEditorImpl({
                 onCursorChangeRef.current?.(line.number, head - line.from + 1);
                 const sel = update.state.selection.main;
                 onSelectionChangeRef.current?.(sel.from, sel.to);
-                detectSlash(update.view);
+                // Opening the menu is a TYPING affordance: a pure caret move
+                // must never open it, or clicking after an existing "/table"
+                // in prose armed Enter to rewrite the sentence. SLASH-02.
+                detectSlash(update.view, update.docChanged && update.transactions.some((tr) => tr.isUserEvent("input.type")));
                 detectTable(update.view);
                 // Typewriter mode: recenter only while TYPING (docChanged), not on
                 // mouse clicks / arrow navigation — clicking shouldn't yank the
@@ -431,9 +574,42 @@ function CodeEditorImpl({
             }
         });
 
+        // Ctrl/Cmd+click follows the link under the pointer (NAV-11); while
+        // the modifier is held, links show a pointer cursor as the hint.
+        const modHeld = (e: MouseEvent) => (isMac ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey;
+        const linkUnder = (view: EditorView, e: MouseEvent) => {
+            const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+            if (pos == null) return null;
+            const line = view.state.doc.lineAt(pos);
+            return linkAt(line.text, pos - line.from);
+        };
         const pasteHandler = EditorView.domEventHandlers({
             paste: (event, view) => handlePaste(event, view),
+            mousedown: (event, view) => {
+                if (event.button !== 0 || !modHeld(event) || !onOpenLinkRef.current) return false;
+                const link = linkUnder(view, event);
+                if (!link) return false;
+                event.preventDefault();
+                onOpenLinkRef.current(link);
+                return true;
+            },
+            mousemove: (event, view) => {
+                const pointer = modHeld(event) && !!onOpenLinkRef.current && !!linkUnder(view, event);
+                const want = pointer ? "pointer" : "";
+                if (view.contentDOM.style.cursor !== want) view.contentDOM.style.cursor = want;
+                return false;
+            },
         });
+
+        // Arm the paste-as-plain-text latch (PASTE-03). One listener for the
+        // editor's lifetime; it only flips a flag.
+        const onPasteShortcutKeydown = (e: KeyboardEvent) => {
+            const mod = isMac ? e.metaKey : e.ctrlKey;
+            if (mod && e.shiftKey && !e.altKey && (e.key === "v" || e.key === "V")) {
+                forcePlainTextRef.current = true;
+            }
+        };
+        window.addEventListener("keydown", onPasteShortcutKeydown);
 
         const view = new EditorView({
             parent: containerRef.current,
@@ -449,17 +625,24 @@ function CodeEditorImpl({
                     drawSelection(),
                     dropCursor(),
                     closeBrackets(),
+                    wrapSelectionOnType,
+                    // Multiple cursors (Ctrl+D, Ctrl/Cmd+click). Without this
+                    // facet CodeMirror silently keeps only the main range.
+                    CMEditorState.allowMultipleSelections.of(true),
                     autocompletion({ override: [wikiCompletionSource], icons: false, aboveCursor: false }),
                     markdown(),
                     syntaxHighlighting(markdownHighlight),
                     findHighlightField,
+                    // Other occurrences of the selected word get a subtle
+                    // highlight, as in every code editor.
+                    highlightSelectionMatches({ minSelectionLength: 2 }),
                     editorTheme,
                     wrapComp.of(wordWrap ? EditorView.lineWrapping : []),
                     spellComp.of(EditorView.contentAttributes.of(spellAttrs(spellCheck))),
                     vimComp.of(vimMode ? vim() : []),
                     mergeComp.of([]),
-                    editingKeymap,
-                    keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap]),
+                    keymapComp.of(buildEditingKeymap()),
+                    keymap.of([...closeBracketsKeymap, ...editorDefaultKeymap, ...historyKeymap]),
                     updateListener,
                     pasteHandler,
                     EditorView.theme({ "&": { outline: "none" } }),
@@ -470,7 +653,13 @@ function CodeEditorImpl({
         lastEmittedRef.current = content;
         view.focus();
 
+        const onBindingsChanged = () =>
+            view.dispatch({ effects: keymapComp.reconfigure(buildEditingKeymap()) });
+        window.addEventListener("paperling:keybindings-changed", onBindingsChanged);
+
         return () => {
+            window.removeEventListener("keydown", onPasteShortcutKeydown);
+            window.removeEventListener("paperling:keybindings-changed", onBindingsChanged);
             view.destroy();
             viewRef.current = null;
         };
@@ -481,6 +670,10 @@ function CodeEditorImpl({
     // Helper used by the editing keymap: run a (tested) editorActions function and
     // apply its result, or fall through to CodeMirror's default if it returns null.
     function runAction(view: EditorView, fn: (st: EditorState) => EditorResult | null): boolean {
+        // The (single-range) helpers would collapse a multi-cursor selection
+        // to its main range; with several cursors, let CodeMirror's own
+        // Enter / indent commands handle every range instead.
+        if (view.state.selection.ranges.length > 1) return false;
         const r = fn(toEdState(view));
         if (!r) return false;
         applyResultToView(view, r);
@@ -489,7 +682,7 @@ function CodeEditorImpl({
 
     // Slash-command lifecycle, mirroring the previous textarea behaviour but
     // reading only the current line (no full-doc scans).
-    function detectSlash(view: EditorView) {
+    function detectSlash(view: EditorView, typed: boolean) {
         const head = view.state.selection.main.head;
         const doc = view.state.doc;
         const cur = slashStateRef.current;
@@ -500,6 +693,8 @@ function CodeEditorImpl({
             setSlashQuery(between);
             return;
         }
+        // Everything below OPENS the menu — only for text the user just typed.
+        if (!typed) return;
         if (head > 0 && doc.sliceString(head - 1, head) === "/") {
             const line = doc.lineAt(head);
             const lineHead = doc.sliceString(line.from, head - 1);
@@ -508,6 +703,36 @@ function CodeEditorImpl({
                 if (coords) {
                     setSlashState({ from: head - 1, pos: { x: coords.left, y: coords.bottom + 4 } });
                     setSlashQuery("");
+                }
+            }
+            return;
+        }
+        // Self-healing open: if a burst-typed "/query" (slash at line start,
+        // no spaces after it) is at the caret but the open branch missed the
+        // "/" keystroke — the slash state updates through React, so very fast
+        // typing could process subsequent letters before the state/ref sync
+        // landed and the menu never opened at all — re-arm it from the text
+        // itself. SlashMenu's from-anchor makes selection still replace the
+        // whole "/query" token. Only non-empty queries qualify (a bare "/"
+        // typing straight through stays untouched). SLASH-01.
+        {
+            const line = doc.lineAt(head);
+            const upToCaret = doc.sliceString(line.from, head);
+            const slashIdx = upToCaret.lastIndexOf("/");
+            if (slashIdx >= 0) {
+                const before = upToCaret.slice(0, slashIdx);
+                const query = upToCaret.slice(slashIdx + 1);
+                if (
+                    query.length > 0 &&
+                    query.length <= 48 &&
+                    !query.includes(" ") &&
+                    (before === "" || /\s$/.test(before))
+                ) {
+                    const coords = view.coordsAtPos(line.from + slashIdx);
+                    if (coords) {
+                        setSlashState({ from: line.from + slashIdx, pos: { x: coords.left, y: coords.bottom + 4 } });
+                        setSlashQuery(query);
+                    }
                 }
             }
         }
@@ -573,20 +798,38 @@ function CodeEditorImpl({
         if (urlOnSel) { event.preventDefault(); applyResultToView(view, urlOnSel); return true; }
         const autolink = pasteUrlAutolink(state, text);
         if (autolink) { event.preventDefault(); applyResultToView(view, autolink); return true; }
-        if (!html) {
-            const tsv = pasteTsvAsTable(state, text);
-            if (tsv) { event.preventDefault(); applyResultToView(view, tsv); return true; }
-        }
-        if (html && /<\w+/.test(html)) {
+        // TSV→table runs BEFORE the HTML branch when the text flavor looks
+        // like multi-cell spreadsheet data: Excel/Sheets put BOTH a <table>
+        // and TSV on the clipboard, and turndown (no table rules) flattens
+        // the HTML table into run-together text — the TSV table never stood a
+        // chance. PASTE-02.
+        const tsv = pasteTsvAsTable(state, text);
+        if (tsv) { event.preventDefault(); applyResultToView(view, tsv); return true; }
+        // Plain-text escape hatch: Ctrl+Shift+V set forcePlainTextRef on the
+        // keydown preceding this paste — skip the HTML conversion entirely.
+        // PASTE-03.
+        if (html && /<\w+/.test(html) && !forcePlainTextRef.current) {
             event.preventDefault();
+            // Capture the target range BEFORE any await: htmlToMarkdown lazily
+            // imports turndown on first use, and reading the selection after
+            // that await let a keystroke during the window make the paste
+            // replace freshly typed text (PASTE-01).
+            const sel = view.state.selection.main;
+            const from = sel.from;
+            const to = sel.to;
             (async () => {
                 let insert = text;
                 try { const md = (await htmlToMarkdown(html)).trim(); if (md) insert = md; } catch {/* fall back to plain text */ }
-                const sel = view.state.selection.main;
-                view.dispatch({ changes: { from: sel.from, to: sel.to, insert }, selection: { anchor: sel.from + insert.length } });
+                // Only paste if the caret still covers the captured range; a
+                // moved caret means the user kept editing — bailing out beats
+                // deleting their work.
+                const now = view.state.selection.main;
+                if (now.from !== from || now.to !== to) return;
+                view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length } });
             })();
             return true;
         }
+        forcePlainTextRef.current = false;
         return false; // let CodeMirror insert plain text
     }
 
@@ -599,6 +842,11 @@ function CodeEditorImpl({
     // preview (#111).
     useEffect(() => {
         if (content === lastEmittedRef.current) return;
+        // A document swap is being committed in this same render: the swap
+        // effect below owns it. Diffing the new file into the OLD state here
+        // would record the swap in the outgoing tab's history and poison its
+        // cached state. TABS-20.
+        if (docSwapId !== appliedSwapRef.current) return;
         const view = viewRef.current;
         if (!view) return;
         const old = view.state.doc.toString();
@@ -620,15 +868,75 @@ function CodeEditorImpl({
     useEffect(() => {
         const view = viewRef.current;
         if (!view) return;
+        if (appliedSwapRef.current === docSwapId) return;
+        appliedSwapRef.current = docSwapId;
         const doc = contentPropRef.current;
-        if (doc !== view.state.doc.toString()) {
-            view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } });
+        const cache = stateCacheRef.current;
+        const outgoingKey = shownKeyRef.current;
+        const incomingKey = docKeyRef.current;
+        shownKeyRef.current = incomingKey;
+        restoredFromCacheRef.current = false;
+
+        if (outgoingKey && outgoingKey === incomingKey && !reviewingRef.current) {
+            // Same document reloaded (external change, "Load from disk"):
+            // apply the difference as an edit so the caret, the viewport and
+            // the undo history survive; Ctrl+Z can even bring back what was
+            // there before the reload, like VS Code. TABS-20.
+            const old = view.state.doc.toString();
+            if (doc !== old) view.dispatch({ changes: minimalDiff(old, doc) });
+            lastEmittedRef.current = doc;
+        } else {
+            // Park the outgoing document's state (never mid-review: that state
+            // carries the merge view of a proposal that is being discarded).
+            if (outgoingKey && !reviewingRef.current) {
+                cache.delete(outgoingKey);
+                // scrollSnapshot() anchors the viewport to a document
+                // position, not a pixel offset: setState rebuilds the height
+                // map from estimates, so a raw scrollTop restored to the
+                // wrong place on long documents.
+                cache.set(outgoingKey, { state: view.state, scroll: view.scrollSnapshot() });
+                // Bounded: closed tabs are never looked up again.
+                while (cache.size > 40) cache.delete(cache.keys().next().value as string);
+            }
+            const cached = incomingKey ? cache.get(incomingKey) : undefined;
+            if (cached && cached.state.doc.toString() === doc) {
+                view.setState(cached.state);
+                // The cached state was built with the settings of its time; the
+                // user may have toggled wrap/spellcheck/vim or rebound keys since.
+                const live = liveSettingsRef.current;
+                view.dispatch({
+                    effects: [
+                        wrapCompRef.current.reconfigure(live.wordWrap ? EditorView.lineWrapping : []),
+                        spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(live.spellCheck))),
+                        vimCompRef.current.reconfigure(live.vimMode ? vim() : []),
+                        keymapCompRef.current.reconfigure(buildEditingKeymapRef.current()),
+                        mergeCompRef.current.reconfigure([]),
+                        cached.scroll,
+                    ],
+                });
+                restoredFromCacheRef.current = true;
+                const sel = view.state.selection.main;
+                const line = view.state.doc.lineAt(sel.head);
+                onCursorChangeRef.current?.(line.number, sel.head - line.from + 1);
+                onSelectionChangeRef.current?.(sel.from, sel.to);
+            } else {
+                if (doc !== view.state.doc.toString()) {
+                    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } });
+                }
+                // Reconfigure the history compartment to a fresh instance: the
+                // documented way to clear CodeMirror's undo/redo stacks.
+                view.dispatch({ effects: historyCompRef.current.reconfigure([]) });
+                view.dispatch({ effects: historyCompRef.current.reconfigure(history()) });
+            }
+            lastEmittedRef.current = doc;
         }
-        lastEmittedRef.current = doc;
-        // Reconfigure the history compartment to a fresh instance — this is the
-        // documented way to clear CodeMirror's undo/redo stacks.
-        view.dispatch({ effects: historyCompRef.current.reconfigure([]) });
-        view.dispatch({ effects: historyCompRef.current.reconfigure(history()) });
+        // Anything anchored to the previous document is now meaningless: an
+        // open AI bubble would write its result into THIS file at the old
+        // file's offsets (AI-06), and a slash menu would replace text here.
+        aiRangeRef.current = null;
+        setAIBubble(null);
+        setSlashState(null);
+        setSlashQuery("");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [docSwapId]);
 
@@ -743,12 +1051,19 @@ function CodeEditorImpl({
         scroller.addEventListener("scroll", onScroll, { passive: true });
         return () => {
             scroller.removeEventListener("scroll", onScroll);
+            // Reset the id too: StrictMode (dev) remounts effects, and a stale
+            // non-zero id made every later scroll bail out as "frame pending".
             if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+            scrollRafRef.current = 0;
         };
     }, []);
 
     useEffect(() => {
         if (!registerScroller) return;
+        // Offset of the document's first line inside the scroller's content
+        // (the content padding), so line heights map onto scrollTop.
+        const docOffset = (view: EditorView) =>
+            view.documentTop - view.scrollDOM.getBoundingClientRect().top + view.scrollDOM.scrollTop;
         registerScroller({
             setFraction: (f: number) => {
                 const view = viewRef.current;
@@ -756,6 +1071,44 @@ function CodeEditorImpl({
                 const s = view.scrollDOM;
                 const max = s.scrollHeight - s.clientHeight;
                 if (max > 0) s.scrollTop = max * f;
+            },
+            // Line-anchored sync + mode handoff (SYNC-01 / MODE-01).
+            getTopLine: () => {
+                const view = viewRef.current;
+                if (!view || view.scrollDOM.clientHeight === 0) return null; // hidden
+                const h = Math.max(0, view.scrollDOM.scrollTop - docOffset(view));
+                const block = view.lineBlockAtHeight(h);
+                const line = view.state.doc.lineAt(block.from).number;
+                const frac = block.height > 0 ? Math.min(1, Math.max(0, (h - block.top) / block.height)) : 0;
+                return line + frac;
+            },
+            scrollToLine: (target: number, opts?: HandoffOptions) => {
+                const view = viewRef.current;
+                if (!view || view.scrollDOM.clientHeight === 0) return;
+                const doc = view.state.doc;
+                const n = Math.min(Math.max(1, Math.floor(target)), doc.lines);
+                if (opts?.handoff) {
+                    // The editor was just shown: its height map may be stale
+                    // or estimated, so let CodeMirror resolve the scroll in
+                    // its own measure cycle. A caret left somewhere off
+                    // screen comes to the first visible line, or the next
+                    // keystroke would yank the view back to it.
+                    const first = Math.min(doc.lines, target - n > 0.5 ? n + 1 : n);
+                    const lineStart = doc.line(first).from;
+                    const topBlock = view.lineBlockAt(doc.line(n).from);
+                    const viewportBottom = topBlock.top + view.scrollDOM.clientHeight;
+                    const caretTop = view.lineBlockAt(view.state.selection.main.head).top;
+                    const caretVisible = caretTop >= topBlock.top && caretTop < viewportBottom - 24;
+                    view.dispatch({
+                        ...(caretVisible ? {} : { selection: { anchor: lineStart } }),
+                        effects: EditorView.scrollIntoView(doc.line(n).from, { y: "start", yMargin: 0 }),
+                    });
+                    if (opts.focus) view.focus();
+                    return;
+                }
+                const frac = Math.max(0, target - Math.floor(target));
+                const block = view.lineBlockAt(doc.line(n).from);
+                view.scrollDOM.scrollTop = docOffset(view) + block.top + frac * block.height;
             },
         });
         return () => registerScroller(null);
@@ -766,6 +1119,8 @@ function CodeEditorImpl({
     // pane is display:none so the scroll is a harmless no-op.
     useEffect(() => {
         const handler = (e: Event) => {
+            // The tab switch already restored the exact caret and viewport.
+            if ((e as CustomEvent).detail?.source === "tab-restore" && restoredFromCacheRef.current) return;
             const line = Number((e as CustomEvent).detail?.line);
             const v = viewRef.current;
             if (!v || !Number.isFinite(line) || line < 1) return;
@@ -774,6 +1129,8 @@ function CodeEditorImpl({
                 selection: { anchor: docLine.from },
                 effects: EditorView.scrollIntoView(docLine.from, { y: "start", yMargin: 8 }),
             });
+            // Outline clicks ask the visible editor to take focus. PANEL-01.
+            if ((e as CustomEvent).detail?.focus && v.scrollDOM.clientHeight > 0) v.focus();
         };
         window.addEventListener("paperling:goto-line", handler);
         return () => window.removeEventListener("paperling:goto-line", handler);
@@ -785,14 +1142,8 @@ function CodeEditorImpl({
     // outside→editor idiom as paperling:goto-line above. The matching
     // paperling:close-find is the Android back handler's way in (see App.tsx).
     useEffect(() => {
-        const openFind = () => {
-            setFindMode("find");
-            setFindOpen(true);
-        };
-        const openReplace = () => {
-            setFindMode("replace");
-            setFindOpen(true);
-        };
+        const openFind = () => requestFindRef.current("find");
+        const openReplace = () => requestFindRef.current("replace");
         const closeFind = () => setFindOpen(false);
         window.addEventListener("paperling:open-find", openFind);
         window.addEventListener("paperling:open-replace", openReplace);
@@ -817,7 +1168,8 @@ function CodeEditorImpl({
     // Snap the caret and viewport to the start when a different file opens, so
     // you don't begin a new file at the previous file's cursor/scroll. NAV-04.
     useEffect(() => {
-        const toTop = () => {
+        const toTop = (e: Event) => {
+            if ((e as CustomEvent).detail?.source === "tab-restore" && restoredFromCacheRef.current) return;
             const v = viewRef.current;
             if (!v) return;
             v.dispatch({
@@ -888,7 +1240,7 @@ function CodeEditorImpl({
     // setActive() gets only an index, so the query that produced the matches is
     // stashed here for the removed-side highlighter to reuse.
     const findQueryRef = useRef({ query: "", caseSensitive: false });
-    const editorFindController = useMemo<FindController>(() => {
+        const editorFindController = useMemo<FindController>(() => {
         // During an AI review the document holds only the proposed text; the
         // removed original lines are merge widgets, absent from the document.
         // Feed them to the search as extra regions so a match the user can
@@ -906,40 +1258,46 @@ function CodeEditorImpl({
                     .map((c) => ({ fromA: c.fromA, toA: c.toA, anchor: c.fromB })),
             };
         };
+        const doSearch = (query: string, opts: FindOpts) => {
+            const v = viewRef.current;
+            if (!v) {
+                findMatchesRef.current = [];
+                return { count: 0, activeIndex: -1 };
+            }
+            const { regions, original } = removedRegions(v);
+            const matches = collectUnifiedMatches(v.state.doc.toString(), original, regions, query, opts);
+            findMatchesRef.current = matches;
+            findQueryRef.current = { query, caseSensitive: opts.caseSensitive };
+            clearRemovedHighlight();
+
+            let activeIndex = -1;
+            if (matches.length) {
+                // Order by on-screen position, so `anchor` (not `from`, which
+                // indexes the original doc for removed matches) is the cursor
+                // comparison.
+                const caret = v.state.selection.main.from;
+                activeIndex = matches.findIndex((m) => m.anchor >= caret);
+                if (activeIndex === -1) activeIndex = 0;
+            }
+            v.dispatch({ effects: setFindMatches.of({ ranges: docRanges(matches), activeIndex: -1 }) });
+            return { count: matches.length, activeIndex };
+        };
         return {
             supportsReplace: true,
             supportsRegex: true,
             isValidPattern: (query, opts) => isValidPattern(query, opts.regex),
-            search: (query, opts) => {
-                const v = viewRef.current;
-                if (!v) {
-                    findMatchesRef.current = [];
-                    return { count: 0, activeIndex: -1 };
-                }
-                const { regions, original } = removedRegions(v);
-                const matches = collectUnifiedMatches(v.state.doc.toString(), original, regions, query, opts);
-                findMatchesRef.current = matches;
-                findQueryRef.current = { query, caseSensitive: opts.caseSensitive };
-                clearRemovedHighlight();
-
-                let activeIndex = -1;
-                if (matches.length) {
-                    // Order by on-screen position, so `anchor` (not `from`, which
-                    // indexes the original doc for removed matches) is the cursor
-                    // comparison.
-                    const caret = v.state.selection.main.from;
-                    activeIndex = matches.findIndex((m) => m.anchor >= caret);
-                    if (activeIndex === -1) activeIndex = 0;
-                }
-                v.dispatch({ effects: setFindMatches.of({ ranges: docRanges(matches), activeIndex: -1 }) });
-                return { count: matches.length, activeIndex };
-            },
+            search: doSearch,
             setActive: (index) => {
                 const v = viewRef.current;
                 const matches = findMatchesRef.current;
                 const m = matches[index];
                 if (!v || !m) return;
                 v.dispatch({
+                    // The active match becomes the selection (VS Code): Esc
+                    // then leaves you ON the found text, ready to type over
+                    // it. It used to stay at the old caret, so the first
+                    // keystroke after Esc yanked the view back there. FIND-08.
+                    ...(m.side === "doc" ? { selection: { anchor: m.from, head: m.to } } : {}),
                     effects: [
                         // activeDocIndex, not `index`: the bar counts removed
                         // matches too, so the two numberings differ.
@@ -974,14 +1332,23 @@ function CodeEditorImpl({
                 // them would corrupt unrelated text.
                 if (!v || !m || m.side !== "doc") return;
                 const res = replaceOne(v.state.doc.toString(), m.from, query, replacement, opts.caseSensitive, opts.regex);
-                if (res) applyResultToView(v, { text: res.content, selStart: res.cursor, selEnd: res.cursor });
+                if (!res) return;
+                applyResultToView(v, { text: res.content, selStart: res.cursor, selEnd: res.cursor });
+                // Re-search SYNCHRONOUSLY: the match list is otherwise up to the
+                // FindBar's 400ms debounce stale, so a second Replace inside
+                // that window spliced at shifted offsets and corrupted
+                // neighbouring text (FIND-02). The caret sits just past the
+                // replacement, so search() naturally selects the NEXT match.
+                doSearch(query, opts);
             },
             replaceAll: (replacement, query, opts) => {
                 const v = viewRef.current;
                 if (!v) return;
                 const starts = replaceableOffsets(findMatchesRef.current);
                 const res = replaceAllMatches(v.state.doc.toString(), starts, query, replacement, opts.caseSensitive, opts.regex);
-                if (res) applyResultToView(v, { text: res.content, selStart: res.cursor, selEnd: res.cursor });
+                if (!res) return;
+                applyResultToView(v, { text: res.content, selStart: res.cursor, selEnd: res.cursor });
+                doSearch(query, opts);
             },
         };
     }, []);
@@ -1015,12 +1382,16 @@ function CodeEditorImpl({
                 <FormatToolbar getState={getState} apply={applyResult} insert={insertAtCaret} onAIAssist={aiEnabled ? openAIBubble : undefined} />
             )}
             <div className="flex-1 overflow-hidden relative">
-                <div ref={containerRef} className="absolute inset-0 [&_.cm-editor]:h-full [&_.cm-editor]:outline-none" />
+                <div
+                    ref={containerRef}
+                    className={`absolute inset-0 [&_.cm-editor]:h-full [&_.cm-editor]:outline-none ${readableLineLength && wordWrap ? "readable-editor" : ""}`}
+                />
 
                 <FindBar
                     isOpen={findOpen}
                     initialMode={findMode}
                     controller={editorFindController}
+                    openRequest={findRequest}
                     revision={content}
                     onClose={() => { setFindOpen(false); viewRef.current?.focus(); }}
                 />
@@ -1040,18 +1411,31 @@ function CodeEditorImpl({
                         config={aiConfig}
                         onReplace={(out) => {
                             const v = viewRef.current;
-                            if (v) v.dispatch({ changes: { from: aiBubble.selStart, to: aiBubble.selEnd, insert: out }, selection: { anchor: aiBubble.selStart + out.length } });
+                            const range = aiRangeRef.current;
+                            // Only replace while the mapped range still holds
+                            // exactly the text the model was given; if the user
+                            // edited inside it, replacing would destroy that edit.
+                            if (v && range && v.state.doc.sliceString(range.from, range.to) === range.text) {
+                                v.dispatch({ changes: { from: range.from, to: range.to, insert: out }, selection: { anchor: range.from + out.length } });
+                            } else {
+                                onNoticeRef.current?.("The selected text changed while AI was working, so nothing was replaced. Use Insert, or run it again.");
+                            }
+                            aiRangeRef.current = null;
                             setAIBubble(null);
                             v?.focus();
                         }}
                         onInsert={(out) => {
                             const v = viewRef.current;
+                            const range = aiRangeRef.current;
                             const ins = "\n\n" + out;
-                            if (v) v.dispatch({ changes: { from: aiBubble.selEnd, to: aiBubble.selEnd, insert: ins }, selection: { anchor: aiBubble.selEnd + ins.length } });
+                            if (v && range) {
+                                v.dispatch({ changes: { from: range.to, to: range.to, insert: ins }, selection: { anchor: range.to + ins.length } });
+                            }
+                            aiRangeRef.current = null;
                             setAIBubble(null);
                             v?.focus();
                         }}
-                        onClose={() => setAIBubble(null)}
+                        onClose={() => { aiRangeRef.current = null; setAIBubble(null); }}
                     />
                 )}
 

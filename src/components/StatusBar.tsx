@@ -48,8 +48,11 @@ function StatusBarImpl({
 }: StatusBarProps) {
     const hasSelection = selectionLength > 0;
     return (
+        // Not a live region: role="status" made screen readers announce the
+        // whole bar (Ln/Col, word count) on every keystroke. Only the save
+        // state is announced, from its own polite region below. A11Y-05.
         <footer
-            role="status"
+            aria-label="Status bar"
             className="h-7 shrink-0 bg-[var(--bg-titlebar)] border-t border-[var(--border)] px-4 flex items-center justify-between text-[11px] font-medium tracking-wide text-[var(--text-secondary)] no-select transition-colors"
         >
             <div className="flex items-center gap-1">
@@ -109,7 +112,7 @@ function StatusBarImpl({
                             : "bg-[var(--status-unsaved)] shadow-[0_0_4px_rgba(255,184,108,0.4)] status-dot-unsaved"
                             }`}
                     ></span>
-                    <span className="transition-colors">{isSaved ? "Saved" : "Unsaved"}</span>
+                    <span className="transition-colors" role="status" aria-live="polite">{isSaved ? "Saved" : "Unsaved"}</span>
                 </div>
                 {(mode === "code" || mode === "split") && (
                     <div className="hover:text-[var(--text-primary)] cursor-default transition-colors">
@@ -119,6 +122,16 @@ function StatusBarImpl({
                 {wordCount !== undefined && (
                     <div
                         className={`flex items-center gap-1 cursor-default transition-colors ${hasSelection ? "text-[var(--accent)]" : "hover:text-[var(--text-primary)]"}`}
+                        // The visible text is a WORD count, so the accessible
+                        // name must say words too — the character detail stays
+                        // as a hover title only (it used to leak into the
+                        // accessibility tree as the node's name, so screen
+                        // readers read "42 characters" for "42 words").
+                        aria-label={
+                            hasSelection
+                                ? `Selected ${selectionWordCount.toLocaleString()} of ${wordCount.toLocaleString()} words`
+                                : `${wordCount.toLocaleString()} words`
+                        }
                         title={
                             hasSelection
                                 ? `Selection: ${selectionWordCount.toLocaleString()} words, ${selectionLength.toLocaleString()} characters`
@@ -127,8 +140,8 @@ function StatusBarImpl({
                     >
                         <span className="material-symbols-outlined text-[14px] opacity-70">text_fields</span>
                         {hasSelection
-                            ? `${selectionWordCount.toLocaleString()} / ${wordCount.toLocaleString()} words`
-                            : `${wordCount.toLocaleString()} words`}
+                            ? `${selectionWordCount.toLocaleString()} / ${wordCount.toLocaleString()} ${wordCount === 1 ? "word" : "words"}`
+                            : `${wordCount.toLocaleString()} ${wordCount === 1 ? "word" : "words"}`}
                     </div>
                 )}
                 {readingTimeMin !== undefined && readingTimeMin > 0 && (

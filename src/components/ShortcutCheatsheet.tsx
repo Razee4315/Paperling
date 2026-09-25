@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { attachFocusTrap } from "../utils/focusTrap";
-import { formatShortcut, formatAliases, withMod, aiShortcutLabel } from "../config/keybindings";
+import { formatShortcut, formatAliases, withMod, aiShortcutLabel, isMac } from "../config/keybindings";
 import iconKeyboard from "../assets/mascot/icon-keyboard.png";
 
 interface ShortcutCheatsheetProps {
@@ -44,7 +44,10 @@ const groups: ShortcutGroup[] = [
             { keys: formatShortcut("reopenClosedTab"), description: "Reopen closed tab" },
             { keys: formatShortcut("nextTab"), description: "Next tab" },
             { keys: formatShortcut("prevTab"), description: "Previous tab" },
-            { keys: "Alt+←/→", description: "Previous / next tab" },
+            // macOS reserves Option+Arrows for word-wise caret movement in
+            // every text view, so the app doesn't bind tab switching to it
+            // there (SHC-02).
+            ...(isMac ? [] : [{ keys: "Alt+←/→", description: "Previous / next tab" }]),
             { keys: withMod("1–8"), description: "Jump to tab N" },
             { keys: withMod("9"), description: "Jump to last tab" },
         ],
@@ -82,17 +85,25 @@ const groups: ShortcutGroup[] = [
     {
         title: "Editor: Navigation",
         items: [
-            { keys: "Tab", description: "Indent line / selection" },
-            { keys: "Shift+Tab", description: "Outdent line / selection" },
-            { keys: "Enter", description: "Continue list, blockquote, or task item" },
+            { keys: "Tab", description: "Indent line or nest list item" },
+            { keys: "Shift+Tab", description: "Outdent line or un-nest list item" },
+            { keys: "Enter", description: "Continue list, blockquote, or task item (on an empty nested item: step out)" },
+            { keys: withMod("Click"), description: "Follow the link or [[wikilink]] under the pointer" },
             { keys: formatShortcut("find"), description: "Find" },
             { keys: formatShortcut("replace"), description: "Find and replace" },
+            { keys: formatShortcut("gotoLine"), description: "Go to line (or type :N in the palette)" },
+            { keys: formatShortcut("selectNextOccurrence"), description: "Select next occurrence (multi-cursor)" },
+            { keys: formatShortcut("toggleTask"), description: "Toggle task checkbox (makes the line a task)" },
+            { keys: isMac ? "⌥↑ / ⌥↓" : "Alt+↑ / Alt+↓", description: "Move line up / down" },
+            { keys: isMac ? "⇧⌥↓" : "Shift+Alt+↓", description: "Duplicate line" },
+            { keys: withMod("Shift+K"), description: "Delete line" },
         ],
     },
     {
         title: "Editor: Auto-pair",
         items: [
             { keys: "( [ { ` \" '", description: "Wrap selection or insert pair" },
+            { keys: "* _ ~ =", description: "Wrap selection in emphasis / highlight markers" },
             { keys: ") ] } ` \" '", description: "Type past matching closer" },
             { keys: "Backspace", description: "Removes empty pair atomically" },
         ],

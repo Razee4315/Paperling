@@ -405,6 +405,7 @@
 }
 
 [data-font-size="small"] {
+  --editor-font-size: 13px;
   --font-size-base: 14px;
   --font-size-h1: 1.875em;
   --font-size-h2: 1.5em;
@@ -413,6 +414,7 @@
 }
 
 [data-font-size="medium"] {
+  --editor-font-size: 14px;
   --font-size-base: 16px;
   --font-size-h1: 2.25em;
   --font-size-h2: 1.75em;
@@ -421,7 +423,17 @@
 }
 
 [data-font-size="large"] {
+  --editor-font-size: 16px;
   --font-size-base: 18px;
+  --font-size-h1: 2.5em;
+  --font-size-h2: 2em;
+  --font-size-h3: 1.375em;
+  --line-height: 1.8;
+}
+
+[data-font-size="xlarge"] {
+  --editor-font-size: 18px;
+  --font-size-base: 20px;
   --font-size-h1: 2.5em;
   --font-size-h2: 2em;
   --font-size-h3: 1.375em;
@@ -1173,6 +1185,14 @@ html.touch ::-webkit-scrollbar {
   max-width: none !important;
 }
 
+/* Diagram viewer (MermaidBlock): the sizer pins the diagram to its
+   fit-to-natural width (zoom 1) or the zoomed width; the svg fills it.
+   Without the sizer cap, every diagram stretched to the full column
+   width, so small flowcharts rendered comically oversized. MMV-01. */
+.mermaid-sizer {
+  max-width: 100%;
+}
+
 /* Tailwind v4 Preflight resets `ul, ol { list-style: none }`, so the markers
    must be re-declared here or every bullet/number in the preview disappears. */
 .markdown-body ul {
@@ -1203,12 +1223,46 @@ html.touch ::-webkit-scrollbar {
   color: var(--syntax-list);
 }
 
-/* GFM task lists ([ ] / [x]) render as <ul class="contains-task-list"> with a
-   checkbox per item — keep those flush and bullet-free so the checkbox stands
-   alone (GitHub-style), without a stray disc beside it. */
-.markdown-body ul.contains-task-list {
+/* GFM task lists ([ ] / [x]). remark-gfm marks the whole <ul> as
+   contains-task-list as soon as ONE item is a task, so hiding markers on the
+   list made every plain bullet beside a task vanish (PREV-01). Only task
+   items lose their marker; the checkbox hangs in the marker gutter
+   (GitHub-style) so plain and task items line up. A list made only of tasks
+   sits flush with the text column. */
+.markdown-body li.task-list-item {
   list-style-type: none;
-  padding-left: 0;
+}
+
+.markdown-body li.task-list-item > input[type="checkbox"] {
+  margin-left: -1.4rem;
+  margin-right: 0.45rem;
+}
+
+.markdown-body ul.contains-task-list:not(:has(> li:not(.task-list-item))) {
+  padding-left: 1.4rem;
+}
+
+/* Done tasks read as done (Obsidian/Things style): dimmed, and struck
+   through when they have no sub-list (a line-through set on an <li> can't be
+   switched off for its nested items, so those only dim). */
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked) {
+  color: var(--text-muted);
+}
+
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked):not(:has(> ul, > ol)) {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked) li {
+  color: var(--text-primary);
+}
+
+/* Block-by-block preview rendering (PERF-02): each block's wrapper has no box
+   of its own, so layout, margins and selection behave exactly as if the
+   blocks were direct children of .markdown-body. */
+.markdown-body .md-block {
+  display: contents;
 }
 
 .markdown-body blockquote {
@@ -1219,6 +1273,86 @@ html.touch ::-webkit-scrollbar {
   font-style: italic;
   color: var(--text-secondary);
   border-radius: 0 0.25rem 0.25rem 0;
+}
+
+/* Callouts (remarkNoteSyntax, SYNTAX-02): `> [!TYPE] Title`. Each
+   type sets --callout; the tint is mixed from it so every theme gets a
+   readable box without per-theme overrides. Foldable callouts are
+   <details>/<summary>. */
+.markdown-body .callout {
+  --callout: #4a8fe7;
+  border-left: 4px solid var(--callout);
+  background: color-mix(in srgb, var(--callout) 10%, transparent);
+  border-radius: 0 0.375rem 0.375rem 0;
+  padding: 0.6rem 1rem;
+  margin: 1rem 0;
+}
+.markdown-body [data-callout="note"], .markdown-body [data-callout="info"], .markdown-body [data-callout="todo"] { --callout: #4a8fe7; }
+.markdown-body [data-callout="abstract"], .markdown-body [data-callout="summary"], .markdown-body [data-callout="tldr"] { --callout: #2ab3c4; }
+.markdown-body [data-callout="tip"], .markdown-body [data-callout="hint"], .markdown-body [data-callout="important"] { --callout: #1fb89a; }
+.markdown-body [data-callout="success"], .markdown-body [data-callout="check"], .markdown-body [data-callout="done"] { --callout: #3fb950; }
+.markdown-body [data-callout="question"], .markdown-body [data-callout="help"], .markdown-body [data-callout="faq"] { --callout: #d99a1e; }
+.markdown-body [data-callout="warning"], .markdown-body [data-callout="caution"], .markdown-body [data-callout="attention"] { --callout: #e8792b; }
+.markdown-body [data-callout="failure"], .markdown-body [data-callout="fail"], .markdown-body [data-callout="missing"], .markdown-body [data-callout="danger"], .markdown-body [data-callout="error"], .markdown-body [data-callout="bug"] { --callout: #e5534b; }
+.markdown-body [data-callout="example"] { --callout: #9b72e8; }
+.markdown-body [data-callout="quote"], .markdown-body [data-callout="cite"] { --callout: #8b949e; }
+.markdown-body .callout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--callout);
+}
+.markdown-body summary.callout-title {
+  cursor: pointer;
+  list-style: none;
+}
+.markdown-body summary.callout-title::-webkit-details-marker { display: none; }
+.markdown-body summary.callout-title::after {
+  content: "expand_more";
+  font-family: "Material Symbols Outlined";
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+.markdown-body details.callout:not([open]) > summary.callout-title::after { transform: rotate(-90deg); }
+.markdown-body .callout-title::before {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-size: 1.15em;
+  content: "info";
+}
+.markdown-body [data-callout="abstract"] > .callout-title::before, .markdown-body [data-callout="summary"] > .callout-title::before, .markdown-body [data-callout="tldr"] > .callout-title::before { content: "summarize"; }
+.markdown-body [data-callout="todo"] > .callout-title::before { content: "check_circle"; }
+.markdown-body [data-callout="tip"] > .callout-title::before, .markdown-body [data-callout="hint"] > .callout-title::before, .markdown-body [data-callout="important"] > .callout-title::before { content: "local_fire_department"; }
+.markdown-body [data-callout="success"] > .callout-title::before, .markdown-body [data-callout="check"] > .callout-title::before, .markdown-body [data-callout="done"] > .callout-title::before { content: "check"; }
+.markdown-body [data-callout="question"] > .callout-title::before, .markdown-body [data-callout="help"] > .callout-title::before, .markdown-body [data-callout="faq"] > .callout-title::before { content: "help"; }
+.markdown-body [data-callout="warning"] > .callout-title::before, .markdown-body [data-callout="caution"] > .callout-title::before, .markdown-body [data-callout="attention"] > .callout-title::before { content: "warning"; }
+.markdown-body [data-callout="failure"] > .callout-title::before, .markdown-body [data-callout="fail"] > .callout-title::before, .markdown-body [data-callout="missing"] > .callout-title::before { content: "close"; }
+.markdown-body [data-callout="danger"] > .callout-title::before, .markdown-body [data-callout="error"] > .callout-title::before { content: "bolt"; }
+.markdown-body [data-callout="bug"] > .callout-title::before { content: "bug_report"; }
+.markdown-body [data-callout="example"] > .callout-title::before { content: "list"; }
+.markdown-body [data-callout="quote"] > .callout-title::before, .markdown-body [data-callout="cite"] > .callout-title::before { content: "format_quote"; }
+.markdown-body .callout-content { margin-top: 0.35rem; }
+.markdown-body .callout-content > :last-child { margin-bottom: 0; }
+
+/* #tags (remarkNoteSyntax): clickable pills that search the folder. */
+.markdown-body .md-tag {
+  display: inline-block;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.markdown-body .md-tag:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+/* Readable line length in the editor (Settings → Readable line length):
+   the text column is centred and capped like the preview's, while the
+   gutter stays at the left edge. Only applied with word wrap on. */
+.readable-editor .cm-content {
+  max-width: 820px;
+  margin: 0 auto;
 }
 
 .markdown-body strong {

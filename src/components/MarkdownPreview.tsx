@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo, useState, useTransition, memo, createContext, useContext } from "react";
+import { useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState, useTransition, memo, createContext, useContext } from "react";
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkFlexibleMarkers from "remark-flexible-markers";
@@ -12,8 +12,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseFrontmatter, serializeFrontmatter, type FrontmatterValue } from "../utils/frontmatter";
 import { IS_MOBILE } from "../utils/platform";
-import type { Scroller } from "../utils/scrollSync";
+import { lineToOffset, offsetToLine, type AnchorList, type Scroller } from "../utils/scrollSync";
 import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
+import { wikilinkLabel } from "../utils/wikilinkAnchor";
+import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
+import { splitMarkdownBlocks } from "../utils/markdownBlocks";
 
 // Detect KaTeX-style math so we only load the heavy katex bundle when needed.
 // $$...$$ for block math, $...$ for inline math (not preceded/followed by digit
@@ -79,21 +82,32 @@ const SANITIZE_SCHEMA = {
     tagNames: [...(defaultSchema.tagNames ?? []), "mark"],
     attributes: {
         ...defaultSchema.attributes,
-        span: [...(defaultSchema.attributes?.span ?? []), ["className", "math", "math-inline", "math-display"]],
-        div: [...(defaultSchema.attributes?.div ?? []), ["className", "math", "math-inline", "math-display"]],
+        // Extended note syntax (remarkNoteSyntax, SYNTAX-02): callout boxes carry
+        // their type in data-callout; #tags carry theirs in data-tag.
+        span: [...(defaultSchema.attributes?.span ?? []), ["className", "math", "math-inline", "math-display", "md-tag"], "dataTag"],
+        div: [...(defaultSchema.attributes?.div ?? []), ["className", "math", "math-inline", "math-display", "callout", "callout-title", "callout-content"], "dataCallout"],
+        details: [...(defaultSchema.attributes?.details ?? []), ["className", "callout"], "dataCallout", "open"],
+        summary: [...(defaultSchema.attributes?.summary ?? []), ["className", "callout-title"]],
     },
     protocols: {
         ...defaultSchema.protocols,
         href: [...(defaultSchema.protocols?.href ?? []), "wikilink"],
+        // `data` for image sources only (LocalImage guards to data:image/*) so
+        // base64-embedded images render instead of skeletonizing forever.
+        src: [...(defaultSchema.protocols?.src ?? []), "data"],
     },
 } as typeof defaultSchema;
 
 // react-markdown's default urlTransform drops any href whose scheme isn't in a
 // small safe list — which silently kills our internal `wikilink:` links (the
-// click handler keys off that exact scheme). Pass those through; defer
-// everything else to the default, which still blocks javascript:, etc.
+// click handler keys off that exact scheme) and base64-embedded images many
+// other tools produce. Pass those through; defer everything else to the
+// default, which still blocks javascript:, etc. (data: is additionally limited
+// to image subtypes by the sanitize schema below and by LocalImage.)
 const mdUrlTransform = (url: string): string =>
-    url.startsWith("wikilink:") ? url : defaultUrlTransform(url);
+    url.startsWith("wikilink:") || /^data:image\//i.test(url)
+        ? url
+        : defaultUrlTransform(url);
 
 // rehype plugin: stamp each top-level rendered block with the source line it came
 // from (data-source-line). Lets the preview report the ACCURATE top-visible line
@@ -113,12 +127,11 @@ function rehypeSourceLine() {
     };
 }
 
-// rehype plugin: give every heading a unique, GitHub-style slug id. The first
-// "## Setup" becomes #setup, the second #setup-1, and so on. Without this two
-// identical headings share an id, so in-document `#anchor` links and the
-// heading copy-link both jump to the first one. Runs on the hast tree (no React
-// render side-effects) and AFTER rehypeSanitize so the id we add isn't clobbered
-// or prefixed by the sanitizer. NAV-02.
+// rehype plugin: give every heading its GitHub-style BASE slug id ("## Setup"
+// -> setup), or its `{#custom-id}`. Runs AFTER rehypeSanitize so the id isn't
+// clobbered or prefixed. Making repeats unique (#setup, #setup-1, ...) is done
+// on the DOM by dedupeHeadingIds, because the preview renders block by block
+// (PERF-02) and no single tree sees every heading any more. NAV-02.
 interface HastTextNode { type: string; tagName?: string; value?: string; children?: HastTextNode[]; properties?: Record<string, unknown> }
 const HEADING_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
 function hastText(node: HastTextNode): string {
@@ -127,27 +140,17 @@ function hastText(node: HastTextNode): string {
 }
 function rehypeHeadingIds() {
     return (tree: { children?: HastTextNode[] }) => {
-        const seen = new Map<string, number>();
         const walk = (nodes?: HastTextNode[]) => {
             if (!nodes) return;
             for (const node of nodes) {
                 if (node.type === "element" && node.tagName && HEADING_TAGS.has(node.tagName)) {
                     node.properties = node.properties || {};
                     // A `{#custom-id}` id (remarkCustomHeadingId -> hProperties)
-                    // has already survived sanitize (clobberPrefix "") — respect
-                    // it, reserve it so a later auto-slug can't collide, and
-                    // suffix repeats so the DOM never carries duplicate ids.
-                    // Slugs stay the fallback. SYNTAX-01.
+                    // has already survived sanitize (clobberPrefix "") and wins;
+                    // the slug is the fallback. SYNTAX-01.
                     const existing = node.properties.id;
-                    if (typeof existing === "string" && existing !== "") {
-                        const count = seen.get(existing) ?? 0;
-                        seen.set(existing, count + 1);
-                        if (count > 0) node.properties.id = `${existing}-${count}`;
-                    } else {
-                        const base = slugify(hastText(node)) || "section";
-                        const count = seen.get(base) ?? 0;
-                        seen.set(base, count + 1);
-                        node.properties.id = count === 0 ? base : `${base}-${count}`;
+                    if (typeof existing !== "string" || existing === "") {
+                        node.properties.id = slugify(hastText(node)) || "section";
                     }
                 }
                 walk(node.children);
@@ -155,6 +158,31 @@ function rehypeHeadingIds() {
         };
         walk(tree.children);
     };
+}
+
+/**
+ * Make heading ids unique across the whole rendered document, in order: the
+ * first "## Setup" keeps #setup, the next becomes #setup-1, and so on (custom
+ * ids are suffixed the same way). The React-rendered base id lives in
+ * data-heading-id; only the DOM id is adjusted, so React never fights it.
+ */
+function dedupeHeadingIds(root: HTMLElement) {
+    const seen = new Map<string, number>();
+    for (const h of root.querySelectorAll<HTMLElement>("[data-heading-id]")) {
+        const base = h.getAttribute("data-heading-id") || "section";
+        const count = seen.get(base) ?? 0;
+        seen.set(base, count + 1);
+        const id = count === 0 ? base : `${base}-${count}`;
+        if (h.id !== id) h.id = id;
+    }
+}
+
+/** Absolute (body-relative) source line of a rendered top-level block: its
+ *  block-relative data-source-line plus its block wrapper's offset. */
+function sourceLineOf(el: Element): number {
+    const rel = Number(el.getAttribute("data-source-line")) || 1;
+    const offset = Number(el.parentElement?.getAttribute("data-line-offset")) || 0;
+    return rel + offset;
 }
 
 // Nearest source line at the top of the scroll container, via the data-source-line
@@ -172,7 +200,7 @@ function topSourceLine(container: HTMLElement): number | null {
         if (blocks[mid].getBoundingClientRect().top <= top) { ans = mid; lo = mid + 1; }
         else hi = mid - 1;
     }
-    return Number(blocks[ans].getAttribute("data-source-line")) || 1;
+    return sourceLineOf(blocks[ans]);
 }
 
 type PluginPair = { remark: unknown; rehype: unknown };
@@ -203,6 +231,9 @@ interface MarkdownPreviewProps {
     fileName: string;
     fileSize: number;
     onEditClick: () => void;
+    /** Center the reading column (~800px, Obsidian-style). Default on;
+     *  off = the preview fills the window (RLL-01). */
+    readableLineLength?: boolean;
     onLineChange?: (line: number) => void;
     filePath?: string | null;
     markdownBodyRef?: React.RefObject<HTMLDivElement | null>;
@@ -212,17 +243,74 @@ interface MarkdownPreviewProps {
     onWikilinkClick?: (target: string) => void;
     /** Open a relative `[text](note.md)` link in-app instead of externally. */
     onNavigateRelative?: (href: string) => void;
+    /** Called after the body for `content` has been committed to the DOM.
+     *  Export/print wait on it instead of guessing a number of frames. */
+    onRendered?: (content: string) => void;
 }
 
-/** Slugify heading text into a stable, URL-safe id (GitHub-style). */
+/** Slugify heading text into a stable, URL-safe id (GitHub-style). Unicode
+ *  letters/digits (CJK, Cyrillic, accented Latin) are kept so those headings
+ *  get distinct anchors and in-document links can resolve — the old ASCII-only
+ *  class collapsed every CJK heading to `section`, `section-1`, … (NAV-06). */
 const slugify = (text: string): string =>
     text
         .toLowerCase()
         .trim()
-        .replace(/[^\w\s-]/g, "")
+        .replace(/[^\p{L}\p{N}\s-]/gu, "")
         .replace(/\s+/g, "-")
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "");
+
+/* ---------- Wikilink pre-processing (NAV-08) ---------- */
+
+const WIKILINK_RE = /\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
+// One capture group → String.split keeps protected spans at odd indices:
+// code spans, single-line $$…$$ and inline $…$ are literal text, never links.
+const INLINE_PROTECTED_RE = /(`+[^`]*`+|\$\$[^$]*\$\$|\$[^$\n]+\$)/;
+
+const rewriteWikilinks = (text: string): string =>
+    text.replace(WIKILINK_RE, (_m, target: string, alias?: string) => {
+        const t = target.trim();
+        // No alias: show Obsidian's label (`Note › Heading`, `Heading` for a
+        // same-note link) instead of the raw `Note#Heading`. NAV-09.
+        const a = alias != null ? alias.trim() : wikilinkLabel(t);
+        return `[${a}](wikilink:${encodeURIComponent(t)})`;
+    });
+
+export function rewriteWikilinksOutsideCode(body: string): string {
+    const out: string[] = [];
+    let inFence = false;
+    let inBlockMath = false;
+    for (const line of body.split("\n")) {
+        if (/^\s*(```|~~~)/.test(line)) {
+            inFence = !inFence;
+            out.push(line);
+            continue;
+        }
+        if (inFence) {
+            out.push(line);
+            continue;
+        }
+        // Multi-line $$ block: everything between the $$ fences is literal.
+        if (inBlockMath) {
+            out.push(line);
+            if (line.includes("$$")) inBlockMath = false;
+            continue;
+        }
+        if (/^\s*\$\$\s*$/.test(line)) {
+            inBlockMath = true;
+            out.push(line);
+            continue;
+        }
+        out.push(
+            line
+                .split(INLINE_PROTECTED_RE)
+                .map((part, i) => (i % 2 === 1 ? part : rewriteWikilinks(part)))
+                .join(""),
+        );
+    }
+    return out.join("\n");
+}
 
 /** Extract the plain-text label from a React node tree (for slug + anchor link). */
 function nodeText(node: React.ReactNode): string {
@@ -304,19 +392,35 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
     const [error, setError] = useState(false);
 
     useEffect(() => {
-        if (!baseDir || !src) return;
+        if (!src) return;
 
-        // External URLs and data: URIs go straight to the <img>.
-        if (src.includes('://') || src.startsWith('data:')) {
+        // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
+        // resolve them as plain paths next to the document, like a text
+        // wikilink would be. IMG-EMBED-01.
+        const effective = src.startsWith("wikilink:")
+            ? decodeURIComponent(src.slice("wikilink:".length))
+            : src;
+
+        // External URLs and data: URIs go straight to the <img>. They don't
+        // need the document's directory, so they must load even when no file
+        // is on disk (browser mode / untitled buffer) — the old `!baseDir`
+        // early-return left them as an eternal loading skeleton.
+        if (effective.includes('://') || effective.startsWith('data:')) {
             setImageSrc(src);
             setError(false);
+            return;
+        }
+
+        if (!baseDir) {
+            // A relative path with no base directory can never resolve.
+            setError(true);
             return;
         }
 
         // Strip a leading `./` then validate. Anything with a `..` segment, an
         // absolute prefix, or a drive letter is rejected — see
         // isUnsafeRelativePath above.
-        const cleanPath = src.startsWith('./') ? src.slice(2) : src;
+        const cleanPath = effective.startsWith('./') ? effective.slice(2) : effective;
         if (isUnsafeRelativePath(cleanPath)) {
             setError(true);
             return;
@@ -369,6 +473,7 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             alt={alt || 'image'}
             {...props}
             loading="lazy"
+            onError={() => setError(true)}
             className="max-w-full h-auto rounded-lg my-4 cursor-zoom-in transition-transform hover:scale-[1.01]"
             onClick={() => {
                 const evt = new CustomEvent("paperling:zoom", { detail: { src: imageSrc, alt } });
@@ -575,7 +680,9 @@ function InteractiveTaskCheckbox({ initialChecked, onToggle }: { initialChecked:
                 if (line == null) return;
                 const next = e.target.checked;
                 setChecked(next);
-                onToggle(line, next);
+                // The li line is relative to its render block (PERF-02).
+                const offset = Number(e.currentTarget.closest("[data-line-offset]")?.getAttribute("data-line-offset")) || 0;
+                onToggle(line + offset, next);
             }}
             className="mr-2 cursor-pointer accent-[var(--accent)]"
         />
@@ -593,15 +700,17 @@ function HeadingWithAnchor(
     // slug only if the plugin somehow didn't run. NAV-02.
     const id = assignedId ?? slugify(text);
     const [copied, setCopied] = useState(false);
-    const handleClick = async () => {
-        const el = document.getElementById(id);
+    const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
+        // The DOM id, not the prop: dedupeHeadingIds may have suffixed it.
+        const el = e.currentTarget.closest<HTMLElement>("h1, h2, h3, h4, h5, h6");
+        const domId = el?.id || id;
         el?.scrollIntoView({ behavior: "smooth", block: "start" });
         // Also copy a link to this section. Scrolling a heading to itself is a
         // ~0px move when it's already at the top of the viewport, so without this
         // the click looks like it "does nothing"; the clipboard copy + icon swap
         // give the action visible feedback. Mirrors CodeBlock's copy pattern.
         try {
-            await navigator.clipboard.writeText(`#${id}`);
+            await navigator.clipboard.writeText(`#${domId}`);
             setCopied(true);
             setTimeout(() => setCopied(false), 1400);
         } catch {
@@ -627,6 +736,7 @@ function HeadingWithAnchor(
     );
     const sharedProps = {
         id,
+        "data-heading-id": id,
         ...rest,
         className: `${className ?? ""} group/heading flex items-baseline gap-2`,
     };
@@ -643,13 +753,19 @@ function HeadingWithAnchor(
 // Stable, stateless renderers hoisted to module scope so their identity never
 // changes across renders — react-markdown then won't remount these node types
 // when the components map is rebuilt (e.g. on file change). PREVIEW-06.
-const PreRenderer = (props: React.HTMLAttributes<HTMLPreElement>) => <CodeBlock {...props} />;
-const H1Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={1} {...props} />;
-const H2Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={2} {...props} />;
-const H3Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={3} {...props} />;
-const H4Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={4} {...props} />;
-const H5Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={5} {...props} />;
-const H6Renderer = (props: React.HTMLAttributes<HTMLHeadingElement>) => <HeadingWithAnchor level={6} {...props} />;
+// `node` (react-markdown's hast node) must not reach the DOM: it rendered as
+// node="[object Object]" on every <pre>. EXPORT-06.
+const PreRenderer = ({ node, ...props }: React.HTMLAttributes<HTMLPreElement> & { node?: unknown }) => <CodeBlock {...props} />;
+// react-markdown passes its hast `node` as a prop; spreading it onto the DOM
+// rendered node="[object Object]" on every heading (and into exports), so
+// the renderers drop it. EXPORT-06.
+type HeadingProps = React.HTMLAttributes<HTMLHeadingElement> & { node?: unknown };
+const H1Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={1} {...props} />;
+const H2Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={2} {...props} />;
+const H3Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={3} {...props} />;
+const H4Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={4} {...props} />;
+const H5Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={5} {...props} />;
+const H6Renderer = ({ node, ...props }: HeadingProps) => <HeadingWithAnchor level={6} {...props} />;
 // Wide tables scroll left/right INSIDE their own box (like code blocks do)
 // instead of stretching the whole document — a table wider than the column
 // used to make the entire preview pannable sideways, so a vertical reading
@@ -661,16 +777,48 @@ const TableRenderer = ({ node, ...props }: React.HTMLAttributes<HTMLTableElement
     </div>
 );
 
+/** One independently rendered markdown block (PERF-02). Memoized on its text
+ *  and the (stable) plugin/renderer sets, so an edit elsewhere in the document
+ *  never re-parses it. */
+const MarkdownBlock = memo(function MarkdownBlock({
+    text,
+    remarkPlugins,
+    rehypePlugins,
+    components,
+}: {
+    text: string;
+    remarkPlugins: unknown[];
+    rehypePlugins: unknown[];
+    components: Record<string, unknown>;
+}) {
+    return (
+        <Markdown
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            remarkPlugins={remarkPlugins as any}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            rehypePlugins={rehypePlugins as any}
+            remarkRehypeOptions={REMARK_REHYPE_OPTIONS}
+            urlTransform={mdUrlTransform}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            components={components as any}
+        >
+            {text}
+        </Markdown>
+    );
+});
+
 function MarkdownPreviewImpl({
     content,
     onLineChange,
     filePath,
+    readableLineLength = true,
     markdownBodyRef,
     onContentChange,
     onScrollFraction,
     registerScroller,
     onWikilinkClick,
     onNavigateRelative,
+    onRendered,
 }: MarkdownPreviewProps) {
     const mainRef = useRef<HTMLElement>(null);
     const [zoomImage, setZoomImage] = useState<{ src: string; alt: string } | null>(null);
@@ -739,7 +887,7 @@ function MarkdownPreviewImpl({
         img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
             <LocalImage src={src || ''} alt={alt || 'image'} baseDir={baseDir} {...props} />
         ),
-        a: ({ href, children, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+        a: ({ href, children, node, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) => {
             // Wikilink: open same-folder file via callback
             if (href && href.startsWith("wikilink:")) {
                 const target = decodeURIComponent(href.slice("wikilink:".length));
@@ -747,6 +895,9 @@ function MarkdownPreviewImpl({
                     <a
                         {...rest}
                         href="#"
+                        // Marker for the exporter, which turns wikilinks into
+                        // plain text (they're meaningless outside the app).
+                        data-wikilink={target}
                         onClick={(e) => {
                             e.preventDefault();
                             onWikilinkClick?.(target);
@@ -828,6 +979,10 @@ function MarkdownPreviewImpl({
             }
             // External http(s) and mailto links — route through the OS default
             // handler so the webview itself doesn't navigate away from the app.
+            // Every OTHER relative target (report.pdf, results.csv, img.png…)
+            // gets preventDefault unconditionally: leaving its href live let a
+            // plain click navigate the whole webview to tauri.localhost/<file>
+            // and blank the app. NAV-07.
             const isExternal = !!href && /^(https?:|mailto:)/i.test(href);
             return (
                 <a
@@ -837,8 +992,8 @@ function MarkdownPreviewImpl({
                         ? { rel: "noopener noreferrer", target: "_blank" }
                         : {})}
                     onClick={(e) => {
-                        if (!isExternal || !href) return;
                         e.preventDefault();
+                        if (!isExternal || !href) return;
                         openUrl(href).catch((err) =>
                             console.error("Failed to open external URL:", err)
                         );
@@ -901,13 +1056,16 @@ function MarkdownPreviewImpl({
     // We use a custom href scheme so the link click handler can detect them
     // and load the target file, while keeping the source markdown portable
     // (the source still has [[Foo]] — only the rendered output uses the scheme).
-    const renderBody = useMemo(() => {
-        return parsedBody.replace(/\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) => {
-            const t = target.trim();
-            const a = (alias ?? target).trim();
-            return `[${a}](wikilink:${encodeURIComponent(t)})`;
-        });
-    }, [parsedBody]);
+    //
+    // The rewrite is fence/code/math-aware: a single regex over the raw
+    // document used to visibly corrupt code blocks and inline code that merely
+    // CONTAIN "[[x]]" (preview and the Copy button both shipped the rewritten
+    // text). Fenced blocks are skipped by line scanning; inline code spans and
+    // math are protected by splitting the line on those spans first. NAV-08.
+    const renderBody = useMemo(
+        () => rewriteWikilinksOutsideCode(stripNoteComments(parsedBody)),
+        [parsedBody],
+    );
 
     // Lazy-load KaTeX only when the document actually contains math.
     // Heavy (~280kb) — keeping it out of the initial bundle is a real win.
@@ -928,8 +1086,8 @@ function MarkdownPreviewImpl({
     // extended syntaxes: ==mark==, ^sup^/~sub~, definition lists, {#id}. SYNTAX-01.
     const remarkPlugins = useMemo(
         () => (mathPlugins
-            ? [[remarkGfm, GFM_OPTIONS], mathPlugins.remark, remarkFlexibleMarkers, remarkSupersub, remarkDefinitionList, remarkCustomHeadingId]
-            : [[remarkGfm, GFM_OPTIONS], remarkFlexibleMarkers, remarkSupersub, remarkDefinitionList, remarkCustomHeadingId]),
+            ? [[remarkGfm, GFM_OPTIONS], mathPlugins.remark, remarkFlexibleMarkers, remarkSupersub, remarkDefinitionList, remarkCustomHeadingId, remarkNoteSyntax]
+            : [[remarkGfm, GFM_OPTIONS], remarkFlexibleMarkers, remarkSupersub, remarkDefinitionList, remarkCustomHeadingId, remarkNoteSyntax]),
         [mathPlugins]
     );
     const rehypePlugins = useMemo(
@@ -943,11 +1101,31 @@ function MarkdownPreviewImpl({
     // inside a transition. A burst of edits (already coalesced by App's debounce)
     // never blocks the commit that paints the latest keystroke, and React can
     // interrupt + restart this reconcile if newer input arrives. PREVIEW-01.
-    const [renderedBody, setRenderedBody] = useState(renderBody);
+    const [rendered, setRendered] = useState({ body: renderBody, content });
+    const renderedBody = rendered.body;
     const [, startBodyTransition] = useTransition();
     useEffect(() => {
-        startBodyTransition(() => setRenderedBody(renderBody));
+        startBodyTransition(() => setRendered({ body: renderBody, content }));
+        // `content` rides along only to report what was rendered.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [renderBody]);
+    // After commit: the DOM now shows `rendered.content`. EXPORT-07.
+    const onRenderedRef = useRef(onRendered);
+    onRenderedRef.current = onRendered;
+    useEffect(() => {
+        onRenderedRef.current?.(rendered.content);
+    }, [rendered]);
+
+    // Top-level blocks of the body (null = render it whole, e.g. footnotes).
+    // PERF-02.
+    const blocks = useMemo(() => splitMarkdownBlocks(renderedBody), [renderedBody]);
+
+    // Unique heading ids across blocks, before paint so anchors and exports
+    // never see duplicates. NAV-02.
+    useLayoutEffect(() => {
+        if (markdownBodyRef?.current) dedupeHeadingIds(markdownBodyRef.current);
+        else if (mainRef.current) dedupeHeadingIds(mainRef.current);
+    }, [renderedBody, blocks, mathPlugins, markdownBodyRef]);
 
     // Cached scroll extent (scrollHeight - clientHeight). Reading scrollHeight in
     // the scroll handler forces a synchronous reflow on every event; instead we
@@ -1011,7 +1189,13 @@ function MarkdownPreviewImpl({
         return () => ro.disconnect();
     }, [refreshScrollMax]);
     useEffect(() => { refreshScrollMax(); }, [renderedBody, refreshScrollMax]);
-    useEffect(() => () => { if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); }, []);
+    // Reset the id on cleanup: StrictMode (dev) remounts effects, and a stale
+    // non-zero id left handleScroll bailing out forever (no line reports, no
+    // split sync).
+    useEffect(() => () => {
+        if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = 0;
+    }, []);
 
     // Jump-to-line requests from the TOC / command palette (NAV-01). Finds the
     // last rendered block whose source line is at-or-above the target line via
@@ -1027,7 +1211,7 @@ function MarkdownPreviewImpl({
             const blocks = container.querySelectorAll<HTMLElement>("[data-source-line]");
             let best: HTMLElement | null = null;
             for (const b of blocks) {
-                const l = Number(b.getAttribute("data-source-line"));
+                const l = sourceLineOf(b);
                 if (l <= target) best = b;
                 else break;
             }
@@ -1051,19 +1235,74 @@ function MarkdownPreviewImpl({
         return () => window.removeEventListener("paperling:scroll-top", toTop);
     }, []);
 
+    // Source-line anchors for scroll sync and mode handoff (SYNC-01 /
+    // MODE-01): every top-level block carries data-source-line (body-relative;
+    // the frontmatter offset makes it content-relative like the editor's).
+    // Rects are read lazily by the binary search, so a scroll frame measures
+    // O(log n) blocks, not all of them.
+    const lineCountRef = useRef(lineCount);
+    lineCountRef.current = lineCount;
+    const anchorList = useCallback((): AnchorList | null => {
+        const el = mainRef.current;
+        if (!el || el.clientHeight === 0) return null; // hidden pane
+        const blocks = el.querySelectorAll<HTMLElement>("[data-source-line]");
+        const base = el.getBoundingClientRect().top - el.scrollTop;
+        const off = fmOffsetRef.current;
+        const tops = new Map<number, number>();
+        return {
+            count: blocks.length,
+            lineAt: (i) => sourceLineOf(blocks[i]) + off,
+            topAt: (i) => {
+                let t = tops.get(i);
+                if (t === undefined) {
+                    t = blocks[i].getBoundingClientRect().top - base;
+                    tops.set(i, t);
+                }
+                return t;
+            },
+            endLine: lineCountRef.current + 1,
+            endTop: el.scrollHeight,
+        };
+    }, []);
+
+    // A handoff/sync target set just before the body re-renders (switching
+    // out of code mode refreshes the preview) is re-applied once the new
+    // body lands, so the reader ends up on the right paragraph, not on where
+    // that line sat in the stale render.
+    const pendingLineRef = useRef<{ line: number; until: number } | null>(null);
+    useEffect(() => {
+        const pending = pendingLineRef.current;
+        const el = mainRef.current;
+        if (!pending || !el || Date.now() > pending.until) return;
+        const list = anchorList();
+        if (list) el.scrollTop = lineToOffset(list, pending.line);
+    }, [renderedBody, anchorList]);
+
     // Register imperative scroller for split-view sync
     useEffect(() => {
         if (!registerScroller) return;
         registerScroller({
             setFraction: (f: number) => {
+                pendingLineRef.current = null;
                 const el = mainRef.current;
                 if (!el) return;
                 const max = el.scrollHeight - el.clientHeight;
                 if (max > 0) el.scrollTop = max * f;
             },
+            getTopLine: () => {
+                const el = mainRef.current;
+                const list = anchorList();
+                return el && list && list.count > 0 ? offsetToLine(list, el.scrollTop) : null;
+            },
+            scrollToLine: (line: number) => {
+                const el = mainRef.current;
+                const list = anchorList();
+                pendingLineRef.current = { line, until: Date.now() + 800 };
+                if (el && list) el.scrollTop = lineToOffset(list, line);
+            },
         });
         return () => registerScroller(null);
-    }, [registerScroller]);
+    }, [registerScroller, anchorList]);
 
     return (
         <>
@@ -1071,7 +1310,7 @@ function MarkdownPreviewImpl({
                 ref={mainRef}
                 className="flex-1 overflow-y-auto bg-[var(--bg-primary)] transition-colors"
             >
-                <div className="preview-column w-full px-8 py-12">
+                <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 py-12`}>
                     {hasFrontmatter && (
                         <FrontmatterCard
                             data={frontmatter}
@@ -1082,18 +1321,38 @@ function MarkdownPreviewImpl({
                             }}
                         />
                     )}
-                    <div className="markdown-body" ref={markdownBodyRef}>
-                        <Markdown
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            remarkPlugins={remarkPlugins as any}
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            rehypePlugins={rehypePlugins as any}
-                            remarkRehypeOptions={REMARK_REHYPE_OPTIONS}
-                            urlTransform={mdUrlTransform}
-                            components={components}
-                        >
-                            {renderedBody}
-                        </Markdown>
+                    <div
+                        className="markdown-body"
+                        ref={markdownBodyRef}
+                        // #tag pills: search the folder for the tag. SYNTAX-02.
+                        onClick={(e) => {
+                            const tag = (e.target as HTMLElement).closest<HTMLElement>(".md-tag")?.dataset.tag;
+                            if (tag) window.dispatchEvent(new CustomEvent("paperling:search", { detail: { query: `#${tag}` } }));
+                        }}
+                    >
+                        {blocks ? (
+                            // Block-by-block (PERF-02): each wrapper is
+                            // display:contents (no layout box) and carries the
+                            // block's line offset; the memoized block only
+                            // re-renders when its own text changes.
+                            blocks.map((b) => (
+                                <div key={b.key} className="md-block" data-line-offset={b.lineOffset}>
+                                    <MarkdownBlock
+                                        text={b.text}
+                                        remarkPlugins={remarkPlugins}
+                                        rehypePlugins={rehypePlugins}
+                                        components={components}
+                                    />
+                                </div>
+                            ))
+                        ) : (
+                            <MarkdownBlock
+                                text={renderedBody}
+                                remarkPlugins={remarkPlugins}
+                                rehypePlugins={rehypePlugins}
+                                components={components}
+                            />
+                        )}
                     </div>
                 </div>
             </main>

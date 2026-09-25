@@ -2,7 +2,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 
-import { useFileSession, type UseFileSessionOptions } from "./useFileSession";
+import { __resetBootForTests, useFileSession, type UseFileSessionOptions } from "./useFileSession";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
@@ -64,6 +64,37 @@ describe("useFileSession", () => {
     expect(result.current.isDirty).toBe(true);
   });
 
+  it("getOpenBuffer returns the target file's text right after switching to it (NAV-12)", async () => {
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/a.md"));
+    const aId = result.current.activeTabId!;
+    await act(() => result.current.loadFile("C:/b.md"));
+    act(() => result.current.activateTab(aId));
+    let seen: string | null = null;
+    // Same tick as the switch: the live buffer still holds a.md here.
+    act(() => {
+      result.current.loadFile("C:/b.md");
+      seen = result.current.getOpenBuffer("C:/b.md");
+    });
+    expect(seen).toBe("bravo");
+  });
+
+  it("opening a file replaces an untouched empty Untitled tab (TABS-22)", async () => {
+    const { result } = renderHook(() => useFileSession(options()));
+    act(() => result.current.handleNewFile());
+    const untitledId = result.current.activeTabId;
+    await act(() => result.current.loadFile("C:/a.md"));
+    expect(result.current.tabs.map((t) => t.fileName)).toEqual(["a.md"]);
+    // A fresh id, so the editor can't carry the blank buffer's history over.
+    expect(result.current.activeTabId).not.toBe(untitledId);
+
+    // A typed-in Untitled tab is kept.
+    act(() => result.current.handleNewFile());
+    act(() => result.current.setContent("draft"));
+    await act(() => result.current.loadFile("C:/b.md"));
+    expect(result.current.tabs.map((t) => t.fileName)).toEqual(["a.md", expect.stringMatching(/^Untitled/), "b.md"]);
+  });
+
   it("closes a clean tab and activates its neighbour", async () => {
     const { result } = renderHook(() => useFileSession(options()));
     await act(() => result.current.loadFile("C:/a.md"));
@@ -87,5 +118,109 @@ describe("useFileSession", () => {
     await waitFor(() => expect(result.current.closeTabPrompt?.fileName).toBe("a.md"));
     expect(result.current.tabs).toHaveLength(1);
     expect(result.current.isDirty).toBe(true);
+  });
+
+  it("New File opens a second tab after typing in a fresh Untitled tab (TABS-17)", () => {
+    const { result } = renderHook(() => useFileSession(options()));
+    act(() => result.current.handleNewFile());
+    act(() => result.current.setContent("my first note"));
+    act(() => result.current.handleNewFile());
+    expect(result.current.tabs).toHaveLength(2);
+    expect(result.current.content).toBe("");
+    act(() => result.current.activateTab(result.current.tabs[0].id));
+    expect(result.current.content).toBe("my first note");
+  });
+
+  it("a save that finds the file changed on disk raises the conflict, and leaving the tab parks it (EXT-04/06)", async () => {
+    let diskMtime = 20;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "read_file" && args?.path) return Promise.resolve(files.get(args.path));
+      if (command === "get_file_info") return Promise.resolve({ modified: diskMtime });
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/a.md"));
+    const aId = result.current.activeTabId!;
+    await act(() => result.current.loadFile("C:/b.md"));
+    const bId = result.current.activeTabId!;
+    act(() => result.current.setContent("my bravo edits"));
+
+    diskMtime = 99; // another program saved b.md
+    await act(() => result.current.handleSaveFile());
+    expect(invoke).not.toHaveBeenCalledWith("save_file", expect.anything());
+    expect(result.current.conflictPrompt?.fileName).toBe("b.md");
+
+    // Switching away must not count as "keep mine".
+    act(() => result.current.activateTab(aId));
+    expect(result.current.isAutosaveParked("C:/b.md")).toBe(true);
+    act(() => result.current.activateTab(bId));
+    expect(result.current.conflictPrompt?.fileName).toBe("b.md");
+
+    // Keep mine absorbs the change, so the next save goes through.
+    act(() => result.current.handleConflictKeepMine());
+    await act(() => result.current.handleSaveFile());
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/b.md", content: "my bravo edits" });
+  });
+});
+
+describe("useFileSession crash recovery (HOT-02/04)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetBootForTests();
+    (invoke as Mock).mockReset().mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "get_cli_file") return Promise.resolve(null);
+      if (command === "read_file" && args?.path) return Promise.resolve(files.get(args.path));
+      return Promise.resolve(30);
+    });
+  });
+
+  const seedBackup = (originalContent: string) =>
+    localStorage.setItem(
+      "paperling.buffer-backup.v1",
+      JSON.stringify([{ filePath: "C:/a.md", fileName: "a.md", content: "alpha plus unsaved work", originalContent }]),
+    );
+
+  it("restores a recovered buffer as DIRTY and keeps its backup", async () => {
+    seedBackup("alpha");
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    await waitFor(() => expect(result.current.booting).toBe(false));
+    expect(result.current.content).toBe("alpha plus unsaved work");
+    expect(result.current.isDirty).toBe(true);
+    expect(result.current.conflictPrompt).toBeNull();
+    // The debounced backup mirror must still hold the recovered text.
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(localStorage.getItem("paperling.buffer-backup.v1")).toContain("alpha plus unsaved work");
+  });
+
+  it("never discards a buffer the user started while the session was restoring (BOOT-01)", async () => {
+    localStorage.setItem("paperling:session", JSON.stringify({ tabs: [{ path: "C:/a.md" }, { path: "C:/b.md" }], activeIndex: 0 }));
+    // Hold the restore's file reads until the user has acted.
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    (invoke as Mock).mockImplementation(async (command: string, args?: { path?: string }) => {
+      if (command === "get_cli_file") return null;
+      if (command === "read_file" && args?.path) { await gate; return files.get(args.path); }
+      return 30;
+    });
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    act(() => result.current.handleNewFile());
+    act(() => result.current.setContent("typed during boot"));
+    const userTab = result.current.activeTabId;
+
+    await act(async () => { release(); });
+    await waitFor(() => expect(result.current.booting).toBe(false));
+
+    expect(result.current.activeTabId).toBe(userTab);
+    expect(result.current.content).toBe("typed during boot");
+    expect(result.current.tabs.map((t) => t.fileName)).toEqual(["a.md", "b.md", expect.stringMatching(/^Untitled/)]);
+  });
+
+  it("raises the conflict when the file changed on disk after the crash", async () => {
+    seedBackup("an older alpha");
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    await waitFor(() => expect(result.current.booting).toBe(false));
+    expect(result.current.isDirty).toBe(true);
+    expect(result.current.conflictPrompt?.fileName).toBe("a.md");
+    expect(result.current.isAutosaveParked("C:/a.md")).toBe(true);
   });
 });

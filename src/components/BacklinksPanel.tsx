@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import mascotMagnify from "../assets/mascot/mascot-magnify.png";
 import mascotReading from "../assets/mascot/mascot-reading.png";
-import { attachFocusTrap } from "../utils/focusTrap";
+import { useSidePanel } from "../hooks/useSidePanel";
 import { IS_MOBILE } from "../utils/platform";
 
 interface BacklinkMatch {
@@ -64,22 +64,8 @@ export function BacklinksPanel({
         return () => window.removeEventListener("focus", refresh);
     }, [isOpen, loadBacklinks]);
 
-    useEffect(() => {
-        if (!isOpen) return;
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === "Escape") {
-                event.preventDefault();
-                onClose();
-            }
-        };
-        document.addEventListener("keydown", handleKeyDown);
-        panelRef.current?.focus();
-        const detachTrap = attachFocusTrap(panelRef.current);
-        return () => {
-            document.removeEventListener("keydown", handleKeyDown);
-            detachTrap();
-        };
-    }, [isOpen, onClose]);
+    // Escape / focus behaviour for a docked, non-modal panel. PANEL-01.
+    useSidePanel(panelRef, isOpen, onClose);
 
     const matchCount = results.reduce((count, result) => count + result.matches.length, 0);
 

@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useTheme, ACCENT_CHOICES, type Theme, type FontFamily, type FontSize } from "../context/ThemeContext";
+import { ShortcutSettings } from "./ShortcutSettings";
+import { getInstalledFontFamilies } from "../utils/fontDiscovery";
 import { IS_MOBILE } from "../utils/platform";
 import {
     getTypewriterMode, setTypewriterMode,
@@ -11,6 +13,7 @@ import {
     getVimMode, setVimMode,
     getAutoSave, setAutoSave,
     getOpenInReader, setOpenInReader,
+    getReadableLineLength, setReadableLineLength,
     getZenMode, setZenMode,
     getAIHistoryTurns, setAIHistoryTurns, AI_HISTORY_TURNS_MAX,
     getAIIconAnimation, setAIIconAnimation,
@@ -31,14 +34,27 @@ interface SettingsModalProps {
     onClose: () => void;
 }
 
-type Section = "appearance" | "editor" | "ai" | "about";
+type Section = "appearance" | "editor" | "shortcuts" | "ai" | "about";
 
 const sections: Array<{ id: Section; label: string; icon: string }> = [
     { id: "appearance", label: "Appearance", icon: "palette" },
     { id: "editor", label: "Editor", icon: "edit" },
+    { id: "shortcuts", label: "Shortcuts", icon: "keyboard" },
     { id: "ai", label: "AI", icon: "auto_awesome" },
     { id: "about", label: "About", icon: "info" },
 ];
+
+// What each section contains, for the settings search: typing jumps to the
+// first section that has a match (the search used to filter only the section
+// already on screen, so "accent" or "vim" from another section found
+// nothing). SET-05.
+const SECTION_KEYWORDS: Record<Section, string> = {
+    appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small",
+    editor: "typewriter toolbar word wrap spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode",
+    shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
+    ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
+    about: "about version update tour guide help license",
+};
 
 const themes: Array<{ id: Theme; name: string; colors: [string, string]; textColor: string; icon?: string }> = [
     { id: "dark", name: "Dark", colors: ["#0a0a0a", "#141414"], textColor: "#ffffff" },
@@ -61,9 +77,12 @@ const fonts: Array<{ id: FontFamily; name: string; kind: string; stack: string }
 ];
 
 const fontSizes: Array<{ id: FontSize; name: string; sample: number }> = [
-    { id: "small", name: "Small", sample: 13 },
+    // Samples match the real reading sizes (they used to show 13/19px for
+    // 14/18px text).
+    { id: "small", name: "Small", sample: 14 },
     { id: "medium", name: "Medium", sample: 16 },
-    { id: "large", name: "Large", sample: 19 },
+    { id: "large", name: "Large", sample: 18 },
+    { id: "xlarge", name: "Extra large", sample: 20 },
 ];
 
 interface ToggleRowProps {
@@ -110,6 +129,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [vimMode, setVimModeLocal] = useState(getVimMode);
     const [autoSave, setAutoSaveLocal] = useState(getAutoSave);
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
+    const [readableLength, setReadableLengthLocal] = useState(getReadableLineLength);
+    // Installed-font suggestions for the custom-font input. Computed lazily on
+    // first focus (never at startup), cached per session; the <datalist> does
+    // the type-to-filter natively. SET-03.
+    const [fontSuggestions, setFontSuggestions] = useState<string[]>([]);
+    const hydrateFontSuggestions = useCallback(() => {
+        void getInstalledFontFamilies().then(setFontSuggestions);
+    }, []);
     const [zenMode, setZenModeLocal] = useState(getZenMode);
 
     // The running app's version for the About panel (#148). Read from the Tauri
@@ -171,6 +198,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         };
         document.addEventListener("keydown", onKey);
         const detach = attachFocusTrap(dialogRef.current);
+        // Move focus INTO the dialog: the trap only engages once focus is
+        // inside the container, and screen readers need the dialog announced.
+        // Mirrors the cheatsheet/palette, which focus their filter inputs.
+        const searchInput = dialogRef.current?.querySelector<HTMLInputElement>('input[aria-label="Search settings"]');
+        searchInput?.focus();
         return () => {
             document.removeEventListener("keydown", onKey);
             detach();
@@ -206,7 +238,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     if (!isOpen) return null;
 
-    const matches = (text: string) => !filter || text.toLowerCase().includes(filter.toLowerCase());
+    const matches = (text: string) => !filter || text.toLowerCase().includes(filter.trim().toLowerCase());
+    // Searching for the section itself ("shortcuts", "keyboard"…) shows every
+    // row; a command name ("bold") narrows the list.
+    const shortcutRowFilter = /^(shortcuts?|keyboard|key ?bindings?|hotkeys?|rebind)$/i.test(filter.trim()) ? "" : filter;
+    const noResults =
+        !!filter.trim() &&
+        !sections.some((s) => SECTION_KEYWORDS[s.id].includes(filter.trim().toLowerCase()));
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Settings">
@@ -216,6 +254,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 ref={dialogRef}
                 className="settings-shell relative z-10 w-[min(820px,95vw)] h-[min(600px,90dvh)] flex bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-lg)] shadow-2xl overflow-hidden animate-fade-in"
             >
+                {/* Font suggestions (SET-03): filled on first focus of the
+                    custom-font input from the lazily-discovered installed
+                    families; the datalist filters natively as the user types. */}
+                <datalist id="paperling-installed-fonts">
+                    {fontSuggestions.map((f) => <option key={f} value={f} />)}
+                </datalist>
                 {/* Sidebar — narrower below `sm` so the content pane keeps a
                     usable width when the 95vw modal shrinks on small screens.
                     On mobile the shell CSS turns this into a horizontal icon
@@ -225,7 +269,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         <input
                             type="text"
                             value={filter}
-                            onChange={(e) => setFilter(e.target.value)}
+                            onChange={(e) => {
+                                const next = e.target.value;
+                                setFilter(next);
+                                const q = next.trim().toLowerCase();
+                                if (q && !SECTION_KEYWORDS[section].includes(q)) {
+                                    const hit = sections.find(
+                                        (s) => SECTION_KEYWORDS[s.id].includes(q) && (!IS_MOBILE || (s.id !== "ai" && s.id !== "shortcuts")),
+                                    );
+                                    if (hit) setSection(hit.id);
+                                }
+                            }}
                             placeholder="Search…"
                             aria-label="Search settings"
                             className="w-full px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
@@ -236,7 +290,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             switched off by default; on the phone it's just a
                             dead section, so it isn't offered. */}
                         {sections
-                            .filter((s) => !IS_MOBILE || s.id !== "ai")
+                            .filter((s) => !IS_MOBILE || (s.id !== "ai" && s.id !== "shortcuts"))
                             .map((s) => (
                             <button
                                 key={s.id}
@@ -254,8 +308,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </nav>
                 </aside>
 
-                {/* Body */}
-                <div className="flex-1 flex flex-col min-w-0">
+                {/* Body. min-h-0 is the load-bearing class: a flex item's
+                    default min-height:auto lets this wrapper grow to its
+                    content height, overflowing the shell (which clips) —
+                    on phones the settings below the fold (custom font…)
+                    were unreachable because the pane never scrolled.
+                    SET-02. */}
+                <div className="flex-1 flex flex-col min-w-0 min-h-0">
                     <header className="flex items-center justify-between px-6 py-3 border-b border-[var(--border)]">
                         <h2 className="text-base font-semibold text-[var(--text-primary)]">
                             {sections.find((s) => s.id === section)?.label ?? "Settings"}
@@ -276,6 +335,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 <button
                                                     key={t.id}
                                                     onClick={() => setTheme(t.id)}
+                                                    aria-pressed={theme === t.id}
                                                     className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${theme === t.id
                                                         ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
                                                         : "hover:bg-[var(--bg-hover)]"
@@ -292,7 +352,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         </div>
                                     </section>
                                 )}
-                                {matches("theme") && (
+                                {matches("theme accent color colour") && (
                                     <section>
                                         <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Accent color</h3>
                                         <div className="flex items-center gap-2 flex-wrap">
@@ -359,7 +419,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                     type="text"
                                                     value={customFont}
                                                     maxLength={100}
-                                                    onFocus={() => setFont("custom")}
+                                                    list="paperling-installed-fonts"
+                                                    onFocus={() => { setFont("custom"); hydrateFontSuggestions(); }}
                                                     onChange={(e) => setCustomFont(e.target.value)}
                                                     onBlur={() => setCustomFont(customFont.trim())}
                                                     placeholder="e.g. Atkinson Hyperlegible"
@@ -375,7 +436,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 {matches("size") && (
                                     <section>
                                         <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Font size</h3>
-                                        <div className="grid grid-cols-3 gap-2">
+                                        <div className="grid grid-cols-4 gap-2">
                                             {fontSizes.map((s) => {
                                                 const active = fontSize === s.id;
                                                 return (
@@ -436,11 +497,23 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     <ToggleRow label="Open files in reader mode" description="Every file opens read-first; editing stays one click away" checked={openInReader}
                                         onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
                                 )}
+                                {matches("readable line length preview width column") && (
+                                    <ToggleRow label="Readable line length" description="Center the reading column at a comfortable width (Obsidian-style). Off: the preview fills the window" checked={readableLength}
+                                        onChange={(v) => { setReadableLengthLocal(v); setReadableLineLength(v); fire("paperling:readable-toggle", v); }} />
+                                )}
                                 {matches("zen mode") && (
                                     <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}
                                         onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
                                 )}
                             </div>
+                        )}
+
+                        {noResults && (
+                            <p className="text-sm text-[var(--text-secondary)]">No settings match “{filter.trim()}”.</p>
+                        )}
+
+                        {section === "shortcuts" && !IS_MOBILE && !noResults && (
+                            <ShortcutSettings filter={shortcutRowFilter} />
                         )}
 
                         {section === "ai" && !IS_MOBILE && (

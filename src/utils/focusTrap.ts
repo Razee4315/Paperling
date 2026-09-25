@@ -12,7 +12,12 @@ const FOCUSABLE = [
     '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
-export function attachFocusTrap(container: HTMLElement | null): () => void {
+export function attachFocusTrap(
+    container: HTMLElement | null,
+    // false: only remember and restore focus (non-modal side panels on
+    // desktop must not hold Tab hostage). PANEL-01.
+    { cycleTab = true }: { cycleTab?: boolean } = {},
+): () => void {
     if (!container) return () => { };
 
     // Remember what had focus before the trap engaged so we can return focus
@@ -23,7 +28,7 @@ export function attachFocusTrap(container: HTMLElement | null): () => void {
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
     const handler = (e: KeyboardEvent) => {
-        if (e.key !== "Tab") return;
+        if (e.key !== "Tab" || !cycleTab) return;
         const focusable = container.querySelectorAll<HTMLElement>(FOCUSABLE);
         if (focusable.length === 0) return;
         const first = focusable[0];

@@ -72,10 +72,70 @@ export function collectDirtyTabs(
   return dirty;
 }
 
+/**
+ * A crash-recovery snapshot of one dirty buffer (HOT-01): enough to re-open
+ * the buffer with its unsaved edits after a force-quit, crash, or OS reboot —
+ * the things the regular session (paths + caret lines only) can't cover.
+ */
+export interface BufferBackupEntry {
+  /** Absolute path for a saved file, null for an untitled buffer. */
+  filePath: string | null;
+  fileName: string;
+  content: string;
+  originalContent: string;
+  cursorLine?: number;
+}
+
+/**
+ * Crash-recovery snapshots for every dirty tab. Same active-tab-vs-snapshot
+ * rule as collectDirtyTabs (TABS-04); clean tabs are skipped — the file on
+ * disk already holds their state.
+ */
+export function collectBufferBackups(
+  tabs: TabState[],
+  activeId: string | null,
+  live: LiveActiveTab,
+  activeCursorLine?: number
+): BufferBackupEntry[] {
+  const backups: BufferBackupEntry[] = [];
+  for (const t of tabs) {
+    const isActive = t.id === activeId;
+    const content = isActive ? live.content : t.content;
+    const originalContent = isActive ? live.originalContent : t.originalContent;
+    if (!isTabDirty({ content, originalContent })) continue;
+    backups.push({
+      filePath: isActive ? live.filePath : t.filePath,
+      fileName: isActive ? (live.fileName ?? "Untitled.md") : t.fileName,
+      content,
+      originalContent,
+      cursorLine: isActive ? activeCursorLine : t.cursorLine,
+    });
+  }
+  return backups;
+}
+
+/**
+ * Comparison key for a file path. The same file reaches the app spelled
+ * differently — dialog paths use `\`, wikilink/relative resolution may use
+ * `/`, and Windows paths are case-insensitive — and an exact string compare
+ * opened it in two tabs whose saves clobbered each other. Drive-letter and
+ * UNC paths are Windows paths, so only those are case-folded. TABS-18.
+ */
+export function pathKey(path: string): string {
+  const slashed = path.replace(/\\/g, "/");
+  const isWindows = /^[a-zA-Z]:\//.test(slashed) || slashed.startsWith("//");
+  return isWindows ? slashed.toLowerCase() : slashed;
+}
+
+/** Do two (possibly null) paths name the same file? Null never matches. */
+export function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
+  return a != null && b != null && pathKey(a) === pathKey(b);
+}
+
 /** Find an open tab by file path (null paths never match). */
 export function findTabByPath(tabs: TabState[], path: string | null): TabState | undefined {
   if (path == null) return undefined;
-  return tabs.find((t) => t.filePath === path);
+  return tabs.find((t) => samePath(t.filePath, path));
 }
 
 /**

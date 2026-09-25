@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { getInstalledFontFamilies } from '../utils/fontDiscovery';
 import { useTheme, Theme, FontFamily, FontSize } from '../context/ThemeContext';
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
 
@@ -24,11 +25,19 @@ const fontSizes: { id: FontSize; name: string; size: string }[] = [
     { id: 'small', name: 'Small', size: '14px' },
     { id: 'medium', name: 'Medium', size: '16px' },
     { id: 'large', name: 'Large', size: '18px' },
+    { id: 'xlarge', name: 'XL', size: '20px' },
 ];
 
 export function SettingsMenu() {
     const [isOpen, setIsOpen] = useState(false);
     const { theme, setTheme, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
+    // Lazily-discovered installed font families for the custom-font input
+    // (SET-03): probed on first focus, cached per session, filtered natively
+    // by the datalist.
+    const [fontSuggestions, setFontSuggestions] = useState<string[]>([]);
+    const hydrateFontSuggestions = useCallback(() => {
+        void getInstalledFontFamilies().then(setFontSuggestions);
+    }, []);
     const menuRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const onMenuKeyDown = useDropdownKeyboard(isOpen, panelRef, () => setIsOpen(false));
@@ -85,6 +94,7 @@ export function SettingsMenu() {
                                 <button
                                     key={t.id}
                                     onClick={() => setTheme(t.id)}
+                                    aria-pressed={theme === t.id}
                                     className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg transition-all ${theme === t.id
                                         ? 'ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]'
                                         : 'hover:bg-[var(--bg-hover)]'
@@ -143,13 +153,17 @@ export function SettingsMenu() {
                                 type="text"
                                 value={customFont}
                                 maxLength={100}
-                                onFocus={() => setFont('custom')}
+                                list="paperling-installed-fonts-menu"
+                                onFocus={() => { setFont('custom'); hydrateFontSuggestions(); }}
                                 onChange={(e) => setCustomFont(e.target.value)}
                                 onBlur={() => setCustomFont(customFont.trim())}
                                 placeholder="e.g. Atkinson Hyperlegible"
                                 aria-label="Custom system font family"
                                 className="w-full mt-1 px-3 py-2 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                             />
+                            <datalist id="paperling-installed-fonts-menu">
+                                {fontSuggestions.map((f) => <option key={f} value={f} />)}
+                            </datalist>
                         </div>
                     </div>
 

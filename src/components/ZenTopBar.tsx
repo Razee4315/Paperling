@@ -12,9 +12,16 @@ interface ZenTopBarProps {
     onToggleFullscreen?: () => void;
     /** Leave Zen mode and restore the normal chrome. */
     onExitZen: () => void;
+    /** Toggle the outline (table of contents) overlay. ZEN-03. */
+    outlineOpen?: boolean;
+    onToggleOutline?: () => void;
+    /** Start a new markdown file without leaving Zen. ZEN-03. */
+    onNewFile?: () => void;
+    /** Open an existing markdown file without leaving Zen. ZEN-03. */
+    onOpenFile?: () => void;
 }
 
-function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen }: ZenTopBarProps) {
+function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpen, onToggleOutline, onNewFile, onOpenFile }: ZenTopBarProps) {
     const handleMinimize = useCallback(async () => {
         try {
             await Window.getCurrent().minimize();
@@ -91,17 +98,55 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen }: ZenTopBa
                 style={{ paddingTop: "var(--safe-area-top, 0px)" }}
                 className={IS_TOUCH
                     ? "relative min-h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)] border-b border-[var(--border)]"
-                    : "absolute top-0 inset-x-0 h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)]/95 backdrop-blur-sm border-b border-[var(--border)] transition-all duration-150 delay-150 group-hover/zenbar:delay-0 invisible opacity-0 -translate-y-1 pointer-events-none group-hover/zenbar:visible group-hover/zenbar:opacity-100 group-hover/zenbar:translate-y-0 group-hover/zenbar:pointer-events-auto"}
+                    : "absolute top-0 inset-x-0 h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)]/95 backdrop-blur-sm border-b border-[var(--border)] transition-all duration-150 delay-150 group-hover/zenbar:delay-0 invisible opacity-0 -translate-y-1 pointer-events-none group-hover/zenbar:visible group-hover/zenbar:opacity-100 group-hover/zenbar:translate-y-0 group-hover/zenbar:pointer-events-auto group-focus-within/zenbar:delay-0 group-focus-within/zenbar:visible group-focus-within/zenbar:opacity-100 group-focus-within/zenbar:translate-y-0 group-focus-within/zenbar:pointer-events-auto"}
             >
-                <button
-                    onClick={onExitZen}
-                    aria-label="Exit Zen mode"
-                    title="Back to normal view (F9)"
-                    className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-xs"
-                >
-                    <span className="material-symbols-outlined text-[16px]">web_asset</span>
-                    <span>Normal</span>
-                </button>
+                <div className="flex items-center gap-1">
+                    <button
+                        onClick={onExitZen}
+                        aria-label="Exit Zen mode"
+                        title="Back to normal view (F9)"
+                        className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-xs"
+                    >
+                        <span className="material-symbols-outlined text-[16px]">web_asset</span>
+                        <span>Normal</span>
+                    </button>
+                    {/* Zen still needs the everyday file actions: jump around the
+                        document via the outline, and start/open a file — without
+                        giving up the distraction-free canvas. ZEN-03. */}
+                    {onToggleOutline && (
+                        <button
+                            onClick={onToggleOutline}
+                            aria-label={outlineOpen ? "Close outline" : "Open outline"}
+                            aria-pressed={outlineOpen}
+                            title="Outline (Ctrl+Shift+O)"
+                            className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${outlineOpen
+                                ? "bg-[var(--accent)] text-[var(--accent-text)]"
+                                : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
+                        >
+                            <span className="material-symbols-outlined text-[18px]">format_list_bulleted</span>
+                        </button>
+                    )}
+                    {onNewFile && (
+                        <button
+                            onClick={onNewFile}
+                            aria-label="New file"
+                            title="New file (Ctrl+N)"
+                            className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">edit_note</span>
+                        </button>
+                    )}
+                    {onOpenFile && (
+                        <button
+                            onClick={onOpenFile}
+                            aria-label="Open file"
+                            title="Open file (Ctrl+O)"
+                            className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">folder_open</span>
+                        </button>
+                    )}
+                </div>
                 {!IS_MOBILE && (
                     <div className="flex items-center gap-1">
                         <button

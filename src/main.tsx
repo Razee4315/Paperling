@@ -16,13 +16,24 @@ import "./index.css";
 // utils/platform.ts); all mobile styling keys off these classes.
 initPlatformClass();
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </React.StrictMode>,
-);
+// DEV-only: `?fakefs=1` swaps in an in-memory Tauri backend so the open /
+// save / tab / conflict flows can be exercised in a plain browser. The
+// import.meta.env.DEV guard is statically false in production builds, so the
+// shim is tree-shaken out and never ships.
+const devBackend: Promise<void> =
+  import.meta.env.DEV && /[?&]fakefs=1(&|$)/.test(window.location.search)
+    ? import("./dev/fakeTauri").then((m) => m.installFakeTauri())
+    : Promise.resolve();
+
+devBackend.finally(() => {
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </React.StrictMode>,
+  );
+});
 
 // Failsafe: the window is created hidden and normally revealed from App's mount
 // effect. If mount hangs or crashes before that runs, this still shows the

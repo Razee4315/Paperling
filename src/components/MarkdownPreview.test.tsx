@@ -182,3 +182,116 @@ describe("relative markdown links", () => {
         expect(click.defaultPrevented).toBe(true);
     });
 });
+
+// PERF-02: the preview renders block by block. Whatever the splitter does, the
+// result must be the same HTML the whole-document render produces. An unused
+// footnote definition renders nothing but forces the whole-document path, so
+// the two renders can be compared directly.
+describe("block-by-block rendering (PERF-02)", () => {
+    const FIXTURE = [
+        "# Title",
+        "",
+        "Intro with a [ref link][docs], a [[Wiki Note]] and a #tag.",
+        "",
+        "## Setup",
+        "",
+        "- plain item",
+        "- [ ] open task",
+        "- [x] done task",
+        "  - nested",
+        "",
+        "- loose item after a blank line",
+        "",
+        "1. one",
+        "",
+        "2. two",
+        "",
+        "```js",
+        "const a = 1;",
+        "",
+        "",
+        "const b = 2;",
+        "```",
+        "",
+        "<details>",
+        "<summary>More</summary>",
+        "",
+        "Hidden **markdown** inside.",
+        "",
+        "</details>",
+        "",
+        "| a | b |",
+        "|---|---|",
+        "| 1 | 2 |",
+        "",
+        "> [!tip] Callout",
+        "> Body text.",
+        "",
+        "Term",
+        ": Definition",
+        "",
+        "<!-- a comment",
+        "",
+        "spanning lines -->",
+        "",
+        "## Setup",
+        "",
+        "    indented code",
+        "",
+        "Final paragraph.",
+        "",
+        "[docs]: https://example.com",
+    ].join("\n");
+
+    const normalized = async (content: string) => {
+        const { container, unmount } = renderPreview(content);
+        const body = await waitFor(() => {
+            const el = container.querySelector(".markdown-body") as HTMLElement;
+            expect(el.textContent).toContain("Final paragraph.");
+            return el;
+        });
+        const clone = body.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll(".md-block").forEach((w) => w.replaceWith(...Array.from(w.childNodes)));
+        clone.querySelectorAll("[data-source-line]").forEach((el) => el.removeAttribute("data-source-line"));
+        // react-markdown separates top-level elements with newline text
+        // nodes; they don't render, and block boundaries naturally drop some.
+        const html = clone.innerHTML.replace(/>\n+</g, "><");
+        unmount();
+        return html;
+    };
+
+    it("renders exactly what the whole-document render produces", async () => {
+        const blocks = await normalized(FIXTURE);
+        const whole = await normalized(`${FIXTURE}\n\n[^unused]: forces the whole-document path`);
+        expect(blocks).toBe(whole);
+        // Sanity: the fixture really exercised the interesting parts.
+        expect(blocks).toContain("<details>");
+        expect(blocks).toContain('href="https://example.com"');
+        expect(blocks).toContain('id="setup-1"');
+    });
+
+    it("reports absolute source lines across blocks (scroll sync, TOC, goto-line)", async () => {
+        const { container } = renderPreview("para one\n\npara two\n\n\n## Heading at line 6");
+        const h2 = await waitFor(() => {
+            const el = container.querySelector("h2");
+            expect(el).toBeTruthy();
+            return el!;
+        });
+        const rel = Number(h2.getAttribute("data-source-line"));
+        const offset = Number(h2.parentElement?.getAttribute("data-line-offset") ?? 0);
+        expect(rel + offset).toBe(6);
+    });
+
+    it("toggles the right source line for a task in a later block", async () => {
+        const onContentChange = vi.fn();
+        const content = ["---", "title: x", "---", "# Head", "", "Intro.", "", "- [ ] first", "- [ ] second"].join("\n");
+        const { container } = renderPreview(content, { onContentChange });
+        const boxes = await waitFor(() => {
+            const bs = container.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
+            expect(bs.length).toBe(2);
+            return bs;
+        });
+        boxes[1].click();
+        expect(onContentChange).toHaveBeenCalledWith(content.replace("- [ ] second", "- [x] second"));
+    });
+});
