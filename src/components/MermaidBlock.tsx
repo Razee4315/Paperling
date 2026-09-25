@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, memo } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../context/ThemeContext";
+import { copyDiagramAsPng, saveDiagramSvg } from "../utils/diagramExport";
 
 // Single shared mermaid module promise — loaded only on first use.
 let mermaidPromise: Promise<typeof import("mermaid")["default"]> | null = null;
@@ -74,6 +75,24 @@ interface MermaidBlockProps {
     code: string;
 }
 
+/**
+ * Re-render `code` with plain SVG <text> labels for export (MMV-07). The
+ * on-screen render uses HTML labels inside <foreignObject>, which taints a
+ * canvas (no PNG) and which most SVG tools (Inkscape, Office) can't show.
+ */
+async function renderPlainSvg(code: string, theme: string): Promise<string> {
+    const mermaid = await loadMermaid();
+    const id = newMermaidId();
+    const base = { startOnLoad: false, securityLevel: "strict" as const, theme: themeToMermaid(theme), fontFamily: "var(--font-body)" };
+    mermaid.initialize({ ...base, htmlLabels: false, flowchart: { htmlLabels: false } });
+    try {
+        return (await mermaid.render(id, code)).svg;
+    } finally {
+        removeRenderLeftovers(id);
+        mermaid.initialize({ ...base, htmlLabels: true, flowchart: { htmlLabels: true } });
+    }
+}
+
 /* ---------- Viewer: zoom / pan / fit / fullscreen (MMV-01) ---------- */
 
 const ZOOM_MIN = 0.25;
@@ -109,9 +128,12 @@ function parseNaturalSize(svg: string): { w: number; h: number } {
 function MermaidView({
     svg,
     onFullscreen,
+    getExportSvg,
     contain = false,
 }: {
     svg: string;
+    /** Export-ready SVG (plain-text labels); falls back to `svg`. */
+    getExportSvg?: () => Promise<string>;
     /** Shows the fullscreen button inside the toolbar (inline view only). */
     onFullscreen?: () => void;
     /** Fullscreen: fit BOTH axes and allow scaling up, so a small diagram
@@ -214,6 +236,25 @@ function MermaidView({
             >
                 <span className="material-symbols-outlined text-[18px]">add</span>
             </button>
+            <span className="w-px h-4 bg-[var(--border)] mx-0.5" aria-hidden="true" />
+            <button
+                type="button"
+                aria-label="Copy diagram as PNG"
+                title="Copy as PNG"
+                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                onClick={async () => void copyDiagramAsPng(getExportSvg ? await getExportSvg().catch(() => svg) : svg)}
+            >
+                <span className="material-symbols-outlined text-[16px]">content_copy</span>
+            </button>
+            <button
+                type="button"
+                aria-label="Save diagram as SVG"
+                title="Save as SVG"
+                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                onClick={async () => void saveDiagramSvg(getExportSvg ? await getExportSvg().catch(() => svg) : svg, "diagram")}
+            >
+                <span className="material-symbols-outlined text-[16px]">download</span>
+            </button>
             {/* Fullscreen lives INSIDE the toolbar. It used to be a separate
                 absolutely-positioned button at the same top-right spot, laid
                 exactly over "Zoom in" — clicking + opened fullscreen. MMV-04. */}
@@ -313,6 +354,9 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
                     securityLevel: "strict",
                     theme: mermaidTheme,
                     fontFamily: "var(--font-body)",
+                    // Explicit: renderPlainSvg flips these off for exports.
+                    htmlLabels: true,
+                    flowchart: { htmlLabels: true },
                 });
                 return mermaid.render(renderId, code);
             })
@@ -374,7 +418,7 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
     return (
         <>
             <div className="relative my-4 group" ref={fsTriggerRef}>
-                <MermaidView svg={svg} onFullscreen={() => setFullscreen(true)} />
+                <MermaidView svg={svg} onFullscreen={() => setFullscreen(true)} getExportSvg={() => renderPlainSvg(code, theme)} />
             </div>
             {fullscreen &&
                 createPortal(
@@ -402,7 +446,7 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
                             <div className="w-full h-full p-2">
                                 {/* Same SVG, re-keyed: two copies with one id
                                     would share markers/styles. MMV-06. */}
-                                <MermaidView svg={rekeySvg(svg, idRef.current, `${idRef.current}fs`)} contain />
+                                <MermaidView svg={rekeySvg(svg, idRef.current, `${idRef.current}fs`)} getExportSvg={() => renderPlainSvg(code, theme)} contain />
                             </div>
                         </div>
                     </div>,

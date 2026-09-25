@@ -555,6 +555,11 @@ function AppContent() {
       }],
       ["paperling:autosave-toggle", (e) => setAutoSaveEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:readable-toggle", (e) => setReadableLineLengthState(!!(e as CustomEvent).detail?.enabled)],
+      // Toasts from components without toast access (diagram export).
+      ["paperling:notify", (e) => {
+        const d = (e as CustomEvent).detail;
+        if (d && typeof d.message === "string") showToast(d.message, d.type === "error" || d.type === "success" ? d.type : "info");
+      }],
       // A #tag clicked in the preview searches the folder for it. SYNTAX-02.
       ["paperling:search", (e) => {
         const query = (e as CustomEvent).detail?.query;
