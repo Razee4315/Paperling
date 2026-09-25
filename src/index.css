@@ -1223,12 +1223,46 @@ html.touch ::-webkit-scrollbar {
   color: var(--syntax-list);
 }
 
-/* GFM task lists ([ ] / [x]) render as <ul class="contains-task-list"> with a
-   checkbox per item — keep those flush and bullet-free so the checkbox stands
-   alone (GitHub-style), without a stray disc beside it. */
-.markdown-body ul.contains-task-list {
+/* GFM task lists ([ ] / [x]). remark-gfm marks the whole <ul> as
+   contains-task-list as soon as ONE item is a task, so hiding markers on the
+   list made every plain bullet beside a task vanish (PREV-01). Only task
+   items lose their marker; the checkbox hangs in the marker gutter
+   (GitHub-style) so plain and task items line up. A list made only of tasks
+   sits flush with the text column. */
+.markdown-body li.task-list-item {
   list-style-type: none;
-  padding-left: 0;
+}
+
+.markdown-body li.task-list-item > input[type="checkbox"] {
+  margin-left: -1.4rem;
+  margin-right: 0.45rem;
+}
+
+.markdown-body ul.contains-task-list:not(:has(> li:not(.task-list-item))) {
+  padding-left: 1.4rem;
+}
+
+/* Done tasks read as done (Obsidian/Things style): dimmed, and struck
+   through when they have no sub-list (a line-through set on an <li> can't be
+   switched off for its nested items, so those only dim). */
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked) {
+  color: var(--text-muted);
+}
+
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked):not(:has(> ul, > ol)) {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked) li {
+  color: var(--text-primary);
+}
+
+/* Block-by-block preview rendering (PERF-02): each block's wrapper has no box
+   of its own, so layout, margins and selection behave exactly as if the
+   blocks were direct children of .markdown-body. */
+.markdown-body .md-block {
+  display: contents;
 }
 
 .markdown-body blockquote {

@@ -322,6 +322,17 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
             margin-bottom: 0.25rem;
         }
 
+        /* GFM task items: the checkbox takes the bullet's place, so a list
+           mixing tasks and plain items keeps its bullets (PREV-01). */
+        li.task-list-item {
+            list-style-type: none;
+        }
+
+        li.task-list-item > input[type="checkbox"] {
+            margin: 0 0.45em 0.2em -1.4em;
+            vertical-align: middle;
+        }
+
         li > ul, li > ol {
             margin-top: 0.25rem;
             margin-bottom: 0;
@@ -481,11 +492,15 @@ export async function prepareExportHtml(rawHtml: string): Promise<string> {
     // Preview-only plumbing: source-line anchors for scroll sync and any
     // stray react-markdown `node` attribute. Classes stay — KaTeX and
     // highlight.js styling depends on them.
-    root.querySelectorAll("[data-source-line], [node], [data-relative-md]").forEach((el) => {
+    root.querySelectorAll("[data-source-line], [node], [data-relative-md], [data-heading-id]").forEach((el) => {
         el.removeAttribute("data-source-line");
         el.removeAttribute("node");
         el.removeAttribute("data-relative-md");
+        el.removeAttribute("data-heading-id");
     });
+    // The preview renders block by block inside display:contents wrappers
+    // (PERF-02); unwrap them so exported HTML is plain markdown output.
+    root.querySelectorAll(".md-block").forEach((wrapper) => wrapper.replaceWith(...Array.from(wrapper.childNodes)));
 
     for (const img of Array.from(root.querySelectorAll("img"))) {
         const src = img.getAttribute("src") || "";

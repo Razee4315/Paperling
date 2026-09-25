@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo, useState, useTransition, memo, createContext, useContext } from "react";
+import { useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState, useTransition, memo, createContext, useContext } from "react";
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkFlexibleMarkers from "remark-flexible-markers";
@@ -16,6 +16,7 @@ import { lineToOffset, offsetToLine, type AnchorList, type Scroller } from "../u
 import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
 import { wikilinkLabel } from "../utils/wikilinkAnchor";
 import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
+import { splitMarkdownBlocks } from "../utils/markdownBlocks";
 
 // Detect KaTeX-style math so we only load the heavy katex bundle when needed.
 // $$...$$ for block math, $...$ for inline math (not preceded/followed by digit
@@ -126,12 +127,11 @@ function rehypeSourceLine() {
     };
 }
 
-// rehype plugin: give every heading a unique, GitHub-style slug id. The first
-// "## Setup" becomes #setup, the second #setup-1, and so on. Without this two
-// identical headings share an id, so in-document `#anchor` links and the
-// heading copy-link both jump to the first one. Runs on the hast tree (no React
-// render side-effects) and AFTER rehypeSanitize so the id we add isn't clobbered
-// or prefixed by the sanitizer. NAV-02.
+// rehype plugin: give every heading its GitHub-style BASE slug id ("## Setup"
+// -> setup), or its `{#custom-id}`. Runs AFTER rehypeSanitize so the id isn't
+// clobbered or prefixed. Making repeats unique (#setup, #setup-1, ...) is done
+// on the DOM by dedupeHeadingIds, because the preview renders block by block
+// (PERF-02) and no single tree sees every heading any more. NAV-02.
 interface HastTextNode { type: string; tagName?: string; value?: string; children?: HastTextNode[]; properties?: Record<string, unknown> }
 const HEADING_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
 function hastText(node: HastTextNode): string {
@@ -140,27 +140,17 @@ function hastText(node: HastTextNode): string {
 }
 function rehypeHeadingIds() {
     return (tree: { children?: HastTextNode[] }) => {
-        const seen = new Map<string, number>();
         const walk = (nodes?: HastTextNode[]) => {
             if (!nodes) return;
             for (const node of nodes) {
                 if (node.type === "element" && node.tagName && HEADING_TAGS.has(node.tagName)) {
                     node.properties = node.properties || {};
                     // A `{#custom-id}` id (remarkCustomHeadingId -> hProperties)
-                    // has already survived sanitize (clobberPrefix "") — respect
-                    // it, reserve it so a later auto-slug can't collide, and
-                    // suffix repeats so the DOM never carries duplicate ids.
-                    // Slugs stay the fallback. SYNTAX-01.
+                    // has already survived sanitize (clobberPrefix "") and wins;
+                    // the slug is the fallback. SYNTAX-01.
                     const existing = node.properties.id;
-                    if (typeof existing === "string" && existing !== "") {
-                        const count = seen.get(existing) ?? 0;
-                        seen.set(existing, count + 1);
-                        if (count > 0) node.properties.id = `${existing}-${count}`;
-                    } else {
-                        const base = slugify(hastText(node)) || "section";
-                        const count = seen.get(base) ?? 0;
-                        seen.set(base, count + 1);
-                        node.properties.id = count === 0 ? base : `${base}-${count}`;
+                    if (typeof existing !== "string" || existing === "") {
+                        node.properties.id = slugify(hastText(node)) || "section";
                     }
                 }
                 walk(node.children);
@@ -168,6 +158,31 @@ function rehypeHeadingIds() {
         };
         walk(tree.children);
     };
+}
+
+/**
+ * Make heading ids unique across the whole rendered document, in order: the
+ * first "## Setup" keeps #setup, the next becomes #setup-1, and so on (custom
+ * ids are suffixed the same way). The React-rendered base id lives in
+ * data-heading-id; only the DOM id is adjusted, so React never fights it.
+ */
+function dedupeHeadingIds(root: HTMLElement) {
+    const seen = new Map<string, number>();
+    for (const h of root.querySelectorAll<HTMLElement>("[data-heading-id]")) {
+        const base = h.getAttribute("data-heading-id") || "section";
+        const count = seen.get(base) ?? 0;
+        seen.set(base, count + 1);
+        const id = count === 0 ? base : `${base}-${count}`;
+        if (h.id !== id) h.id = id;
+    }
+}
+
+/** Absolute (body-relative) source line of a rendered top-level block: its
+ *  block-relative data-source-line plus its block wrapper's offset. */
+function sourceLineOf(el: Element): number {
+    const rel = Number(el.getAttribute("data-source-line")) || 1;
+    const offset = Number(el.parentElement?.getAttribute("data-line-offset")) || 0;
+    return rel + offset;
 }
 
 // Nearest source line at the top of the scroll container, via the data-source-line
@@ -185,7 +200,7 @@ function topSourceLine(container: HTMLElement): number | null {
         if (blocks[mid].getBoundingClientRect().top <= top) { ans = mid; lo = mid + 1; }
         else hi = mid - 1;
     }
-    return Number(blocks[ans].getAttribute("data-source-line")) || 1;
+    return sourceLineOf(blocks[ans]);
 }
 
 type PluginPair = { remark: unknown; rehype: unknown };
@@ -662,7 +677,9 @@ function InteractiveTaskCheckbox({ initialChecked, onToggle }: { initialChecked:
                 if (line == null) return;
                 const next = e.target.checked;
                 setChecked(next);
-                onToggle(line, next);
+                // The li line is relative to its render block (PERF-02).
+                const offset = Number(e.currentTarget.closest("[data-line-offset]")?.getAttribute("data-line-offset")) || 0;
+                onToggle(line + offset, next);
             }}
             className="mr-2 cursor-pointer accent-[var(--accent)]"
         />
@@ -680,15 +697,17 @@ function HeadingWithAnchor(
     // slug only if the plugin somehow didn't run. NAV-02.
     const id = assignedId ?? slugify(text);
     const [copied, setCopied] = useState(false);
-    const handleClick = async () => {
-        const el = document.getElementById(id);
+    const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
+        // The DOM id, not the prop: dedupeHeadingIds may have suffixed it.
+        const el = e.currentTarget.closest<HTMLElement>("h1, h2, h3, h4, h5, h6");
+        const domId = el?.id || id;
         el?.scrollIntoView({ behavior: "smooth", block: "start" });
         // Also copy a link to this section. Scrolling a heading to itself is a
         // ~0px move when it's already at the top of the viewport, so without this
         // the click looks like it "does nothing"; the clipboard copy + icon swap
         // give the action visible feedback. Mirrors CodeBlock's copy pattern.
         try {
-            await navigator.clipboard.writeText(`#${id}`);
+            await navigator.clipboard.writeText(`#${domId}`);
             setCopied(true);
             setTimeout(() => setCopied(false), 1400);
         } catch {
@@ -714,6 +733,7 @@ function HeadingWithAnchor(
     );
     const sharedProps = {
         id,
+        "data-heading-id": id,
         ...rest,
         className: `${className ?? ""} group/heading flex items-baseline gap-2`,
     };
@@ -730,7 +750,9 @@ function HeadingWithAnchor(
 // Stable, stateless renderers hoisted to module scope so their identity never
 // changes across renders — react-markdown then won't remount these node types
 // when the components map is rebuilt (e.g. on file change). PREVIEW-06.
-const PreRenderer = (props: React.HTMLAttributes<HTMLPreElement>) => <CodeBlock {...props} />;
+// `node` (react-markdown's hast node) must not reach the DOM: it rendered as
+// node="[object Object]" on every <pre>. EXPORT-06.
+const PreRenderer = ({ node, ...props }: React.HTMLAttributes<HTMLPreElement> & { node?: unknown }) => <CodeBlock {...props} />;
 // react-markdown passes its hast `node` as a prop; spreading it onto the DOM
 // rendered node="[object Object]" on every heading (and into exports), so
 // the renderers drop it. EXPORT-06.
@@ -751,6 +773,36 @@ const TableRenderer = ({ node, ...props }: React.HTMLAttributes<HTMLTableElement
         <table {...props} />
     </div>
 );
+
+/** One independently rendered markdown block (PERF-02). Memoized on its text
+ *  and the (stable) plugin/renderer sets, so an edit elsewhere in the document
+ *  never re-parses it. */
+const MarkdownBlock = memo(function MarkdownBlock({
+    text,
+    remarkPlugins,
+    rehypePlugins,
+    components,
+}: {
+    text: string;
+    remarkPlugins: unknown[];
+    rehypePlugins: unknown[];
+    components: Record<string, unknown>;
+}) {
+    return (
+        <Markdown
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            remarkPlugins={remarkPlugins as any}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            rehypePlugins={rehypePlugins as any}
+            remarkRehypeOptions={REMARK_REHYPE_OPTIONS}
+            urlTransform={mdUrlTransform}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            components={components as any}
+        >
+            {text}
+        </Markdown>
+    );
+});
 
 function MarkdownPreviewImpl({
     content,
@@ -1051,6 +1103,17 @@ function MarkdownPreviewImpl({
         startBodyTransition(() => setRenderedBody(renderBody));
     }, [renderBody]);
 
+    // Top-level blocks of the body (null = render it whole, e.g. footnotes).
+    // PERF-02.
+    const blocks = useMemo(() => splitMarkdownBlocks(renderedBody), [renderedBody]);
+
+    // Unique heading ids across blocks, before paint so anchors and exports
+    // never see duplicates. NAV-02.
+    useLayoutEffect(() => {
+        if (markdownBodyRef?.current) dedupeHeadingIds(markdownBodyRef.current);
+        else if (mainRef.current) dedupeHeadingIds(mainRef.current);
+    }, [renderedBody, blocks, mathPlugins, markdownBodyRef]);
+
     // Cached scroll extent (scrollHeight - clientHeight). Reading scrollHeight in
     // the scroll handler forces a synchronous reflow on every event; instead we
     // refresh it via ResizeObserver + on content change and read the cache in the
@@ -1135,7 +1198,7 @@ function MarkdownPreviewImpl({
             const blocks = container.querySelectorAll<HTMLElement>("[data-source-line]");
             let best: HTMLElement | null = null;
             for (const b of blocks) {
-                const l = Number(b.getAttribute("data-source-line"));
+                const l = sourceLineOf(b);
                 if (l <= target) best = b;
                 else break;
             }
@@ -1175,7 +1238,7 @@ function MarkdownPreviewImpl({
         const tops = new Map<number, number>();
         return {
             count: blocks.length,
-            lineAt: (i) => Number(blocks[i].getAttribute("data-source-line")) + off,
+            lineAt: (i) => sourceLineOf(blocks[i]) + off,
             topAt: (i) => {
                 let t = tops.get(i);
                 if (t === undefined) {
@@ -1254,17 +1317,29 @@ function MarkdownPreviewImpl({
                             if (tag) window.dispatchEvent(new CustomEvent("paperling:search", { detail: { query: `#${tag}` } }));
                         }}
                     >
-                        <Markdown
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            remarkPlugins={remarkPlugins as any}
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            rehypePlugins={rehypePlugins as any}
-                            remarkRehypeOptions={REMARK_REHYPE_OPTIONS}
-                            urlTransform={mdUrlTransform}
-                            components={components}
-                        >
-                            {renderedBody}
-                        </Markdown>
+                        {blocks ? (
+                            // Block-by-block (PERF-02): each wrapper is
+                            // display:contents (no layout box) and carries the
+                            // block's line offset; the memoized block only
+                            // re-renders when its own text changes.
+                            blocks.map((b) => (
+                                <div key={b.key} className="md-block" data-line-offset={b.lineOffset}>
+                                    <MarkdownBlock
+                                        text={b.text}
+                                        remarkPlugins={remarkPlugins}
+                                        rehypePlugins={rehypePlugins}
+                                        components={components}
+                                    />
+                                </div>
+                            ))
+                        ) : (
+                            <MarkdownBlock
+                                text={renderedBody}
+                                remarkPlugins={remarkPlugins}
+                                rehypePlugins={rehypePlugins}
+                                components={components}
+                            />
+                        )}
                     </div>
                 </div>
             </main>
