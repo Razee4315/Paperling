@@ -166,6 +166,13 @@ export function handleTab(state: EditorState, shift: boolean): EditorResult | nu
         };
     }
 
+    // A list item (caret anywhere on the line, or a selection inside it)
+    // nests / un-nests the whole ITEM, like Obsidian, Typora and VS Code. It
+    // used to splice two spaces at the caret (mid-text on a typical "- item|")
+    // so Tab could never build a nested list. EDIT-04.
+    const listResult = indentListItem(state, shift);
+    if (listResult) return listResult;
+
     // Single-line: insert / remove indent at cursor
     if (shift) {
         const ls = lineStartIndex(text, selStart);
@@ -204,6 +211,114 @@ export function handleTab(state: EditorState, shift: boolean): EditorResult | nu
 const LIST_PATTERN = /^(\s*)([-*+]|\d+\.)\s+(\[[ xX]\]\s+)?/;
 const QUOTE_PATTERN = /^(\s*>\s+)/;
 
+interface ListLine {
+    indent: string;
+    marker: string;
+    /** Full prefix length: indent + marker + spacing (+ task box). */
+    prefixLength: number;
+    taskBox: boolean;
+}
+
+function parseListLine(line: string): ListLine | null {
+    const m = line.match(LIST_PATTERN);
+    if (!m) return null;
+    return { indent: m[1], marker: m[2], prefixLength: m[0].length, taskBox: !!m[3] };
+}
+
+/** Nearest list item ABOVE `lineStart` that is less indented than `indentLen`
+ *  (the item a nested line belongs to). Blank lines and deeper lines are
+ *  skipped; any other less-indented line ends the list, so there is no parent. */
+function findParentItem(text: string, lineStart: number, indentLen: number): ListLine | null {
+    let end = lineStart - 1;
+    for (let guard = 0; end >= 0 && guard < 500; guard++) {
+        const start = lineStartIndex(text, end);
+        const line = text.slice(start, end);
+        end = start - 1;
+        if (line.trim() === "") continue;
+        const lineIndent = line.length - line.trimStart().length;
+        if (lineIndent >= indentLen) continue;
+        return parseListLine(line);
+    }
+    return null;
+}
+
+/** The sibling item directly above at exactly `indent` (same list level). */
+function findPreviousSibling(text: string, lineStart: number, indent: string): ListLine | null {
+    let end = lineStart - 1;
+    for (let guard = 0; end >= 0 && guard < 500; guard++) {
+        const start = lineStartIndex(text, end);
+        const line = text.slice(start, end);
+        end = start - 1;
+        if (line.trim() === "") continue;
+        const lineIndent = line.length - line.trimStart().length;
+        if (lineIndent > indent.length) continue;
+        const item = parseListLine(line);
+        if (lineIndent === indent.length && item) return item;
+        return null;
+    }
+    return null;
+}
+
+/** Next marker after `marker` in the same list: "3." becomes "4.", bullets repeat. */
+const nextMarkerAfter = (marker: string): string => {
+    const n = marker.match(/^(\d+)\.$/);
+    return n ? `${parseInt(n[1], 10) + 1}.` : marker;
+};
+
+/**
+ * Tab / Shift+Tab on a list line: move the whole item one level deeper or
+ * shallower. Nesting indents by the previous sibling's marker width ("- " is
+ * 2, "1. " is 3) so the child really nests in CommonMark; two spaces under
+ * "1." does not. A numbered item that becomes a first child restarts at 1.
+ * Returns null for non-list lines and multi-line selections. EDIT-04.
+ */
+function indentListItem(state: EditorState, shift: boolean): EditorResult | null {
+    const { text, selStart, selEnd } = state;
+    if (text.slice(selStart, selEnd).includes("\n")) return null;
+    const ls = lineStartIndex(text, selStart);
+    const le = lineEndIndex(text, selStart);
+    const line = text.slice(ls, le);
+    const item = parseListLine(line);
+    if (!item) return null;
+
+    let newIndent: string;
+    let newMarker = item.marker;
+    const numbered = /^\d+\.$/.test(item.marker);
+    if (!shift) {
+        const sibling = findPreviousSibling(text, ls, item.indent);
+        // No item above to nest under: indenting would only produce a stray
+        // over-indented line (or an indented code block), so keep the text
+        // and just swallow the key.
+        if (!sibling) return { text, selStart, selEnd };
+        newIndent = item.indent + " ".repeat(sibling.marker.length + 1);
+        if (numbered) {
+            const prevChild = findPreviousSibling(text, ls, newIndent);
+            newMarker = prevChild && /^\d+\.$/.test(prevChild.marker) ? nextMarkerAfter(prevChild.marker) : "1.";
+        }
+    } else {
+        if (item.indent.length === 0) return { text, selStart, selEnd };
+        const parent = findParentItem(text, ls, item.indent.length);
+        newIndent = parent ? parent.indent : item.indent.slice(0, Math.max(0, item.indent.length - INDENT.length));
+        if (numbered) {
+            const prevAtLevel = findPreviousSibling(text, ls, newIndent);
+            if (prevAtLevel && /^\d+\.$/.test(prevAtLevel.marker)) newMarker = nextMarkerAfter(prevAtLevel.marker);
+        }
+    }
+
+    const oldHead = item.indent + item.marker;
+    const newHead = newIndent + newMarker;
+    const newLine = newHead + line.slice(oldHead.length);
+    const delta = newHead.length - oldHead.length;
+    // Carets inside the old head land just after the new marker's indent;
+    // everything after it moves with the text.
+    const shiftPos = (p: number) => (p - ls <= oldHead.length ? Math.max(ls + newIndent.length, p + delta) : p + delta);
+    return {
+        text: text.slice(0, ls) + newLine + text.slice(le),
+        selStart: shiftPos(selStart),
+        selEnd: shiftPos(selEnd),
+    };
+}
+
 export function handleEnter(state: EditorState): EditorResult | null {
     const { text, selStart, selEnd } = state;
     if (selStart !== selEnd) return null;
@@ -213,11 +328,15 @@ export function handleEnter(state: EditorState): EditorResult | null {
 
     // Blockquote continuation
     const qm = currentLine.match(QUOTE_PATTERN);
+    const fullLineEnd = lineEndIndex(text, selStart);
     if (qm) {
-        // If only the quote prefix is on the line, terminate the quote
-        if (currentLine.trim() === ">") {
+        // If only the quote prefix is on the line, terminate the quote. The
+        // WHOLE line decides: with the caret right after "> " on "> text",
+        // the text before the caret alone looked empty, so Enter deleted the
+        // quote marker instead of splitting the line. EDIT-03.
+        if (text.slice(ls, fullLineEnd).trim() === ">") {
             return {
-                text: text.slice(0, ls) + "\n" + text.slice(selStart),
+                text: text.slice(0, ls) + "\n" + text.slice(fullLineEnd),
                 selStart: ls + 1,
                 selEnd: ls + 1,
             };
@@ -236,12 +355,30 @@ export function handleEnter(state: EditorState): EditorResult | null {
         const indent = lm[1];
         const marker = lm[2];
         const taskBox = lm[3] ? "[ ] " : "";
-        const restAfterPrefix = currentLine.slice(lm[0].length);
+        // Emptiness is judged on the WHOLE line, not just the text before the
+        // caret: Enter with the caret right after "- " (or "- [ ] ") on a
+        // non-empty item used to count as an empty item and deleted the marker
+        // and checkbox. Now it splits there, pushing the text into a new item
+        // below, the same as Obsidian. EDIT-03.
+        const restOfLine = text.slice(ls + lm[0].length, fullLineEnd);
 
-        // Empty list item — terminate the list
-        if (restAfterPrefix.trim() === "") {
+        if (restOfLine.trim() === "") {
+            // Empty NESTED item: step out one level (Obsidian/Typora) instead
+            // of ending the whole list. EDIT-05.
+            if (indent.length > 0) {
+                const parent = findParentItem(text, ls, indent.length);
+                const outIndent = parent ? parent.indent : indent.slice(0, Math.max(0, indent.length - INDENT.length));
+                const outMarker = parent ? nextMarkerAfter(parent.marker) : marker;
+                const head = `${outIndent}${outMarker} ${taskBox}`;
+                return {
+                    text: text.slice(0, ls) + head + text.slice(fullLineEnd),
+                    selStart: ls + head.length,
+                    selEnd: ls + head.length,
+                };
+            }
+            // Top-level empty item: end the list.
             return {
-                text: text.slice(0, ls) + "\n" + text.slice(selStart),
+                text: text.slice(0, ls) + "\n" + text.slice(fullLineEnd),
                 selStart: ls + 1,
                 selEnd: ls + 1,
             };

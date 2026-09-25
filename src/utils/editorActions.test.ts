@@ -125,3 +125,48 @@ describe("audit regression fixes", () => {
         expect(r?.selStart).toBe(6); // second cell of the header row
     });
 });
+
+describe("list editing (EDIT-03/04/05)", () => {
+    it("Enter right after the marker of a non-empty item splits instead of deleting the marker (EDIT-03)", () => {
+        expect(handleEnter(st("- a", 2))).toEqual({ text: "- \n- a", selStart: 5, selEnd: 5 });
+        expect(handleEnter(st("- [ ] task", 6))?.text).toBe("- [ ] \n- [ ] task");
+        expect(handleEnter(st("1. a", 3))?.text).toBe("1. \n2. a");
+        expect(handleEnter(st("> quoted", 2))?.text).toBe("> \n> quoted");
+    });
+
+    it("Enter on an empty top-level item still ends the list", () => {
+        expect(handleEnter(st("- a\n- ", 6))).toEqual({ text: "- a\n\n", selStart: 5, selEnd: 5 });
+        expect(handleEnter(st("> a\n> ", 6))?.text).toBe("> a\n\n");
+    });
+
+    it("Enter on an empty NESTED item steps out one level (EDIT-05)", () => {
+        expect(handleEnter(st("- a\n  - ", 8))).toEqual({ text: "- a\n- ", selStart: 6, selEnd: 6 });
+        // Under a numbered parent the item continues the parent's numbering.
+        expect(handleEnter(st("1. a\n   - ", 10))?.text).toBe("1. a\n2. ");
+        // A nested task keeps its checkbox when it steps out.
+        expect(handleEnter(st("- [ ] a\n  - [ ] ", 16))?.text).toBe("- [ ] a\n- [ ] ");
+    });
+
+    it("Tab nests the whole list item, wherever the caret is (EDIT-04)", () => {
+        expect(handleTab(st("- a\n- b", 7), false)).toEqual({ text: "- a\n  - b", selStart: 9, selEnd: 9 });
+        expect(handleTab(st("- a\n- bc", 7), false)?.text).toBe("- a\n  - bc");
+        // Under "1. " a child needs 3 spaces to nest, and restarts at 1.
+        expect(handleTab(st("1. a\n2. b", 9), false)?.text).toBe("1. a\n   1. b");
+        // Continues the numbering of an existing nested list.
+        expect(handleTab(st("1. a\n   1. x\n2. b", 16), false)?.text).toBe("1. a\n   1. x\n   2. b");
+    });
+
+    it("Tab on the first item (nothing to nest under) leaves the text alone", () => {
+        expect(handleTab(st("- a", 3), false)).toEqual({ text: "- a", selStart: 3, selEnd: 3 });
+    });
+
+    it("Shift+Tab un-nests to the parent's level (EDIT-04)", () => {
+        expect(handleTab(st("- a\n  - b", 9), true)).toEqual({ text: "- a\n- b", selStart: 7, selEnd: 7 });
+        expect(handleTab(st("1. a\n   1. b", 12), true)?.text).toBe("1. a\n2. b");
+        expect(handleTab(st("- a", 3), true)).toEqual({ text: "- a", selStart: 3, selEnd: 3 });
+    });
+
+    it("Tab outside a list still indents at the caret", () => {
+        expect(handleTab(st("abc", 0), false)).toEqual({ text: "  abc", selStart: 2, selEnd: 2 });
+    });
+});
