@@ -1,3 +1,49 @@
+# ✅ Round 4: the everyday flows (branch `fix/audit-round4-core-flows-2026-09-26`)
+
+*The things you do every day, made to feel like Obsidian/Typora. 574 passing tests. Details: `AUDIT_2026-09-26.md`.*
+
+## 📖 Reading ↔ editing (try these first)
+- [ ] Open a long note in **Reader**, scroll halfway, press **Ctrl+E**. The editor opens **at the same paragraph** (it used to jump to line 1), and you can type immediately.
+- [ ] Scroll somewhere in the editor, then press **Ctrl+E**. Reader opens at the same place.
+- [ ] **Split view** (Ctrl+\\): scroll either side past images, tables or code blocks. The other side stays on the **same paragraph** (it used to drift).
+- [ ] Open a big note (a long README, 100 kB+) in split view and type. The preview keeps up without freezing. In code mode, typing never stutters.
+
+## 🗂️ Tabs
+- [ ] In a note, put the caret mid-line far down, type something, switch to another tab and back. The caret, the scroll position **and Ctrl+Z** all still work.
+- [ ] Press **New File**, then open a file right away. No leftover empty "Untitled" tab.
+- [ ] Double-click the empty part of the tab strip to get a new tab.
+- [ ] Right after launching (while your last session is still loading), press Ctrl+N and type. Your text is **never** lost when the old tabs appear.
+
+## ✏️ Lists and tasks
+- [ ] `- first` ⏎ `second`, then press **Tab**: the item becomes nested (`  - second`). **Shift+Tab** brings it back.
+- [ ] In `1. one` ⏎ `2. two`, Tab on "two" makes a proper nested `   1. two`.
+- [ ] Click right after `- [ ] ` on a task that has text and press **Enter**. A new task appears above; nothing is deleted (it used to delete the checkbox).
+- [ ] Enter on an empty **nested** bullet steps out one level instead of ending the list.
+- [ ] **Ctrl+Enter** on a line: it becomes a task, then ticks, then unticks.
+- [ ] Reader: a list mixing normal bullets and `- [ ]` tasks shows **all** its bullets. Done tasks look greyed/struck.
+
+## 🔍 Find
+- [ ] Select a word, press **Ctrl+F**: it's already in the box.
+- [ ] Press Enter a few times, then **Esc**: you're on the found word, and typing replaces it.
+- [ ] With the find bar open, click in the text and press Ctrl+F again: the cursor goes back to the find box.
+
+## 🔗 Links & outline
+- [ ] In the editor, **Ctrl+click** a `[[wikilink]]` or a URL: it opens (for a URL, in your browser).
+- [ ] `[[Other note#Some heading]]` to a note that's **already open** jumps to that heading.
+- [ ] Outline (Ctrl+Shift+O): headings show clean text (no `**`, no `{#id}`), and `Title` + `====` headings appear. Click one: the caret lands there and you can type straight away.
+- [ ] With the outline open, press Esc in the editor: the outline stays open. Press Esc inside the outline: it closes.
+
+## 💾 Saving
+- [ ] New file, type `# Trip plan`, press Ctrl+S. The dialog suggests **"Trip plan.md"** in the folder you last used.
+- [ ] Close a tab with unsaved edits: the prompt names the file.
+- [ ] Export → HTML right after typing: the last words you typed are in the file.
+
+## 🧪 For you, the developer
+- [ ] `node node_modules/vite/bin/vite.js --port 5391`, then open `http://localhost:5391/?fakefs=1&raf=1`: the whole app runs in a browser with a fake disk (see AUDIT_2026-09-26.md §4).
+- [ ] CI green on the PR; Test Build artifacts downloaded and installed.
+
+---
+
 # ✅ Round 3 — branch `fix/audit-round3-2026-09-25`
 
 *Everything here is new on this branch (515 passing tests). Details: `AUDIT_2026-09-25.md`.*
