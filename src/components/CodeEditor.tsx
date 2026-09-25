@@ -86,6 +86,23 @@ interface CodeEditorProps {
     docSwapId?: number;
 }
 
+/**
+ * CodeMirror's default keymap, minus the unshifted Alt+←/→ on Windows/Linux.
+ * There CM binds them to cursorSyntaxLeft/Right, and handling a key calls
+ * preventDefault — which the app's window handler (SHC-01) treats as
+ * "already handled", so Alt+←/→ stopped switching tabs whenever the editor
+ * had focus. Shift+Alt+←/→ (select by syntax node) keeps working, and macOS
+ * is untouched (its binding is Ctrl+←/→ and Option+Arrows move by word).
+ * SHC-09.
+ */
+const editorDefaultKeymap = isMac
+    ? defaultKeymap
+    : defaultKeymap.map((binding) =>
+          binding.key === "Alt-ArrowLeft" || binding.key === "Alt-ArrowRight"
+              ? { ...binding, run: undefined }
+              : binding,
+      );
+
 const EDITOR_FONT_FAMILY =
     "'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
 
@@ -434,7 +451,10 @@ function CodeEditorImpl({
                 onCursorChangeRef.current?.(line.number, head - line.from + 1);
                 const sel = update.state.selection.main;
                 onSelectionChangeRef.current?.(sel.from, sel.to);
-                detectSlash(update.view);
+                // Opening the menu is a TYPING affordance: a pure caret move
+                // must never open it, or clicking after an existing "/table"
+                // in prose armed Enter to rewrite the sentence. SLASH-02.
+                detectSlash(update.view, update.docChanged && update.transactions.some((tr) => tr.isUserEvent("input.type")));
                 detectTable(update.view);
                 // Typewriter mode: recenter only while TYPING (docChanged), not on
                 // mouse clicks / arrow navigation — clicking shouldn't yank the
@@ -487,7 +507,7 @@ function CodeEditorImpl({
                     vimComp.of(vimMode ? vim() : []),
                     mergeComp.of([]),
                     editingKeymap,
-                    keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap]),
+                    keymap.of([...closeBracketsKeymap, ...editorDefaultKeymap, ...historyKeymap]),
                     updateListener,
                     pasteHandler,
                     EditorView.theme({ "&": { outline: "none" } }),
@@ -518,7 +538,7 @@ function CodeEditorImpl({
 
     // Slash-command lifecycle, mirroring the previous textarea behaviour but
     // reading only the current line (no full-doc scans).
-    function detectSlash(view: EditorView) {
+    function detectSlash(view: EditorView, typed: boolean) {
         const head = view.state.selection.main.head;
         const doc = view.state.doc;
         const cur = slashStateRef.current;
@@ -529,6 +549,8 @@ function CodeEditorImpl({
             setSlashQuery(between);
             return;
         }
+        // Everything below OPENS the menu — only for text the user just typed.
+        if (!typed) return;
         if (head > 0 && doc.sliceString(head - 1, head) === "/") {
             const line = doc.lineAt(head);
             const lineHead = doc.sliceString(line.from, head - 1);

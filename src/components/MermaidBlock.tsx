@@ -44,10 +44,31 @@ const themeToMermaid = (t: string): "default" | "dark" | "neutral" => {
 // above it changed height while typing) re-run mermaid.render() — a full SVG
 // layout pass — for diagrams the user never touched. Cache hits are instant.
 // Bounded LRU-ish: evict the oldest when over the cap. PREVIEW-03.
-const svgCache = new Map<string, string>();
+// Each entry remembers the element id it was rendered with, because mermaid
+// bakes that id into the SVG (root id, scoped <style>, marker/gradient refs).
+// Serving one cached string to two blocks put two elements with the same id
+// on the page, and arrowheads/styles resolved to the wrong copy. MMV-06.
+const svgCache = new Map<string, { svg: string; id: string }>();
 const SVG_CACHE_CAP = 64;
 
 let nextMermaidId = 0;
+// Ids are "mmd<N>z": the trailing delimiter guarantees no id is a substring of
+// another (mmd1z vs mmd12z), so a textual id swap can't corrupt a longer one.
+const newMermaidId = () => `mmd${++nextMermaidId}z`;
+
+/** Re-key an SVG rendered under `fromId` to `toId` (ids are unique tokens). */
+export function rekeySvg(svg: string, fromId: string, toId: string): string {
+    return fromId === toId ? svg : svg.split(fromId).join(toId);
+}
+
+/** Mermaid appends a temporary `#d<id>` container (plus, on some versions, the
+ *  `#<id>` element itself) to <body> and leaves it behind when rendering
+ *  fails — one stray node + stylesheet per failed keystroke. MMV-05. */
+function removeRenderLeftovers(id: string) {
+    document.getElementById(`d${id}`)?.remove();
+    const el = document.getElementById(id);
+    if (el && !el.closest(".mermaid-rendered")) el.remove();
+}
 
 interface MermaidBlockProps {
     code: string;
@@ -66,13 +87,16 @@ const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
  * viewBoxes — so the parse must anchor to the first <svg …> tag, not the first
  * viewBox anywhere in the markup (that pegged every diagram to an 80px floor).
  */
-function parseNaturalWidth(svg: string): number {
+function parseNaturalSize(svg: string): { w: number; h: number } {
     const root = svg.match(
         /<svg[^>]*viewBox="\s*([-\d.eE]+)\s+([-\d.eE]+)\s+([-\d.eE]+)\s+([-\d.eE]+)\s*"/,
     );
     const w = root ? parseFloat(root[3]) : NaN;
-    if (!Number.isFinite(w) || w <= 0) return 768;
-    return w;
+    const h = root ? parseFloat(root[4]) : NaN;
+    return {
+        w: Number.isFinite(w) && w > 0 ? w : 768,
+        h: Number.isFinite(h) && h > 0 ? h : 432,
+    };
 }
 
 /**
@@ -82,9 +106,21 @@ function parseNaturalWidth(svg: string): number {
  * zoomed, double-click to toggle 1x/2x, and a hover toolbar with zoom out /
  * percentage-reset / zoom in. The fullscreen entry button lives on the block.
  */
-function MermaidView({ svg }: { svg: string }) {
+function MermaidView({
+    svg,
+    onFullscreen,
+    contain = false,
+}: {
+    svg: string;
+    /** Shows the fullscreen button inside the toolbar (inline view only). */
+    onFullscreen?: () => void;
+    /** Fullscreen: fit BOTH axes and allow scaling up, so a small diagram
+     *  fills the screen and a tall one fits without scrolling. */
+    contain?: boolean;
+}) {
     const viewportRef = useRef<HTMLDivElement>(null);
     const [containerW, setContainerW] = useState(0);
+    const [containerH, setContainerH] = useState(0);
     const [zoom, setZoom] = useState(1);
     const [dragging, setDragging] = useState(false);
     const dragRef = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
@@ -94,7 +130,10 @@ function MermaidView({ svg }: { svg: string }) {
     useLayoutEffect(() => {
         const el = viewportRef.current;
         if (!el) return;
-        const update = () => setContainerW(el.clientWidth);
+        const update = () => {
+            setContainerW(el.clientWidth);
+            setContainerH(el.clientHeight);
+        };
         update();
         const ro = new ResizeObserver(update);
         ro.observe(el);
@@ -115,8 +154,11 @@ function MermaidView({ svg }: { svg: string }) {
         return () => el.removeEventListener("wheel", onWheel);
     }, []);
 
-    const naturalW = parseNaturalWidth(svg);
-    const fitWidth = containerW > 0 ? Math.min(naturalW, containerW) : naturalW;
+    const natural = parseNaturalSize(svg);
+    const naturalW = natural.w;
+    const fitWidth = contain && containerW > 0 && containerH > 0
+        ? Math.min(containerW - 16, (containerH - 16) * (natural.w / natural.h))
+        : containerW > 0 ? Math.min(naturalW, containerW) : naturalW;
     const width = Math.max(80, Math.round(fitWidth * zoom));
 
     const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -172,13 +214,40 @@ function MermaidView({ svg }: { svg: string }) {
             >
                 <span className="material-symbols-outlined text-[18px]">add</span>
             </button>
+            {/* Fullscreen lives INSIDE the toolbar. It used to be a separate
+                absolutely-positioned button at the same top-right spot, laid
+                exactly over "Zoom in" — clicking + opened fullscreen. MMV-04. */}
+            {onFullscreen && (
+                <button
+                    type="button"
+                    aria-label="View diagram fullscreen"
+                    title="Fullscreen diagram"
+                    className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onFullscreen();
+                    }}
+                >
+                    <span className="material-symbols-outlined text-[16px]">open_in_full</span>
+                </button>
+            )}
         </div>
     );
 
     return (
         <div
             ref={viewportRef}
-            className={`relative group w-full overflow-auto ${dragging ? "cursor-grabbing select-none" : zoom > 1 ? "cursor-grab" : ""}`}
+            // Focusable so the diagram can be zoomed from the keyboard:
+            // + / - step, 0 resets (the toolbar is also reachable by Tab).
+            tabIndex={0}
+            aria-label="Diagram — press + or - to zoom, 0 to reset"
+            onKeyDown={(e) => {
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
+                if (e.key === "+" || e.key === "=") { e.preventDefault(); setZoom((z) => clampZoom(z * 1.25)); }
+                else if (e.key === "-" || e.key === "_") { e.preventDefault(); setZoom((z) => clampZoom(z / 1.25)); }
+                else if (e.key === "0") { e.preventDefault(); setZoom(1); }
+            }}
+            className={`relative group w-full ${contain ? "h-full flex flex-col" : ""} overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-md ${dragging ? "cursor-grabbing select-none" : zoom > 1 ? "cursor-grab" : ""}`}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}
@@ -193,7 +262,7 @@ function MermaidView({ svg }: { svg: string }) {
             }}
         >
             {toolbar}
-            <div className="mermaid-sizer mx-auto" style={{ width }}>
+            <div className={`mermaid-sizer mx-auto ${contain ? "my-auto" : ""}`} style={{ width }}>
                 {/* mermaid output is from our own module (securityLevel: strict) — safe to inject as HTML */}
                 <div
                     className="mermaid-rendered flex justify-center"
@@ -213,8 +282,9 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
     const [error, setError] = useState<string | null>(null);
     const [fullscreen, setFullscreen] = useState(false);
     const fsCloseRef = useRef<HTMLButtonElement>(null);
-    const fsTriggerRef = useRef<HTMLButtonElement>(null);
-    const idRef = useRef<string>(`paperling-mermaid-${++nextMermaidId}`);
+    // Focus returns here (the diagram's wrapper) when fullscreen closes.
+    const fsTriggerRef = useRef<HTMLDivElement>(null);
+    const idRef = useRef<string>(newMermaidId());
 
     useEffect(() => {
         let cancelled = false;
@@ -225,9 +295,14 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
         const cacheKey = `${mermaidTheme}\u0000${code}`;
         const cached = svgCache.get(cacheKey);
         if (cached !== undefined) {
-            setSvg(cached);
+            setSvg(rekeySvg(cached.svg, cached.id, idRef.current));
             return;
         }
+        // A fresh id per ATTEMPT: after a failed render mermaid can leave an
+        // element with the old id behind, and re-rendering under a live id
+        // is exactly what produces duplicate-id collisions.
+        idRef.current = newMermaidId();
+        const renderId = idRef.current;
         loadMermaid()
             .then((mermaid) => {
                 // Re-apply theme before rendering so diagrams follow the active
@@ -239,11 +314,11 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
                     theme: mermaidTheme,
                     fontFamily: "var(--font-body)",
                 });
-                return mermaid.render(idRef.current, code);
+                return mermaid.render(renderId, code);
             })
             .then((result) => {
                 if (cancelled) return;
-                svgCache.set(cacheKey, result.svg);
+                svgCache.set(cacheKey, { svg: result.svg, id: renderId });
                 if (svgCache.size > SVG_CACHE_CAP) {
                     const oldest = svgCache.keys().next().value;
                     if (oldest !== undefined) svgCache.delete(oldest);
@@ -251,6 +326,7 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
                 setSvg(result.svg);
             })
             .catch((err: unknown) => {
+                removeRenderLeftovers(renderId);
                 if (cancelled) return;
                 const msg = err instanceof Error ? err.message : "Diagram failed to render";
                 setError(msg);
@@ -273,7 +349,7 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
         document.addEventListener("keydown", onKey, true);
         return () => {
             document.removeEventListener("keydown", onKey, true);
-            fsTriggerRef.current?.focus();
+            fsTriggerRef.current?.querySelector<HTMLElement>('[aria-label="View diagram fullscreen"]')?.focus();
         };
     }, [fullscreen]);
 
@@ -297,21 +373,8 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
 
     return (
         <>
-            <div className="relative my-4 group">
-                <MermaidView svg={svg} />
-                <button
-                    ref={fsTriggerRef}
-                    type="button"
-                    aria-label="View diagram fullscreen"
-                    title="Fullscreen diagram"
-                    className="absolute top-2 right-2 z-10 w-7 h-7 flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--bg-secondary)]/95 shadow-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setFullscreen(true);
-                    }}
-                >
-                    <span className="material-symbols-outlined text-[16px]">open_in_full</span>
-                </button>
+            <div className="relative my-4 group" ref={fsTriggerRef}>
+                <MermaidView svg={svg} onFullscreen={() => setFullscreen(true)} />
             </div>
             {fullscreen &&
                 createPortal(
@@ -337,7 +400,9 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
                                 </button>
                             </div>
                             <div className="w-full h-full p-2">
-                                <MermaidView svg={svg} />
+                                {/* Same SVG, re-keyed: two copies with one id
+                                    would share markers/styles. MMV-06. */}
+                                <MermaidView svg={rekeySvg(svg, idRef.current, `${idRef.current}fs`)} contain />
                             </div>
                         </div>
                     </div>,
