@@ -56,6 +56,7 @@ const GROUPS: Array<{ title: string; items: Array<{ id: BindingId; label: string
             { id: "find", label: "Find" },
             { id: "replace", label: "Find and replace" },
             { id: "selectNextOccurrence", label: "Select next occurrence" },
+            { id: "toggleTask", label: "Toggle task checkbox" },
         ],
     },
 ];

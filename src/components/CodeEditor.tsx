@@ -23,6 +23,7 @@ import {
     handleEnter,
     wrapSelection,
     insertLink,
+    toggleTask,
     type EditorResult,
     type EditorState,
 } from "../utils/editorActions";
@@ -473,6 +474,8 @@ function CodeEditorImpl({
             // cursor (VS Code). @codemirror/search was bundled but unused.
             { key: toCmKey("selectNextOccurrence"), run: selectNextOccurrence, preventDefault: true },
             { key: toCmKey("link"), run: (v) => { applyResultToView(v, insertLink(toEdState(v))); return true; } },
+            // Ctrl/Cmd+Enter ticks the task on the caret line(s). TASK-01.
+            { key: toCmKey("toggleTask"), run: (v) => runAction(v, toggleTask) },
             {
                 key: toCmKey("blockquote"), run: (v) => {
                     const st = toEdState(v);

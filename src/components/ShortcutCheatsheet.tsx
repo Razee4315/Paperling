@@ -93,6 +93,7 @@ const groups: ShortcutGroup[] = [
             { keys: formatShortcut("replace"), description: "Find and replace" },
             { keys: formatShortcut("gotoLine"), description: "Go to line (or type :N in the palette)" },
             { keys: formatShortcut("selectNextOccurrence"), description: "Select next occurrence (multi-cursor)" },
+            { keys: formatShortcut("toggleTask"), description: "Toggle task checkbox (makes the line a task)" },
             { keys: isMac ? "⌥↑ / ⌥↓" : "Alt+↑ / Alt+↓", description: "Move line up / down" },
             { keys: isMac ? "⇧⌥↓" : "Shift+Alt+↓", description: "Duplicate line" },
             { keys: withMod("Shift+K"), description: "Delete line" },

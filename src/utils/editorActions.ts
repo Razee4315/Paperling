@@ -490,3 +490,59 @@ export function insertLink(state: EditorState): EditorResult {
         selEnd: isUrl ? caret : caret + url.length,
     };
 }
+
+/* ---------- Task toggle (Ctrl/Cmd+Enter) ---------- */
+
+/**
+ * Toggle the task checkbox on every line the selection touches, like
+ * Obsidian's Ctrl+Enter: "- [ ] x" <-> "- [x] x", a plain list item gains a
+ * checkbox, and a plain line becomes "- [ ] line". Blank lines are left
+ * alone. When lines disagree, the first non-blank line decides whether the
+ * whole selection gets checked or unchecked. TASK-01.
+ */
+export function toggleTask(state: EditorState): EditorResult {
+    const { text, selStart, selEnd } = state;
+    const blockStart = lineStartIndex(text, selStart);
+    const blockEnd = lineEndIndex(text, Math.max(selStart, selEnd - (selEnd > selStart && text[selEnd - 1] === "\n" ? 1 : 0)));
+    const lines = text.slice(blockStart, blockEnd).split("\n");
+    const TASK = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](\s|$)/;
+    const ITEM = /^(\s*(?:[-*+]|\d+[.)])\s+)/;
+    const first = lines.find((l) => l.trim() !== "") ?? "";
+    const firstTask = first.match(TASK);
+    const check = !(firstTask && firstTask[2] !== " ");
+
+    // Map every old offset in the block to its new offset, so the caret and
+    // selection stay on the same text.
+    const out: string[] = [];
+    const shifts: { at: number; delta: number }[] = [];
+    let offset = blockStart;
+    for (const line of lines) {
+        let next = line;
+        let at = offset;
+        const task = line.match(TASK);
+        if (line.trim() === "") {
+            next = line;
+        } else if (task) {
+            next = `${task[1]}[${check ? "x" : " "}]${line.slice(task[1].length + 3)}`;
+        } else if (check) {
+            const item = line.match(ITEM);
+            if (item) {
+                next = `${item[1]}[ ] ${line.slice(item[1].length)}`;
+                at = offset + item[1].length;
+            } else {
+                const indent = line.match(/^\s*/)![0];
+                next = `${indent}- [ ] ${line.slice(indent.length)}`;
+                at = offset + indent.length;
+            }
+        }
+        if (next.length !== line.length) shifts.push({ at, delta: next.length - line.length });
+        out.push(next);
+        offset += line.length + 1;
+    }
+    const map = (p: number) => shifts.reduce((acc, s) => (p >= s.at ? acc + s.delta : acc), p);
+    return {
+        text: text.slice(0, blockStart) + out.join("\n") + text.slice(blockEnd),
+        selStart: map(selStart),
+        selEnd: map(selEnd),
+    };
+}

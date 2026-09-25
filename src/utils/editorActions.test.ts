@@ -4,6 +4,7 @@ import {
     handleEnter,
     wrapSelection,
     insertLink,
+    toggleTask,
     type EditorState,
 } from "./editorActions";
 
@@ -168,5 +169,25 @@ describe("list editing (EDIT-03/04/05)", () => {
 
     it("Tab outside a list still indents at the caret", () => {
         expect(handleTab(st("abc", 0), false)).toEqual({ text: "  abc", selStart: 2, selEnd: 2 });
+    });
+});
+
+describe("toggleTask (TASK-01)", () => {
+    it("ticks and unticks a task, keeping the caret on the same text", () => {
+        expect(toggleTask(st("- [ ] milk", 8))).toEqual({ text: "- [x] milk", selStart: 8, selEnd: 8 });
+        expect(toggleTask(st("- [x] milk", 8)).text).toBe("- [ ] milk");
+    });
+
+    it("turns a list item or a plain line into a task", () => {
+        expect(toggleTask(st("- milk", 4))).toEqual({ text: "- [ ] milk", selStart: 8, selEnd: 8 });
+        expect(toggleTask(st("  1. step", 9)).text).toBe("  1. [ ] step");
+        expect(toggleTask(st("call mom", 0))).toEqual({ text: "- [ ] call mom", selStart: 6, selEnd: 6 });
+    });
+
+    it("applies one direction to every selected line, skipping blanks", () => {
+        const doc = "- [ ] a\n\n- [x] b\nc";
+        expect(toggleTask(st(doc, 0, doc.length)).text).toBe("- [x] a\n\n- [x] b\n- [ ] c");
+        const done = "- [x] a\n- [ ] b";
+        expect(toggleTask(st(done, 0, done.length)).text).toBe("- [ ] a\n- [ ] b");
     });
 });

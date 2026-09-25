@@ -71,6 +71,7 @@ export const BINDINGS = {
     find: { key: "f", mod: true },
     replace: { key: "h", mod: true },
     selectNextOccurrence: { key: "d", mod: true },
+    toggleTask: { key: "Enter", mod: true },
 } satisfies Record<string, Binding>;
 
 export type BindingId = keyof typeof BINDINGS;
