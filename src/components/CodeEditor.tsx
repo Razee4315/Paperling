@@ -151,7 +151,10 @@ const editorTheme = EditorView.theme({
     },
     ".cm-content": {
         caretColor: "var(--accent)",
-        padding: "16px 0",
+        // Room at the end so the last lines can scroll clear of the
+        // floating mode pill (bottom-right) instead of ending under it.
+        // RLL-04.
+        padding: "16px 0 112px",
     },
     ".cm-gutters": {
         backgroundColor: "var(--bg-gutter)",
