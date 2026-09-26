@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Android: one-time reinstall (please read before updating)
+
+This Android update is signed with a new key, so Android will not install it
+over version 1.0.50 ("App not installed"). You need to uninstall 1.0.50
+first, and **uninstalling deletes the notes stored inside the app**, so save
+them out first:
+
+1. In Paperling 1.0.50, open each note and choose **Menu → Save as… → Save to
+   Downloads**. This saves the note as a `.md` file in your Downloads folder,
+   which is kept when the app is removed.
+2. Uninstall Paperling 1.0.50, then install `Paperling_1.0.51_aarch64.apk`.
+3. Open your notes again with **Menu → Open from device…** and pick them from
+   Downloads.
+
+The new key is stored permanently, so future Android updates install
+normally over this one. Desktop (Windows, macOS, Linux) updates as usual.
+
 ### Added
 
 - **Right-to-left languages.** Arabic, Hebrew, Persian and Urdu now read the
