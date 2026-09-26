@@ -1,4 +1,4 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import type { MouseEvent } from "react";
 import { Window } from "@tauri-apps/api/window";
 // Touch devices have no hover, and phones have no window manager to talk to:
@@ -21,7 +21,23 @@ interface ZenTopBarProps {
     onOpenFile?: () => void;
 }
 
+/** How long the bar stays revealed after it appears. ZEN-04. */
+export const ZEN_PEEK_MS = 4000;
+
 function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpen, onToggleOutline, onNewFile, onOpenFile }: ZenTopBarProps) {
+    // ZEN-04 (#206): the bar used to appear only while the mouse touched a
+    // 12px strip at the top edge. Zen persists across restarts, so a user who
+    // once pressed F9 relaunched into a frameless window with no visible way
+    // to move, maximize or close it ("I close it from the taskbar"). Every
+    // time the bar mounts (entering zen, or launching into it) it now shows
+    // itself for a few seconds, which also teaches where it lives.
+    const [peeking, setPeeking] = useState(!IS_TOUCH);
+    useEffect(() => {
+        if (IS_TOUCH) return;
+        const t = window.setTimeout(() => setPeeking(false), ZEN_PEEK_MS);
+        return () => window.clearTimeout(t);
+    }, []);
+
     const handleMinimize = useCallback(async () => {
         try {
             await Window.getCurrent().minimize();
@@ -84,8 +100,8 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                 hidden, so the window stays movable in zen). Desktop only —
                 touch has no hover to catch. */}
             {!IS_TOUCH && <div className="h-3 w-full" aria-hidden="true" />}
-            {/* Desktop: reveal panel, hidden until the mouse reaches the top
-                edge, then fades/slides in. `invisible` (not just opacity-0)
+            {/* Desktop: reveal panel. After the ZEN-04 peek it hides until the
+                mouse reaches the top edge, then fades/slides in. `invisible` (not just opacity-0)
                 keeps the buttons out of the tab order and away from screen
                 readers while hidden; the hide lags 150ms so a slipping mouse
                 doesn't flicker it. ZEN-02.
@@ -98,7 +114,7 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                 style={{ paddingTop: "var(--safe-area-top, 0px)" }}
                 className={IS_TOUCH
                     ? "relative min-h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)] border-b border-[var(--border)]"
-                    : "absolute top-0 inset-x-0 h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)]/95 backdrop-blur-sm border-b border-[var(--border)] transition-all duration-150 delay-150 group-hover/zenbar:delay-0 invisible opacity-0 -translate-y-1 pointer-events-none group-hover/zenbar:visible group-hover/zenbar:opacity-100 group-hover/zenbar:translate-y-0 group-hover/zenbar:pointer-events-auto group-focus-within/zenbar:delay-0 group-focus-within/zenbar:visible group-focus-within/zenbar:opacity-100 group-focus-within/zenbar:translate-y-0 group-focus-within/zenbar:pointer-events-auto"}
+                    : `absolute top-0 inset-x-0 h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)]/95 backdrop-blur-sm border-b border-[var(--border)] transition-all duration-150 delay-150 group-hover/zenbar:delay-0 ${peeking ? "visible opacity-100 translate-y-0 pointer-events-auto" : "invisible opacity-0 -translate-y-1 pointer-events-none"} group-hover/zenbar:visible group-hover/zenbar:opacity-100 group-hover/zenbar:translate-y-0 group-hover/zenbar:pointer-events-auto group-focus-within/zenbar:delay-0 group-focus-within/zenbar:visible group-focus-within/zenbar:opacity-100 group-focus-within/zenbar:translate-y-0 group-focus-within/zenbar:pointer-events-auto`}
             >
                 <div className="flex items-center gap-1">
                     <button

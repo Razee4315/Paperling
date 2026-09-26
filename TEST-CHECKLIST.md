@@ -1,3 +1,27 @@
+# ✅ Community issues (branch `feat/community-issues-2026-09-26`)
+
+*Fixes for issues reported by users: #216 (RTL), #206 (window controls in Zen), #212 (package managers). 609 passing tests.*
+
+## 🔤 Right-to-left text (#216) — try these first
+- [ ] Open a note and type an Arabic (or Hebrew/Persian/Urdu) line. That line **starts from the right** in the editor; English lines stay on the left.
+- [ ] Same note in **Reader** and **Split**: Arabic headings/paragraphs are right-aligned, bullets sit on the right, a quote's bar is on the right, table columns run right-to-left.
+- [ ] A code block inside Arabic text still reads left-to-right (`const x = 1;`, not `;const x = 1`).
+- [ ] In the editor press **Ctrl + Right Shift** (press both, release, nothing else): every line goes right-to-left and a message says so. **Ctrl + Left Shift** goes back to automatic.
+- [ ] Ctrl+Shift+F / Ctrl+Shift+V still do their normal thing and do **not** change the direction.
+- [ ] **Settings → Editor → Text direction**: Auto / LTR / RTL switch the editor and the reader live, and the choice survives a restart.
+- [ ] Export an Arabic note to **HTML** and **PDF**: it's right-to-left there too.
+- [ ] An English-only note looks exactly like before (nothing moved).
+
+## 🪟 Zen mode window controls (#206)
+- [ ] Press **F9** (Zen). The top bar with **minimize / maximize / close** shows for ~4 seconds, then hides. The message mentions "Window controls: top edge".
+- [ ] Close the app while in Zen and reopen it. The top bar shows for a few seconds again (before, there was no visible way to move or close the window).
+- [ ] After it hides, move the mouse to the very top edge: the bar comes back; drag it to move the window, double-click to maximize.
+
+## 📦 Package managers (#212)
+- [ ] `packaging/winget` and `packaging/scoop` now point at **v1.0.50**; `packaging/homebrew/paperling.rb` is new. Submitting them is on you (see `packaging/README.md`).
+
+---
+
 # ✅ Round 4: the everyday flows (branch `fix/audit-round4-core-flows-2026-09-26`)
 
 *The things you do every day, made to feel like Obsidian/Typora. 574 passing tests. Details: `AUDIT_2026-09-26.md`.*

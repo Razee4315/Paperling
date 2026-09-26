@@ -3,7 +3,7 @@
 // transparent, so the buttons leave the tab order until revealed). On touch
 // it renders in flow, always visible, exit chip only (MOBILE-ZEN).
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 
 // No IPC host under jsdom; the window controls only need to exist.
 vi.mock("@tauri-apps/api/window", () => ({
@@ -25,7 +25,7 @@ const platform = vi.hoisted(() => ({
 }));
 vi.mock("../utils/platform", () => platform);
 
-import { ZenTopBar } from "./ZenTopBar";
+import { ZenTopBar, ZEN_PEEK_MS } from "./ZenTopBar";
 
 afterEach(() => {
     cleanup();
@@ -37,8 +37,25 @@ const renderBar = (props: Partial<Parameters<typeof ZenTopBar>[0]> = {}) =>
     render(<ZenTopBar onExitZen={() => {}} {...props} />);
 
 describe("ZenTopBar", () => {
-    it("stays hidden until hovered (out of the tab order while hidden)", () => {
+    it("peeks on appearance so the window controls are discoverable (ZEN-04, #206)", () => {
+        vi.useFakeTimers();
+        try {
+            renderBar();
+            const bar = screen.getByRole("toolbar", { name: "Zen mode top bar" });
+            expect(bar).toHaveClass("visible");
+            expect(bar).not.toHaveClass("invisible");
+            act(() => { vi.advanceTimersByTime(ZEN_PEEK_MS); });
+            expect(bar).toHaveClass("invisible");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("then stays hidden until hovered (out of the tab order while hidden)", () => {
+        vi.useFakeTimers();
         renderBar();
+        act(() => { vi.advanceTimersByTime(ZEN_PEEK_MS); });
+        vi.useRealTimers();
         const bar = screen.getByRole("toolbar", { name: "Zen mode top bar" });
         expect(bar).toHaveClass("invisible");
         expect(bar).toHaveClass("opacity-0");

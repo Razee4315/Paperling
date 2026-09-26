@@ -48,7 +48,10 @@ import { SlashMenu, type SlashCommand } from "./SlashMenu";
 import { AIBubble } from "./AIBubble";
 import { TableToolbar } from "./TableToolbar";
 import { pasteUrlOnSelection, pasteUrlAutolink, pasteTsvAsTable, htmlToMarkdown } from "../utils/smartPaste";
-import { getAIEnabled } from "../utils/persistence";
+import { getAIEnabled, setTextDirection } from "../utils/persistence";
+import { createDirectionChord, type TextDirection } from "../utils/textDirection";
+import { textDirectionExtension } from "../utils/editorDirection";
+import { IS_MOBILE } from "../utils/platform";
 import { invoke } from "@tauri-apps/api/core";
 import { matchWikilinkPrefix, rankFileNames, toWikiName } from "../utils/wikilinkComplete";
 import { applyTableOp, findTableAt, locateCell, type Align } from "../utils/tableModel";
@@ -79,6 +82,9 @@ interface CodeEditorProps {
     /** Optional vim modal editing (issue #119): h/j/k/l, modes, operators —
      *  the official @replit/codemirror-vim implementation. Off by default. */
     vimMode?: boolean;
+    /** Reading order (issue #216): "auto" gives each line the direction of
+     *  its first strong character; "rtl"/"ltr" force one for every line. */
+    textDirection?: TextDirection;
     aiConfig?: { endpoint: string; model: string; apiKey: string };
     /** When non-null, show this proposed document as an inline diff (CodeMirror
      *  merge view) for the user to accept/reject. Null = no review in progress. */
@@ -269,6 +275,7 @@ function CodeEditorImpl({
     spellCheck = false,
     vimMode = false,
     readableLineLength = false,
+    textDirection = "auto",
     aiConfig,
     reviewDoc,
     onReviewResolve,
@@ -355,8 +362,8 @@ function CodeEditorImpl({
     // skipped, or it would throw away the exact position just restored.
     const restoredFromCacheRef = useRef(false);
     // Live setting values for rebuilding extensions on a restored state.
-    const liveSettingsRef = useRef({ wordWrap, spellCheck, vimMode });
-    liveSettingsRef.current = { wordWrap, spellCheck, vimMode };
+    const liveSettingsRef = useRef({ wordWrap, spellCheck, vimMode, textDirection });
+    liveSettingsRef.current = { wordWrap, spellCheck, vimMode, textDirection };
     const buildEditingKeymapRef = useRef<() => Extension>(() => []);
 
     // Reconfigurable extensions.
@@ -364,6 +371,8 @@ function CodeEditorImpl({
     const spellCompRef = useRef(new Compartment());
     // Vim modal editing (issue #119) — toggled live from Settings.
     const vimCompRef = useRef(new Compartment());
+    // Text direction (auto per line / forced RTL / forced LTR). BIDI-01.
+    const dirCompRef = useRef(new Compartment());
     // history() lives in a compartment so a document swap can reset undo state
     // (reconfigure to [] then back) without rebuilding the whole editor. TABS-03.
     const historyCompRef = useRef(new Compartment());
@@ -462,6 +471,7 @@ function CodeEditorImpl({
         const wrapComp = wrapCompRef.current;
         const spellComp = spellCompRef.current;
         const vimComp = vimCompRef.current;
+        const dirComp = dirCompRef.current;
         const mergeComp = mergeCompRef.current;
         const historyComp = historyCompRef.current;
         const keymapComp = keymapCompRef.current;
@@ -587,8 +597,35 @@ function CodeEditorImpl({
             const line = view.state.doc.lineAt(pos);
             return linkAt(line.text, pos - line.from);
         };
+        // Ctrl+Right Shift / Ctrl+Left Shift switch the reading order, the
+        // Win32 edit-control convention RTL writers expect (issue #216).
+        // Scoped to the focused editor, like Notepad, and to Windows/Linux:
+        // macOS has no such convention. BIDI-02.
+        const dirChord = createDirectionChord();
+        const onDirectionChord = (next: "rtl" | "auto") => {
+            if (next === liveSettingsRef.current.textDirection) return;
+            setTextDirection(next);
+            window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: next } }));
+            onNoticeRef.current?.(next === "rtl"
+                ? "Text direction: right-to-left. Ctrl+Left Shift switches back to automatic."
+                : "Text direction: automatic (each line follows its language).");
+        };
         const pasteHandler = EditorView.domEventHandlers({
             paste: (event, view) => handlePaste(event, view),
+            keydown: (event) => {
+                if (!isMac && !IS_MOBILE) dirChord.keydown(event);
+                return false;
+            },
+            keyup: (event) => {
+                if (isMac || IS_MOBILE) return false;
+                const next = dirChord.keyup(event);
+                if (next) onDirectionChord(next);
+                return false;
+            },
+            blur: () => {
+                dirChord.reset();
+                return false;
+            },
             mousedown: (event, view) => {
                 if (event.button !== 0 || !modHeld(event) || !onOpenLinkRef.current) return false;
                 const link = linkUnder(view, event);
@@ -644,6 +681,7 @@ function CodeEditorImpl({
                     wrapComp.of(wordWrap ? EditorView.lineWrapping : []),
                     spellComp.of(EditorView.contentAttributes.of(spellAttrs(spellCheck))),
                     vimComp.of(vimMode ? vim() : []),
+                    dirComp.of(textDirectionExtension(textDirection)),
                     mergeComp.of([]),
                     keymapComp.of(buildEditingKeymap()),
                     keymap.of([...closeBracketsKeymap, ...editorDefaultKeymap, ...historyKeymap]),
@@ -908,13 +946,14 @@ function CodeEditorImpl({
             if (cached && cached.state.doc.toString() === doc) {
                 view.setState(cached.state);
                 // The cached state was built with the settings of its time; the
-                // user may have toggled wrap/spellcheck/vim or rebound keys since.
+                // user may have toggled wrap/spellcheck/vim/direction or rebound keys since.
                 const live = liveSettingsRef.current;
                 view.dispatch({
                     effects: [
                         wrapCompRef.current.reconfigure(live.wordWrap ? EditorView.lineWrapping : []),
                         spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(live.spellCheck))),
                         vimCompRef.current.reconfigure(live.vimMode ? vim() : []),
+                        dirCompRef.current.reconfigure(textDirectionExtension(live.textDirection)),
                         keymapCompRef.current.reconfigure(buildEditingKeymapRef.current()),
                         mergeCompRef.current.reconfigure([]),
                         cached.scroll,
@@ -956,6 +995,9 @@ function CodeEditorImpl({
     useEffect(() => {
         viewRef.current?.dispatch({ effects: vimCompRef.current.reconfigure(vimMode ? vim() : []) });
     }, [vimMode]);
+    useEffect(() => {
+        viewRef.current?.dispatch({ effects: dirCompRef.current.reconfigure(textDirectionExtension(textDirection)) });
+    }, [textDirection]);
 
     // Enter / refresh / exit the AI review (CodeMirror unified merge view). The
     // original side is the document as it was BEFORE the proposal; the editor doc

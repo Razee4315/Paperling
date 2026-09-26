@@ -30,6 +30,7 @@ import { useScrollSync } from "./hooks/useScrollSync";
 import { useFileSession } from "./hooks/useFileSession";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { IS_MOBILE, isTauri } from "./utils/platform";
+import { isTextDirection, type TextDirection } from "./utils/textDirection";
 import { joinNotesPath } from "./utils/mobileFiles";
 import { openSystemFilePicker, saveToDownloads, DOWNLOADS_SENTINEL } from "./utils/nativePicker";
 import { normalizeMarkdownFileName } from "./utils/mobileFiles";
@@ -112,6 +113,8 @@ import {
   setZenMode,
   getReadableLineLength,
   setReadableLineLength,
+  getTextDirection,
+  setTextDirection,
 } from "./utils/persistence";
 import { getAutoSave } from "./utils/persistence";
 import { clearBufferBackups } from "./utils/bufferBackup";
@@ -201,6 +204,8 @@ function AppContent() {
   // Readable line length: centered ~800px preview column (Obsidian-style
   // default ON). RLL-01.
   const [readableLineLength, setReadableLineLengthState] = usePersistedState<boolean>(getReadableLineLength, setReadableLineLength);
+  // Reading order for editor + preview (issue #216). BIDI-01.
+  const [textDirection, setTextDirectionState] = usePersistedState<TextDirection>(getTextDirection, setTextDirection);
   // Optional vim modal editing (issue #119). Toggled in Settings → Editor.
   const [vimModeEnabled, setVimModeEnabled] = usePersistedState<boolean>(getVimMode, setVimMode);
   const [cursorPosition, setCursorPosition] = useState({ line: 1, col: 1 });
@@ -642,6 +647,11 @@ function AppContent() {
       }],
       ["paperling:autosave-toggle", (e) => setAutoSaveEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:readable-toggle", (e) => setReadableLineLengthState(!!(e as CustomEvent).detail?.enabled)],
+      // Settings → Editor, or the editor's Ctrl+Right/Left Shift chord. BIDI-02.
+      ["paperling:text-direction-change", (e) => {
+        const d = (e as CustomEvent).detail?.direction;
+        if (isTextDirection(d)) setTextDirectionState(d);
+      }],
       // Toasts from components without toast access (diagram export).
       ["paperling:notify", (e) => {
         const d = (e as CustomEvent).detail;
@@ -1228,7 +1238,8 @@ function AppContent() {
       // Touch has no keyboard to advertise: point at the visible exit chip.
       showToast(IS_MOBILE
         ? "Zen mode — tap Normal up top to go back"
-        : `Zen mode — ${formatShortcut("toggleMode")} to edit, ${formatShortcut("zenMode")} to exit`, "info");
+        // The window controls live in the hidden top bar; say where. ZEN-04.
+        : `Zen mode — ${formatShortcut("toggleMode")} to edit, ${formatShortcut("zenMode")} to exit. Window controls: top edge`, "info");
     } else {
       const prev = preZenModeRef.current;
       preZenModeRef.current = null;
@@ -1352,10 +1363,14 @@ function AppContent() {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
     if (previewRef.current) {
-      return previewRef.current.innerHTML;
+      // A forced direction lives on .markdown-body itself, which innerHTML
+      // leaves out; carry it into the export so an RTL document stays RTL.
+      // ("auto" puts dir on the blocks, which innerHTML already includes.)
+      const html = previewRef.current.innerHTML;
+      return textDirection === "auto" ? html : `<div dir="${textDirection}">${html}</div>`;
     }
     return "";
-  }, [flushDeferredPreview]);
+  }, [flushDeferredPreview, textDirection]);
 
   // Mobile "Export as HTML…": the phone's counterpart of the desktop Export
   // menu (there is no OS save panel to aim it at, so the file lands in the
@@ -2103,6 +2118,7 @@ function AppContent() {
                 spellCheck={spellCheckEnabled}
                 vimMode={vimModeEnabled}
                 readableLineLength={readableLineLength}
+                textDirection={textDirection}
                 aiConfig={aiConfig}
                 reviewDoc={proposedDoc}
                 onReviewResolve={handleReviewResolve}
@@ -2136,6 +2152,7 @@ function AppContent() {
                   fileName={fileName || ""}
                   fileSize={fileSize}
                   readableLineLength={readableLineLength}
+                  textDirection={textDirection}
                   onEditClick={handleToggleMode}
                   onLineChange={handlePreviewLineChange}
                   filePath={filePath}

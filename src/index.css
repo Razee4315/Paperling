@@ -1157,7 +1157,17 @@ html.touch ::-webkit-scrollbar {
   color: var(--code-text);
 }
 
+/* Code is always left-to-right, even inside a right-to-left document or
+   block; inline code is isolated so it can't reorder the Arabic/Hebrew
+   around it. BIDI-03 (#216). */
+.markdown-body pre,
+.markdown-body code,
+.markdown-body kbd {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
 .markdown-body pre {
+  text-align: left;
   background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 0.375rem;
@@ -1197,13 +1207,13 @@ html.touch ::-webkit-scrollbar {
    must be re-declared here or every bullet/number in the preview disappears. */
 .markdown-body ul {
   list-style-type: disc;
-  padding-left: 1.5rem;
+  padding-inline-start: 1.5rem;
   margin-bottom: 1rem;
 }
 
 .markdown-body ol {
   list-style-type: decimal;
-  padding-left: 1.5rem;
+  padding-inline-start: 1.5rem;
   margin-bottom: 1rem;
 }
 
@@ -1234,12 +1244,12 @@ html.touch ::-webkit-scrollbar {
 }
 
 .markdown-body li.task-list-item > input[type="checkbox"] {
-  margin-left: -1.4rem;
-  margin-right: 0.45rem;
+  margin-inline-start: -1.4rem;
+  margin-inline-end: 0.45rem;
 }
 
 .markdown-body ul.contains-task-list:not(:has(> li:not(.task-list-item))) {
-  padding-left: 1.4rem;
+  padding-inline-start: 1.4rem;
 }
 
 /* Done tasks read as done (Obsidian/Things style): dimmed, and struck
@@ -1265,14 +1275,18 @@ html.touch ::-webkit-scrollbar {
   display: contents;
 }
 
+/* Logical sides (padding-inline-start, border-inline-start, …) so lists,
+   quotes, callouts and tables mirror in a right-to-left block and render
+   exactly as before in a left-to-right one. BIDI-03 (#216). */
 .markdown-body blockquote {
-  border-left: 4px solid var(--accent);
+  border-inline-start: 4px solid var(--accent);
   background: var(--blockquote-bg);
   padding: 0.5rem 1rem;
   margin: 1rem 0;
   font-style: italic;
   color: var(--text-secondary);
-  border-radius: 0 0.25rem 0.25rem 0;
+  border-start-end-radius: 0.25rem;
+  border-end-end-radius: 0.25rem;
 }
 
 /* Callouts (remarkNoteSyntax, SYNTAX-02): `> [!TYPE] Title`. Each
@@ -1281,9 +1295,10 @@ html.touch ::-webkit-scrollbar {
    <details>/<summary>. */
 .markdown-body .callout {
   --callout: #4a8fe7;
-  border-left: 4px solid var(--callout);
+  border-inline-start: 4px solid var(--callout);
   background: color-mix(in srgb, var(--callout) 10%, transparent);
-  border-radius: 0 0.375rem 0.375rem 0;
+  border-start-end-radius: 0.375rem;
+  border-end-end-radius: 0.375rem;
   padding: 0.6rem 1rem;
   margin: 1rem 0;
 }
@@ -1311,7 +1326,7 @@ html.touch ::-webkit-scrollbar {
 .markdown-body summary.callout-title::after {
   content: "expand_more";
   font-family: "Material Symbols Outlined";
-  margin-left: auto;
+  margin-inline-start: auto;
   transition: transform 0.15s ease;
 }
 .markdown-body details.callout:not([open]) > summary.callout-title::after { transform: rotate(-90deg); }
@@ -1398,7 +1413,7 @@ html.touch ::-webkit-scrollbar {
 .markdown-body td {
   border: 1px solid var(--border);
   padding: 0.5rem;
-  text-align: left;
+  text-align: start;
 }
 
 .markdown-body th {

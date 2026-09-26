@@ -8,6 +8,7 @@ import { sanitizeSessions, pruneSessions, type ChatSession } from "./chatSession
 // touch-first users (e.g. the formatting toolbar ships on, because a phone
 // has no Ctrl+B). Explicit stored choices always win over these defaults.
 import { IS_MOBILE } from "./platform";
+import { isTextDirection, type TextDirection } from "./textDirection";
 
 // One-time migration from the app's pre-rename key prefix. The bundle
 // identifier (and therefore the WebView2 storage location) is unchanged, so
@@ -191,6 +192,18 @@ export const setOpenInReader = (v: boolean): void => safeSet(KEY_OPEN_IN_READER,
 const KEY_READABLE_LINE_LENGTH = "paperling:readableLineLength";
 export const getReadableLineLength = (): boolean => safeGet<boolean>(KEY_READABLE_LINE_LENGTH, true);
 export const setReadableLineLength = (v: boolean): void => safeSet(KEY_READABLE_LINE_LENGTH, v);
+
+// Text direction (issue #216, BIDI-01): "auto" gives each line/block the
+// direction of its first strong character; "rtl"/"ltr" force one direction
+// for the whole document. Set from Settings → Editor or the Windows
+// Ctrl+Right/Left Shift chord in the editor; broadcast via
+// paperling:text-direction-change. A malformed stored value falls back to auto.
+const KEY_TEXT_DIRECTION = "paperling:textDirection";
+export const getTextDirection = (): TextDirection => {
+    const v = safeGet<unknown>(KEY_TEXT_DIRECTION, "auto");
+    return isTextDirection(v) ? v : "auto";
+};
+export const setTextDirection = (v: TextDirection): void => safeSet(KEY_TEXT_DIRECTION, v);
 
 // Zen mode: distraction-free reading canvas. Hides the title bar, tab bar,
 // mode toggle, status bar, and all side panels, leaving only the rendered
