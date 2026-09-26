@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState, useMemo, memo } from "react";
+import { useRef, useCallback, useEffect, useLayoutEffect, useState, useMemo, memo } from "react";
 import { EditorState as CMEditorState, EditorSelection, Compartment, Prec, type Extension, type StateEffect } from "@codemirror/state";
 import { selectNextOccurrence, highlightSelectionMatches } from "@codemirror/search";
 import {
@@ -54,6 +54,7 @@ import { matchWikilinkPrefix, rankFileNames, toWikiName } from "../utils/wikilin
 import { applyTableOp, findTableAt, locateCell, type Align } from "../utils/tableModel";
 import { toCmKey, isMac } from "../config/keybindings";
 import { linkAt, type EditorLink } from "../utils/editorLinks";
+import { locateText } from "../utils/revealText";
 import { highlightCaretLine } from "../utils/caretLineHighlight";
 import type { HandoffOptions, Scroller } from "../utils/scrollSync";
 
@@ -151,7 +152,10 @@ const editorTheme = EditorView.theme({
     },
     ".cm-content": {
         caretColor: "var(--accent)",
-        padding: "16px 0",
+        // Room at the end so the last lines can scroll clear of the
+        // floating mode pill (bottom-right) instead of ending under it.
+        // RLL-04.
+        padding: "16px 0 112px",
     },
     ".cm-gutters": {
         backgroundColor: "var(--bg-gutter)",
@@ -865,7 +869,9 @@ function CodeEditorImpl({
     // first it recorded the swap in the OLD history, which we then discard; if it
     // hasn't run yet, `content` already equals the new doc so we set it here.
     // TABS-03.
-    useEffect(() => {
+    // useLayoutEffect: the swap lands in the same paint as the new tab, so
+    // the previous note never flashes in the editor for a frame. SWITCH-01.
+    useLayoutEffect(() => {
         const view = viewRef.current;
         if (!view) return;
         if (appliedSwapRef.current === docSwapId) return;
@@ -1179,7 +1185,32 @@ function CodeEditorImpl({
             v.scrollDOM.scrollTop = 0;
         };
         window.addEventListener("paperling:scroll-top", toTop);
-        return () => window.removeEventListener("paperling:scroll-top", toTop);
+        // "Focus the document" (FOCUS-01): the visible editor takes focus.
+        const focusDoc = () => {
+            const v = viewRef.current;
+            if (v && v.scrollDOM.clientHeight > 0) v.focus();
+        };
+        window.addEventListener("paperling:focus-document", focusDoc);
+        // Reader -> Edit with a selection: select that text in the source.
+        // MODE-03.
+        const reveal = (e: Event) => {
+            const v = viewRef.current;
+            const detail = (e as CustomEvent).detail as { line?: number; text?: string } | undefined;
+            if (!v || !detail?.text || v.scrollDOM.clientHeight === 0) return;
+            const hit = locateText(v.state.doc.toString(), Math.max(1, detail.line ?? 1), detail.text);
+            if (!hit) return;
+            v.dispatch({
+                selection: { anchor: hit.from, head: hit.to },
+                effects: EditorView.scrollIntoView(hit.from, { y: "nearest", yMargin: 48 }),
+            });
+            v.focus();
+        };
+        window.addEventListener("paperling:reveal-text", reveal);
+        return () => {
+            window.removeEventListener("paperling:reveal-text", reveal);
+            window.removeEventListener("paperling:scroll-top", toTop);
+            window.removeEventListener("paperling:focus-document", focusDoc);
+        };
     }, []);
 
     // Alt+J (and the command palette's "AI assist") is selection-aware, matching

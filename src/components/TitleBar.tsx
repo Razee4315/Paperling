@@ -138,8 +138,17 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                         {!fileName && (
                             <span className="text-[var(--text-muted)] text-xs ml-1 hidden sm:inline">— drop a .md file or {formatShortcut("openFile")}</span>
                         )}
-                        {isDirty && (
-                            <span className="text-[var(--status-unsaved)] ml-1 italic text-xs">— Edited</span>
+                        {/* Always laid out, only shown when dirty: appearing
+                            and disappearing it pushed the whole toolbar
+                            (New / Open / Edit / Export) ~60px sideways on the
+                            first keystroke and back on every save. TITLE-02. */}
+                        {fileName && (
+                            <span
+                                aria-hidden={!isDirty}
+                                className={`text-[var(--status-unsaved)] ml-1 italic text-xs whitespace-nowrap ${isDirty ? "" : "invisible"}`}
+                            >
+                                — Edited
+                            </span>
                         )}
                     </div>
 

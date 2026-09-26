@@ -116,6 +116,23 @@ describe("line-anchored sync (SYNC-01) and mode handoff (MODE-01)", () => {
         expect(code.handoffs).toEqual([{ handoff: true, focus: true }]);
     });
 
+    it("capture() reads a pane's current line, and a handoff records where the target now is (MODE-02)", () => {
+        const sync = createScrollSync();
+        let previewTop: number | null = 42;
+        const code = lineScroller(null);
+        sync.register("code", code.s);
+        sync.register("preview", { setFraction: () => {}, getTopLine: () => previewTop, scrollToLine: () => {} });
+        sync.capture("preview");
+        expect(sync.lastTopLine("preview")).toBe(42);
+        // A hidden pane (null) keeps its last known line.
+        previewTop = null;
+        sync.capture("preview");
+        expect(sync.lastTopLine("preview")).toBe(42);
+        sync.handoff("preview", "code");
+        expect(code.lines).toEqual([42]);
+        expect(sync.lastTopLine("code")).toBe(42);
+    });
+
     it("handoff does nothing when the source pane never reported a line", () => {
         const sync = createScrollSync();
         const code = lineScroller(null);

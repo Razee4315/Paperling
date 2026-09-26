@@ -1608,3 +1608,30 @@ html.touch ::-webkit-scrollbar {
 .cm-editor .cm-deletedLineGutter {
   background-color: var(--diff-del-border);
 }
+
+/* The tab strip scrolls with the wheel and keeps the active tab in view
+   (TABS-13); a native horizontal scrollbar only ate into the 36px row and
+   covered the bottom of the tab labels. RLL-03. */
+.tab-strip {
+  scrollbar-width: none;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+/* Ctrl+S confirmation on the status bar's "Saved" (SAVE-07): a short
+   accent flash instead of a toast over the text. */
+@keyframes save-pulse {
+  0% { color: var(--accent); transform: scale(1.08); }
+  100% { color: inherit; transform: scale(1); }
+}
+
+.save-pulse {
+  animation: save-pulse 0.9s ease-out;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-pulse { animation: none; }
+}

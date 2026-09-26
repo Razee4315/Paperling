@@ -62,6 +62,13 @@ export interface UseFileSessionOptions {
      * cancel.
      */
     promptSavePath?: (defaultName: string | null, defaultDir?: string | null) => Promise<string | null>;
+    /**
+     * Called after a successful plain Save (Ctrl+S) of an already-saved file.
+     * When provided it replaces the "File saved" toast: a toast over the text
+     * on every habitual Ctrl+S was noise; the shell confirms in the status
+     * bar instead. SAVE-07.
+     */
+    onSaved?: () => void;
     /** Tests can disable launch restoration without changing production behavior. */
     restoreOnMount?: boolean;
 }
@@ -85,6 +92,7 @@ export function useFileSession({
     setMode,
     showToast,
     promptSavePath,
+    onSaved,
     restoreOnMount = true,
 }: UseFileSessionOptions) {
   // File state
@@ -800,14 +808,28 @@ export function useFileSession({
       return;
     }
     try {
-      knownMtimeRef.current = await saveTextFile(filePath, content);
-      setOriginalContent(content);
-      showToast("File saved", "success");
+      const mtime = await saveTextFile(filePath, content);
+      if (samePath(filePathRef.current, filePath)) {
+        knownMtimeRef.current = mtime;
+        setOriginalContent(content);
+      } else {
+        // The user switched tabs while the write was in flight: stamping the
+        // NOW-active note with this file's text/mtime corrupted its dirty flag
+        // (the autosave path already guards this, TABS-08). Update the saved
+        // file's own tab instead. SAVE-06.
+        commitTabs(
+          tabsRef.current.map((tab) =>
+            samePath(tab.filePath, filePath) ? { ...tab, originalContent: content, knownMtime: mtime } : tab,
+          ),
+        );
+      }
+      if (onSaved) onSaved();
+      else showToast("File saved", "success");
     } catch (error) {
       console.error("Failed to save file:", error);
       showToast(errMessage(error) || "Failed to save file", "error");
     }
-  }, [conflictPrompt, content, diskChangedSince, fileName, filePath, handleSaveAs, setConflictPrompt, showToast]);
+  }, [commitTabs, conflictPrompt, content, diskChangedSince, fileName, filePath, handleSaveAs, onSaved, setConflictPrompt, showToast]);
 
   // External-change detection: on window focus, stat the open file and reload
   // a clean buffer or prompt for a dirty buffer. EXT-01. Callbacks are memoised

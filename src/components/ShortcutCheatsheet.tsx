@@ -50,6 +50,8 @@ const groups: ShortcutGroup[] = [
             ...(isMac ? [] : [{ keys: "Alt+←/→", description: "Previous / next tab" }]),
             { keys: withMod("1–8"), description: "Jump to tab N" },
             { keys: withMod("9"), description: "Jump to last tab" },
+            { keys: formatShortcut("navBack"), description: "Go back after following a link (also the mouse back button)" },
+            { keys: formatShortcut("navForward"), description: "Go forward" },
         ],
     },
     {

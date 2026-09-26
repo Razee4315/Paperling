@@ -9,10 +9,26 @@
 - [ ] Open a big note (a long README, 100 kB+) in split view and type. The preview keeps up without freezing. In code mode, typing never stutters.
 
 ## 🗂️ Tabs
+- [ ] Open 3–4 long notes, scroll each somewhere, then flick between tabs (click, Ctrl+Tab). Each tab appears **already at its place**: no flash of other text, no jump.
+- [ ] Open the file panel (Ctrl+Shift+E): the tabs move over beside it, and the first tab is fully visible. Many tabs: no scrollbar covering the tab labels.
+- [ ] With the file panel open, switch to a tab from a **different folder**: the panel follows to that folder and highlights the note, without flickering.
 - [ ] In a note, put the caret mid-line far down, type something, switch to another tab and back. The caret, the scroll position **and Ctrl+Z** all still work.
 - [ ] Press **New File**, then open a file right away. No leftover empty "Untitled" tab.
 - [ ] Double-click the empty part of the tab strip to get a new tab.
 - [ ] Right after launching (while your last session is still loading), press Ctrl+N and type. Your text is **never** lost when the old tabs appear.
+
+## ✨ Smoothness pass (round 4b)
+- [ ] Reader → **Ctrl+E** on a part of the note with a **table or code block**: the editor opens at that same table/code (it used to jump near the top).
+- [ ] Reader → Ctrl+E: no one-frame flash of the top of the note before it lands.
+- [ ] In Reader, **double-click a word**, then press Ctrl+E: that word is selected in the editor.
+- [ ] Click a tab and start typing right away: the text goes into the note (before, typing went nowhere and Backspace **closed the tab**). After Ctrl+W, you can type in the next note immediately.
+- [ ] Type the first letter in a saved note: the toolbar (New / Open / Edit / Export) and the other tabs **don't shift** sideways.
+- [ ] **Ctrl+S**: no popup over the text; the status bar's "Saved" flashes instead.
+- [ ] Scroll to the very end of a note: the last line is readable above the Reader/Split/Code pill.
+- [ ] Split view with the file panel open: drag the divider and it stays under the mouse. Double-click the divider to reset it to 50/50.
+- [ ] Open files quickly: no full-window "Loading..." blur flashing.
+- [ ] Follow a `[[link]]`, then press **Ctrl+Alt+←** (or the mouse back button) to go back. Ctrl+Alt+→ goes forward again.
+- [ ] Close the last tab with the file panel open: the welcome screen sits beside the panel, not under it.
 
 ## ✏️ Lists and tasks
 - [ ] `- first` ⏎ `second`, then press **Tab**: the item becomes nested (`  - second`). **Shift+Tab** brings it back.

@@ -32,6 +32,9 @@ export interface ShortcutHandlers {
     nextTab?: () => void;
     /** Reopen the most recently closed tab (mod+Shift+T). */
     reopenClosedTab?: () => void;
+    /** Back / forward through followed links (Ctrl+Alt+Left/Right). NAV-13. */
+    navBack?: () => void;
+    navForward?: () => void;
     /** Jump to a tab by index; -1 means the last tab (mod+1..9). */
     gotoTab?: (index: number) => void;
     hasFile: boolean;
@@ -213,6 +216,17 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
             if (matchesBinding(e, "prevTabPage")) {
                 e.preventDefault();
                 if (s.hasFile) s.prevTab?.();
+                return;
+            }
+            // mod+Alt+Left/Right - back / forward through followed links. NAV-13.
+            if (matchesBinding(e, "navBack")) {
+                e.preventDefault();
+                if (s.hasFile) s.navBack?.();
+                return;
+            }
+            if (matchesBinding(e, "navForward")) {
+                e.preventDefault();
+                if (s.hasFile) s.navForward?.();
                 return;
             }
             // mod+Shift+T - reopen the most recently closed tab. TABS-15.

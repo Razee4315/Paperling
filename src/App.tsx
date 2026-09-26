@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
 import { saveTextFile } from "./utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { save, ask } from "@tauri-apps/plugin-dialog";
@@ -125,7 +125,9 @@ import { TabBar, type TabBarItem } from "./components/TabBar";
 import { TabContextMenu } from "./components/TabContextMenu";
 import {
   computeTabLabels,
+  samePath,
 } from "./utils/tabsModel";
+import { emptyNavHistory, navigateBack, navigateForward, recordNavigation, type NavEntry } from "./utils/navHistory";
 import { countSourceWords, countWords } from "./utils/documentStats";
 import { Tour } from "./components/Tour";
 import { FindBar, findSeedFromSelection } from "./components/FindBar";
@@ -365,6 +367,16 @@ function AppContent() {
   // unreadable anyway) — "open" means the in-app files browser. That action
   // lives right after useFileSession below (it needs the hook's handleOpenFile).
 
+  // Ctrl+S confirmation (SAVE-07): a brief pulse on the status bar's
+  // "Saved" instead of a toast over the text; zen hides the status bar, so
+  // there it stays a toast.
+  const [savePulse, setSavePulse] = useState(0);
+  const zenActiveRef = useRef(false);
+  const handleManualSaved = useCallback(() => {
+    if (zenActiveRef.current || IS_MOBILE) showToast("Saved", "success");
+    else setSavePulse((n) => n + 1);
+  }, [showToast]);
+
   // File state and the complete open/save/new/tab lifecycle live behind one
   // typed boundary. UI-only state remains in App; switching documents clears
   // any review because a proposal belongs to the file it was created for.
@@ -415,6 +427,7 @@ function AppContent() {
     setMode,
     showToast,
     promptSavePath: promptForSavePath,
+    onSaved: handleManualSaved,
   });
 
   // On the phone there is no OS open panel (and its SAF result would be
@@ -468,11 +481,64 @@ function AppContent() {
   const { registerCodeScroller, registerPreviewScroller, onCodeScrollFraction, onPreviewScrollFraction } =
     useScrollSync(mode);
 
+  // "Edit here" (MODE-03): the text last selected in the reader. Switching
+  // Reader -> Edit/Split selects it in the source, right after the scroll
+  // handoff above (layout effects run in declaration order), so a typo
+  // spotted while reading is one double-click + Ctrl+E away from fixing.
+  const readerSelectionRef = useRef<{ line: number; text: string } | null>(null);
+  const handleReaderSelection = useCallback((sel: { line: number; text: string } | null) => {
+    readerSelectionRef.current = sel;
+  }, []);
+  const modeForRevealRef = useRef(mode);
+  useLayoutEffect(() => {
+    const prev = modeForRevealRef.current;
+    modeForRevealRef.current = mode;
+    const sel = readerSelectionRef.current;
+    if (prev !== "preview" || mode === "preview" || !sel) return;
+    readerSelectionRef.current = null;
+    window.dispatchEvent(new CustomEvent("paperling:reveal-text", { detail: sel }));
+  }, [mode]);
+
   // Reader-mode find only makes sense over the preview; close it (and drop
   // its highlights) when the user switches to code or split.
   useEffect(() => {
     if (mode !== "preview") setPreviewFindOpen(false);
   }, [mode]);
+
+  // A document swap that leaves focus nowhere (Ctrl+W closed the focused
+  // tab's editor, a native Open dialog returned, a file was dropped) puts it
+  // in the visible document, so typing or PageDown just works. FOCUS-01.
+  useLayoutEffect(() => {
+    // A reader selection belongs to the note it was made in. MODE-03.
+    readerSelectionRef.current = null;
+    const active = document.activeElement;
+    if (!active || active === document.body) {
+      window.dispatchEvent(new CustomEvent("paperling:focus-document"));
+    }
+  }, [docSwapId]);
+
+  // The full-screen "Loading..." overlay only appears for a SLOW read. A
+  // normal open takes a few frames, and blurring the whole window for them
+  // read as a flash on every file open and tab restore. LOAD-01.
+  const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
+  useEffect(() => {
+    if (!isLoading) {
+      setShowLoadingOverlay(false);
+      return;
+    }
+    const id = window.setTimeout(() => setShowLoadingOverlay(true), 300);
+    return () => window.clearTimeout(id);
+  }, [isLoading]);
+
+  // The outline and backlinks describe the open note; with the last tab
+  // closed they'd sit over the welcome screen showing nothing. The file
+  // panel stays (it's how you pick the next note). RLL-06.
+  useEffect(() => {
+    if (!hasFile) {
+      setShowTOC(false);
+      setShowBacklinks(false);
+    }
+  }, [hasFile]);
 
   // Reveal the window once the tree has mounted and painted the themed
   // background. The window is created hidden (visible:false) so the webview's
@@ -528,7 +594,14 @@ function AppContent() {
   // (still heavy) full re-parse fires. Combined with the preview's startTransition
   // render, this keeps typing responsive on large files. PREVIEW-01.
   const previewDebounceMs = content.length > 40_000 ? 250 : content.length > 12_000 ? 160 : 80;
-  const [deferredContent, flushDeferredPreview] = useDebouncedValue(content, previewDebounceMs);
+  // The debounce carries the doc-swap id with the text, so the preview can
+  // tell "typing in this note" (debounced) from "switched to another note"
+  // (must show at once): after a tab switch the preview used to keep showing
+  // the PREVIOUS note for up to 250ms, then pop the new one in at the old
+  // scroll position before jumping to the saved place. SWITCH-01.
+  const contentWithSwap = useMemo(() => ({ content, swap: docSwapId }), [content, docSwapId]);
+  const [deferredWithSwap, flushDeferredPreview] = useDebouncedValue(contentWithSwap, previewDebounceMs);
+  const deferredContent = deferredWithSwap.swap === docSwapId ? deferredWithSwap.content : content;
 
   // Word/char counts feed the status bar — fine to lag a frame behind on huge
   // docs, so they read deferred too. countSourceWords is the SAME pipeline the
@@ -819,6 +892,21 @@ function AppContent() {
     renderedPreviewContentRef.current = rendered;
   }, []);
 
+  // Back / forward through followed links (NAV-13): wikilinks, relative
+  // links, #heading links and search results record where you were.
+  const navHistoryRef = useRef(emptyNavHistory());
+  const navPositionRef = useRef<NavEntry | null>(null);
+  navPositionRef.current = filePath ? { path: filePath, line: mode === "preview" ? previewLine : cursorPosition.line } : null;
+  const recordNav = useCallback(() => {
+    const here = navPositionRef.current;
+    if (here) navHistoryRef.current = recordNavigation(navHistoryRef.current, here);
+  }, []);
+  useEffect(() => {
+    // In-page #anchor clicks in the reader scroll the preview themselves.
+    window.addEventListener("paperling:record-nav", recordNav);
+    return () => window.removeEventListener("paperling:record-nav", recordNav);
+  }, [recordNav]);
+
   // Wikilink click: resolve target relative to the current file's folder.
   // Tries `<target>.md` first, then `<target>` literal. Silently fails if neither exists.
   // SECURITY: rejects path-traversal and absolute paths so a crafted document
@@ -827,6 +915,7 @@ function AppContent() {
     // `[[Note#Heading]]` / `[[Note#^block]]` / `[[#Heading]]`: the part after
     // `#` is an anchor inside the note, not part of its file name. NAV-09.
     const { file, anchor } = splitWikilinkTarget(target);
+    recordNav();
     const jumpTo = (text: string | null) => {
       if (!anchor || text == null) return;
       const line = findAnchorLine(text, anchor);
@@ -879,7 +968,7 @@ function AppContent() {
     // Nothing matched — offer to create the note next to the current file, the
     // way Obsidian turns a dangling [[link]] into a new file. NAV-07.
     offerCreateNote(`${dir}${sep}${cleaned}.md`, `${cleaned}.md`);
-  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote]);
+  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote, recordNav]);
 
   // Standard relative markdown links — `[text](note.md)`, `[x](sub/note.md)`,
   // `[y](../other.md)` — open in-app like wikilinks (the preview only routes
@@ -888,6 +977,7 @@ function AppContent() {
   const handleNavigateRelative = useCallback(async (href: string) => {
     if (!filePath) return;
     const resolved = resolveRelativePath(filePath, href);
+    recordNav();
     if (!resolved) return;
     try {
       // Probe first so a link to a not-yet-created note offers creation rather
@@ -898,7 +988,7 @@ function AppContent() {
       const name = resolved.replace(/\\/g, "/").split("/").pop() || resolved;
       offerCreateNote(resolved, name);
     }
-  }, [filePath, loadFile, offerCreateNote]);
+  }, [filePath, loadFile, offerCreateNote, recordNav]);
 
   // Ctrl/Cmd+click on a link in the editor (NAV-11): the same destinations a
   // click in the reader reaches.
@@ -914,9 +1004,12 @@ function AppContent() {
       const text = liveContentRef.current;
       const line = findAnchorLine(text, link.target) ?? findAnchorLine(text, link.target.replace(/-/g, " "));
       if (line == null) showToast(`No "${link.target}" heading in this note`, "info");
-      else window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
+      else {
+        recordNav();
+        window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
+      }
     }
-  }, [handleWikilinkClick, handleNavigateRelative, showToast]);
+  }, [handleWikilinkClick, handleNavigateRelative, recordNav, showToast]);
 
   // Open a cross-file search result: load the file (if not already open) and
   // jump to the matching line once it has rendered. The goto-line event is the
@@ -924,13 +1017,59 @@ function AppContent() {
   const handleOpenSearchResult = useCallback(async (path: string, line: number) => {
     // Wait for the file to actually load before jumping, instead of racing a
     // fixed timeout that a large document could lose (landing at the top). SEARCH-01.
+    recordNav();
     if (path !== filePath) {
       await loadFile(path);
     }
     requestAnimationFrame(() =>
       window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }))
     );
-  }, [filePath, loadFile]);
+  }, [filePath, loadFile, recordNav]);
+
+  // Go to a history entry: an open tab restores its exact place itself; a
+  // closed one is reopened at the recorded line. NAV-13.
+  const goToNavEntry = useCallback(async (entry: NavEntry) => {
+    const here = navPositionRef.current;
+    const gotoLine = () =>
+      requestAnimationFrame(() =>
+        window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line: entry.line } })),
+      );
+    if (here && samePath(here.path, entry.path)) {
+      gotoLine();
+      return;
+    }
+    const wasOpen = getOpenBuffer(entry.path) != null;
+    await loadFile(entry.path);
+    if (!wasOpen) gotoLine();
+  }, [getOpenBuffer, loadFile]);
+  const handleNavBack = useCallback(() => {
+    const step = navigateBack(navHistoryRef.current, navPositionRef.current);
+    if (!step) return;
+    navHistoryRef.current = step.history;
+    void goToNavEntry(step.target);
+  }, [goToNavEntry]);
+  const handleNavForward = useCallback(() => {
+    const step = navigateForward(navHistoryRef.current, navPositionRef.current);
+    if (!step) return;
+    navHistoryRef.current = step.history;
+    void goToNavEntry(step.target);
+  }, [goToNavEntry]);
+  // Mouse back/forward buttons (the thumb buttons) step through the same
+  // history, as in browsers. Their default is swallowed so the webview can't
+  // try to navigate its own page history.
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => { if (e.button === 3 || e.button === 4) e.preventDefault(); };
+    const onUp = (e: MouseEvent) => {
+      if (e.button === 3) { e.preventDefault(); handleNavBack(); }
+      else if (e.button === 4) { e.preventDefault(); handleNavForward(); }
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [handleNavBack, handleNavForward]);
 
   // Folder the cross-file search runs in: the open file's directory.
   const currentDirectory = useMemo(() => {
@@ -1102,6 +1241,7 @@ function AppContent() {
   // Effective zen: the flag alone means nothing on the welcome screen (there
   // is no canvas to isolate), so chrome hides only once a file is open.
   const zenActive = zenMode && hasFile;
+  zenActiveRef.current = zenActive;
 
   // Handle file drop
   const handleFileDrop = useCallback(
@@ -1188,6 +1328,8 @@ function AppContent() {
     prevTab: () => cycleTab(-1),
     nextTab: () => cycleTab(1),
     reopenClosedTab,
+    navBack: handleNavBack,
+    navForward: handleNavForward,
     gotoTab: gotoTabByIndex,
     hasFile, content, mode,
   });
@@ -1828,15 +1970,27 @@ function AppContent() {
       {/* Tab bar — always shown once a file is open (even with one tab), with a
           + button, so it's clear more files can be opened in tabs. TABS-01. */}
       {hasFile && !zenActive && tabBarItems.length >= 1 && (
-        <TabBar
-          tabs={tabBarItems}
-          activeId={activeTabId}
-          onSelect={activateTab}
-          onClose={closeTab}
-          onNewTab={handleNewFile}
-          onReorder={handleReorderTab}
-          onContextMenu={handleTabContextMenu}
-        />
+        // The docked side panels start at this row, so the tab strip moves
+        // over beside them (like the editor below) instead of hiding its
+        // first tabs underneath. RLL-03.
+        <div
+          className="shrink-0 bg-[var(--bg-titlebar)]"
+          style={{
+            paddingLeft: !IS_MOBILE && (showFileExplorer || showTOC || showBacklinks) ? `${SIDEBAR_WIDTH}px` : 0,
+            paddingRight: !IS_MOBILE && showAIPanel && aiEnabled ? `min(${aiPanelWidth}px, 90vw)` : 0,
+            transition: "padding 0.15s ease",
+          }}
+        >
+          <TabBar
+            tabs={tabBarItems}
+            activeId={activeTabId}
+            onSelect={activateTab}
+            onClose={closeTab}
+            onNewTab={handleNewFile}
+            onReorder={handleReorderTab}
+            onContextMenu={handleTabContextMenu}
+          />
+        </div>
       )}
 
       {/* Startup update check; invisible unless an update is actually available.
@@ -1857,13 +2011,24 @@ function AppContent() {
             <span className="material-symbols-outlined text-[28px] text-[var(--text-muted)] animate-spin">progress_activity</span>
           </div>
         ) : (
-          <WelcomeScreen
-            onOpenFile={handleOpenFileAction}
-            onNewFile={handleNewFile}
-            onOpenSettings={() => setShowSettings(true)}
-            onFileDrop={handleFileDrop}
-            onOpenRecent={loadFile}
-          />
+          // The file panel stays useful with no note open (pick another
+          // one), so the welcome screen moves over beside it instead of
+          // sliding under it. RLL-06.
+          <div
+            className="flex-1 min-h-0 flex flex-col"
+            style={{
+              paddingLeft: !IS_MOBILE && showFileExplorer ? `${SIDEBAR_WIDTH}px` : 0,
+              transition: "padding 0.15s ease",
+            }}
+          >
+            <WelcomeScreen
+              onOpenFile={handleOpenFileAction}
+              onNewFile={handleNewFile}
+              onOpenSettings={() => setShowSettings(true)}
+              onFileDrop={handleFileDrop}
+              onOpenRecent={loadFile}
+            />
+          </div>
         )
       ) : (
         <>
@@ -1967,6 +2132,7 @@ function AppContent() {
               <Suspense fallback={null}>
                 <MarkdownPreview
                   content={deferredContent}
+                  docKey={activeTabId}
                   fileName={fileName || ""}
                   fileSize={fileSize}
                   readableLineLength={readableLineLength}
@@ -1980,6 +2146,7 @@ function AppContent() {
                   onWikilinkClick={handleWikilinkClick}
                   onNavigateRelative={handleNavigateRelative}
                   onRendered={handlePreviewRendered}
+                  onReaderSelection={handleReaderSelection}
                 />
               </Suspense>
 
@@ -2064,6 +2231,7 @@ function AppContent() {
           {!IS_MOBILE && !zenActive && (
             <StatusBar
               isSaved={!isDirty}
+              savePulse={savePulse}
               lineNumber={mode === "preview" ? previewLine : cursorPosition.line}
               columnNumber={cursorPosition.col}
               mode={mode}
@@ -2163,7 +2331,7 @@ function AppContent() {
       />
 
       {/* Loading overlay */}
-      {isLoading && (
+      {showLoadingOverlay && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[var(--bg-primary)]/80 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3">
             <span className="material-symbols-outlined text-[32px] text-[var(--accent)] animate-spin">progress_activity</span>

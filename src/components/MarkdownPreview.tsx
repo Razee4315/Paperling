@@ -179,9 +179,13 @@ function dedupeHeadingIds(root: HTMLElement) {
 
 /** Absolute (body-relative) source line of a rendered top-level block: its
  *  block-relative data-source-line plus its block wrapper's offset. */
-function sourceLineOf(el: Element): number {
+export function sourceLineOf(el: Element): number {
     const rel = Number(el.getAttribute("data-source-line")) || 1;
-    const offset = Number(el.parentElement?.getAttribute("data-line-offset")) || 0;
+    // closest(), not parentElement: tables and code blocks sit inside their
+    // own scroll / copy-button wrapper div, so the chunk wrapper is two
+    // levels up for them. Reading the parent gave offset 0 and a wrong line
+    // for every table and code block. SYNC-02.
+    const offset = Number(el.closest("[data-line-offset]")?.getAttribute("data-line-offset")) || 0;
     return rel + offset;
 }
 
@@ -246,6 +250,12 @@ interface MarkdownPreviewProps {
     /** Called after the body for `content` has been committed to the DOM.
      *  Export/print wait on it instead of guessing a number of frames. */
     onRendered?: (content: string) => void;
+    /** Identity of the document shown (the tab id). A change is a tab switch:
+     *  render at once and restore that tab's reading position. SWITCH-01. */
+    docKey?: string | null;
+    /** The text last selected in the reader and its content-relative source
+     *  line (null when cleared), so Ctrl+E can put the caret on it. MODE-03. */
+    onReaderSelection?: (sel: { line: number; text: string } | null) => void;
 }
 
 /** Slugify heading text into a stable, URL-safe id (GitHub-style). Unicode
@@ -819,8 +829,15 @@ function MarkdownPreviewImpl({
     onWikilinkClick,
     onNavigateRelative,
     onRendered,
+    docKey = null,
+    onReaderSelection,
 }: MarkdownPreviewProps) {
     const mainRef = useRef<HTMLElement>(null);
+    // Per-tab reading positions (see the SWITCH-01 layout effect below).
+    const scrollByKeyRef = useRef(new Map<string, number>());
+    const lastScrollTopRef = useRef(0);
+    const shownKeyRef = useRef(docKey);
+    const restoredScrollRef = useRef(false);
     const [zoomImage, setZoomImage] = useState<{ src: string; alt: string } | null>(null);
 
     // lineCount is derived here (instead of being passed as a prop) so the
@@ -937,6 +954,7 @@ function MarkdownPreviewImpl({
                                     }
                                 }
                             }
+                            if (el) window.dispatchEvent(new CustomEvent("paperling:record-nav"));
                             el?.scrollIntoView({ behavior: "smooth", block: "start" });
                         }}
                     >
@@ -1102,6 +1120,16 @@ function MarkdownPreviewImpl({
     // never blocks the commit that paints the latest keystroke, and React can
     // interrupt + restart this reconcile if newer input arrives. PREVIEW-01.
     const [rendered, setRendered] = useState({ body: renderBody, content });
+    // A tab switch renders the new note in THIS render (not in a background
+    // transition), so the previous note never lingers on screen. SWITCH-01.
+    const [renderedKey, setRenderedKey] = useState(docKey);
+    if (docKey !== renderedKey) {
+        // The DOM still shows the outgoing note here: take its exact reading
+        // offset now (a programmatic scroll may not have fired an event yet).
+        if (mainRef.current) lastScrollTopRef.current = mainRef.current.scrollTop;
+        setRenderedKey(docKey);
+        setRendered({ body: renderBody, content });
+    }
     const renderedBody = rendered.body;
     const [, startBodyTransition] = useTransition();
     useEffect(() => {
@@ -1197,6 +1225,38 @@ function MarkdownPreviewImpl({
         scrollRafRef.current = 0;
     }, []);
 
+    // Per-tab reading position (SWITCH-01). The scroll offset is recorded as
+    // the reader scrolls; on a tab switch it is saved for the outgoing tab
+    // and the incoming tab's offset is restored before the first paint, so
+    // there is no flash of the wrong place followed by a jump. A tab last
+    // seen while the preview was hidden (code mode) has no entry and falls
+    // back to the line-based restore event from the session.
+    useEffect(() => {
+        const el = mainRef.current;
+        if (!el) return;
+        const record = () => { lastScrollTopRef.current = el.scrollTop; };
+        el.addEventListener("scroll", record, { passive: true });
+        return () => el.removeEventListener("scroll", record);
+    }, []);
+    useLayoutEffect(() => {
+        const el = mainRef.current;
+        const outgoing = shownKeyRef.current;
+        if (!el || outgoing === docKey) return;
+        shownKeyRef.current = docKey;
+        const cache = scrollByKeyRef.current;
+        const visible = el.clientHeight > 0;
+        if (outgoing) {
+            cache.delete(outgoing);
+            if (visible) cache.set(outgoing, lastScrollTopRef.current);
+            while (cache.size > 40) cache.delete(cache.keys().next().value as string);
+        }
+        const saved = docKey ? cache.get(docKey) : undefined;
+        restoredScrollRef.current = visible && saved !== undefined;
+        el.scrollTop = restoredScrollRef.current ? saved! : 0;
+        lastScrollTopRef.current = el.scrollTop;
+        refreshScrollMax();
+    }, [docKey, refreshScrollMax]);
+
     // Jump-to-line requests from the TOC / command palette (NAV-01). Finds the
     // last rendered block whose source line is at-or-above the target line via
     // the data-source-line anchors — exact even when headings repeat, unlike
@@ -1204,6 +1264,8 @@ function MarkdownPreviewImpl({
     // are body-relative, hence the frontmatter offset.
     useEffect(() => {
         const handler = (e: Event) => {
+            // The tab switch already restored the exact reading position.
+            if ((e as CustomEvent).detail?.source === "tab-restore" && restoredScrollRef.current) return;
             const line = Number((e as CustomEvent).detail?.line);
             const container = mainRef.current;
             if (!container || !Number.isFinite(line) || line < 1) return;
@@ -1230,7 +1292,10 @@ function MarkdownPreviewImpl({
     // Snap to the top when a different file is opened, so you don't land
     // mid-document at the previous file's scroll offset. NAV-04.
     useEffect(() => {
-        const toTop = () => { if (mainRef.current) mainRef.current.scrollTop = 0; };
+        const toTop = (e: Event) => {
+            if ((e as CustomEvent).detail?.source === "tab-restore" && restoredScrollRef.current) return;
+            if (mainRef.current) mainRef.current.scrollTop = 0;
+        };
         window.addEventListener("paperling:scroll-top", toTop);
         return () => window.removeEventListener("paperling:scroll-top", toTop);
     }, []);
@@ -1278,6 +1343,44 @@ function MarkdownPreviewImpl({
         if (list) el.scrollTop = lineToOffset(list, pending.line);
     }, [renderedBody, anchorList]);
 
+    // Track the reader's text selection (MODE-03). A selection collapsed by a
+    // click INSIDE the reader clears it; clicks elsewhere (the mode pill,
+    // the toolbar) keep the last one, so "double-click a word, then switch
+    // to Edit" works with the mouse as well as with Ctrl+E.
+    const onReaderSelectionRef = useRef(onReaderSelection);
+    onReaderSelectionRef.current = onReaderSelection;
+    useEffect(() => {
+        const onChange = () => {
+            const el = mainRef.current;
+            const sel = window.getSelection();
+            if (!el || !sel || !sel.anchorNode || !el.contains(sel.anchorNode)) return;
+            if (sel.isCollapsed) {
+                onReaderSelectionRef.current?.(null);
+                return;
+            }
+            const anchorEl = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? (sel.anchorNode as Element) : sel.anchorNode.parentElement;
+            const block = anchorEl?.closest("[data-source-line]");
+            const text = sel.toString().trim();
+            if (!block || !text) return;
+            onReaderSelectionRef.current?.({ line: sourceLineOf(block) + fmOffsetRef.current, text });
+        };
+        document.addEventListener("selectionchange", onChange);
+        return () => document.removeEventListener("selectionchange", onChange);
+    }, []);
+
+    // "Focus the document" requests (FOCUS-01): in reader mode the preview
+    // is the document; in split mode the editor takes it (it listens too).
+    useEffect(() => {
+        const onFocusDoc = () => {
+            const el = mainRef.current;
+            if (!el || el.clientHeight === 0) return;
+            const editorVisible = !!document.querySelector(".cm-editor")?.getBoundingClientRect().height;
+            if (!editorVisible) el.focus({ preventScroll: true });
+        };
+        window.addEventListener("paperling:focus-document", onFocusDoc);
+        return () => window.removeEventListener("paperling:focus-document", onFocusDoc);
+    }, []);
+
     // Register imperative scroller for split-view sync
     useEffect(() => {
         if (!registerScroller) return;
@@ -1308,9 +1411,12 @@ function MarkdownPreviewImpl({
         <>
             <main
                 ref={mainRef}
-                className="flex-1 overflow-y-auto bg-[var(--bg-primary)] transition-colors"
+                // Focusable (not in the Tab order) so Space / PageDown /
+                // arrows scroll the reader after a tab switch. FOCUS-01.
+                tabIndex={-1}
+                className="flex-1 overflow-y-auto bg-[var(--bg-primary)] transition-colors outline-none"
             >
-                <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 py-12`}>
+                <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 pt-12 pb-28`}>
                     {hasFrontmatter && (
                         <FrontmatterCard
                             data={frontmatter}

@@ -41,6 +41,8 @@ export const BINDINGS = {
     save: { key: "s", mod: true },
     saveAs: { key: "s", mod: true, shift: true },
     reopenClosedTab: { key: "t", mod: true, shift: true },
+    navBack: { key: "ArrowLeft", mod: true, alt: true },
+    navForward: { key: "ArrowRight", mod: true, alt: true },
 
     // View
     toggleMode: { key: "e", mod: true },

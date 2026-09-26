@@ -123,7 +123,7 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
             // Double-click the empty strip for a new tab, as in browsers and
             // VS Code. TABS-21.
             onDoubleClick={(e) => { if (e.target === e.currentTarget) onNewTab(); }}
-            className="h-9 shrink-0 flex items-stretch overflow-x-auto bg-[var(--bg-titlebar)] border-b border-[var(--border)] no-select"
+            className="tab-strip h-9 shrink-0 flex items-stretch overflow-x-auto bg-[var(--bg-titlebar)] border-b border-[var(--border)] no-select"
         >
             {tabs.map((tab, index) => {
                 const isActive = tab.id === activeId;
@@ -158,6 +158,13 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                                 return;
                             }
                             onSelect(tab.id);
+                            // A mouse click on a tab means "show me this
+                            // note": focus goes to the note, as in VS Code.
+                            // It used to stay on the tab, so typing did
+                            // nothing and Backspace/Delete (the tab strip's
+                            // keyboard close keys) CLOSED the tab. Keyboard
+                            // navigation of the strip keeps focus. FOCUS-01.
+                            window.dispatchEvent(new CustomEvent("paperling:focus-document"));
                         }}
                         onDragStart={(e) => {
                             setDragIndex(index);
@@ -200,7 +207,12 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                             marker (• filename), so every dirty tab — active or
                             background — is identifiable at a glance and stays
                             indicated while hovered, unlike the trailing dot. */}
-                        <span className="truncate text-xs">{tab.dirty ? `• ${tab.label}` : tab.label}</span>
+                        {/* Fixed-width slot, always laid out: inserting "• "
+                            into the label made the tab wider on the first
+                            keystroke, shifting every tab to its right (and
+                            back on save). TABS-23. */}
+                        <span className={`-mr-1 w-1.5 shrink-0 text-xs leading-none ${tab.dirty ? "" : "invisible"}`} aria-hidden="true">•</span>
+                        <span className="truncate text-xs">{tab.label}</span>
                         {/* Trailing control. On hover it's always a close (×)
                             button. When the tab has unsaved edits and isn't
                             hovered, it shows a small "unsaved" dot instead —

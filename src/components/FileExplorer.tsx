@@ -6,6 +6,7 @@ import { openSystemFilePicker } from "../utils/nativePicker";
 import { errMessage } from "../utils/errors";
 import { saveTextFile } from "../utils/fileIO";
 import { TabContextMenu } from "./TabContextMenu";
+import { samePath } from "../utils/tabsModel";
 import mascotCarry from "../assets/mascot/mascot-carry.png";
 import mascotShrug from "../assets/mascot/mascot-shrug.png";
 
@@ -64,25 +65,38 @@ export function FileExplorer({
         return lastSlash > 0 ? filePath.substring(0, lastSlash) : null;
     };
 
-    // Initialize the view directory when opening the panel
+    // Initialize the view directory when opening the panel, and FOLLOW the
+    // active note: switching tabs (or opening a note elsewhere) moves the
+    // list to that note's folder and refreshes it, so a note just created by
+    // Save As shows up too. It used to keep showing the folder it opened
+    // with until the panel was closed and reopened. FILES-02. Manual
+    // navigation (up / into folders) is kept until the active note changes.
+    const activeDir = getDirectory(currentFilePath);
     useEffect(() => {
         if (isOpen) {
-            // Keep the current view if the user already navigated somewhere.
             // Falls back to the provided root (e.g. the mobile notes folder)
             // when there is no open file to derive a directory from.
-            setCurrentViewDir((prev) => prev ?? getDirectory(currentFilePath) ?? fallbackDirectory ?? null);
+            setCurrentViewDir((prev) => activeDir ?? prev ?? fallbackDirectory ?? null);
         } else {
             // Reset view when closed so it snaps back to the active file next time
             setCurrentViewDir(null);
         }
-    }, [isOpen, currentFilePath, fallbackDirectory]);
+    }, [isOpen, activeDir, currentFilePath, fallbackDirectory]);
 
-    // Load files whenever the currentViewDir changes
+    // Load files whenever the view directory changes, and re-list the same
+    // folder when the active note changes inside it (new/renamed files).
     useEffect(() => {
         if (isOpen && currentViewDir) {
             loadFiles(currentViewDir);
         }
-    }, [isOpen, currentViewDir]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, currentViewDir, currentFilePath]);
+
+    // Keep the active note's row in view after a switch.
+    useEffect(() => {
+        if (!isOpen) return;
+        panelRef.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.scrollIntoView?.({ block: "nearest" });
+    }, [isOpen, currentFilePath, files]);
 
     // Refresh when the window regains focus — files may have been created or
     // deleted in another app while the explorer sat open. Mirrors App's
@@ -97,19 +111,37 @@ export function FileExplorer({
     // Escape / focus behaviour for a docked, non-modal panel. PANEL-01.
     useSidePanel(panelRef, isOpen, onClose);
 
+    // Which folder `files` currently lists. A refresh of the SAME folder keeps
+    // the list on screen (no "Loading..." swap, no replayed entrance
+    // animation), so window focus or a tab switch doesn't make it flash.
+    // FILES-02.
+    const listedDirRef = useRef<string | null>(null);
+    const [animateList, setAnimateList] = useState(true);
+    // Only the latest listing may land (quick folder/tab switches). FILES-02.
+    const loadSeqRef = useRef(0);
     const loadFiles = async (directory: string) => {
-        setIsLoading(true);
+        const seq = ++loadSeqRef.current;
+        const sameFolder = listedDirRef.current === directory;
+        if (!sameFolder) setIsLoading(true);
         setError(null);
         try {
             const entries = await invoke<FileEntry[]>("list_directory_files", {
                 directory,
             });
-            setFiles(entries);
+            if (seq !== loadSeqRef.current) return;
+            setAnimateList(!sameFolder);
+            listedDirRef.current = directory;
+            setFiles((prev) =>
+                sameFolder && prev.length === entries.length && prev.every((f, i) => f.path === entries[i].path && f.is_dir === entries[i].is_dir)
+                    ? prev
+                    : entries,
+            );
         } catch (err) {
+            if (seq !== loadSeqRef.current) return;
             console.error("Failed to load directory:", err);
             setError("Failed to load files");
         } finally {
-            setIsLoading(false);
+            if (seq === loadSeqRef.current) setIsLoading(false);
         }
     };
 
@@ -337,7 +369,7 @@ export function FileExplorer({
                 ) : (
                     <ul className="py-2" role="listbox" aria-label="Files and folders">
                         {files.map((file, index) => {
-                            const isActive = file.path === currentFilePath && !file.is_dir;
+                            const isActive = !file.is_dir && samePath(file.path, currentFilePath);
                             if (nameEdit?.mode === "rename" && nameEdit.entry.path === file.path) {
                                 return (
                                     <li key={file.path}>
@@ -353,7 +385,11 @@ export function FileExplorer({
                                 );
                             }
                             return (
-                                <li key={file.path} className="stagger-item group/entry relative" style={{ animationDelay: `${index * 0.03}s` }}>
+                                <li
+                                    key={file.path}
+                                    className={`group/entry relative ${animateList ? "stagger-item" : ""}`}
+                                    style={animateList ? { animationDelay: `${Math.min(index, 15) * 0.03}s` } : undefined}
+                                >
                                     <button
                                         onClick={() => handleEntryClick(file)}
                                         onContextMenu={(e) => {

@@ -7,7 +7,7 @@
 // working in exported HTML, regardless of prefix policy.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, waitFor } from "@testing-library/react";
-import { MarkdownPreview } from "./MarkdownPreview";
+import { MarkdownPreview, sourceLineOf } from "./MarkdownPreview";
 
 vi.mock("@tauri-apps/api/core", () => ({
     invoke: vi.fn(async () => null),
@@ -277,9 +277,19 @@ describe("block-by-block rendering (PERF-02)", () => {
             expect(el).toBeTruthy();
             return el!;
         });
-        const rel = Number(h2.getAttribute("data-source-line"));
-        const offset = Number(h2.parentElement?.getAttribute("data-line-offset") ?? 0);
-        expect(rel + offset).toBe(6);
+        expect(sourceLineOf(h2)).toBe(6);
+    });
+
+    it("maps tables and code blocks (nested in wrapper divs) to their real lines (SYNC-02)", async () => {
+        const md = ["# Title", "", "intro", "", "## Later", "", "| a | b |", "|---|---|", "| 1 | 2 |", "", "```js", "x();", "```"].join("\n");
+        const { container } = renderPreview(md);
+        const table = await waitFor(() => {
+            const el = container.querySelector("table");
+            expect(el).toBeTruthy();
+            return el!;
+        });
+        expect(sourceLineOf(table)).toBe(7);
+        expect(sourceLineOf(container.querySelector("pre")!)).toBe(11);
     });
 
     it("toggles the right source line for a task in a later block", async () => {

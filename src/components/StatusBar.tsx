@@ -19,6 +19,8 @@ interface StatusBarProps {
     /** Word count inside the active selection. Only meaningful when
      *  `selectionLength > 0`. */
     selectionWordCount?: number;
+    /** Bumped on each manual Ctrl+S; replays the "Saved" pulse. SAVE-07. */
+    savePulse?: number;
 }
 
 const formatReadingTime = (min: number): string => {
@@ -45,6 +47,7 @@ function StatusBarImpl({
     readingTimeMin,
     selectionLength = 0,
     selectionWordCount = 0,
+    savePulse = 0,
 }: StatusBarProps) {
     const hasSelection = selectionLength > 0;
     return (
@@ -53,7 +56,7 @@ function StatusBarImpl({
         // state is announced, from its own polite region below. A11Y-05.
         <footer
             aria-label="Status bar"
-            className="h-7 shrink-0 bg-[var(--bg-titlebar)] border-t border-[var(--border)] px-4 flex items-center justify-between text-[11px] font-medium tracking-wide text-[var(--text-secondary)] no-select transition-colors"
+            className="h-7 shrink-0 bg-[var(--bg-titlebar)] border-t border-[var(--border)] px-4 flex items-center justify-between text-[11px] font-medium tracking-wide tabular-nums text-[var(--text-secondary)] no-select transition-colors"
         >
             <div className="flex items-center gap-1">
                 {/* File Explorer Toggle */}
@@ -105,7 +108,12 @@ function StatusBarImpl({
                 </button>
             </div>
             <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5" aria-label={isSaved ? "File saved" : "File has unsaved changes"}>
+                <div
+                    // key: a new pulse remounts the element so the animation replays.
+                    key={savePulse}
+                    className={`flex items-center gap-1.5 ${savePulse > 0 ? "save-pulse" : ""}`}
+                    aria-label={isSaved ? "File saved" : "File has unsaved changes"}
+                >
                     <span
                         className={`w-2 h-2 rounded-full transition-all ${isSaved
                             ? "bg-[var(--status-saved)] shadow-[0_0_4px_rgba(80,250,123,0.4)]"
@@ -115,7 +123,10 @@ function StatusBarImpl({
                     <span className="transition-colors" role="status" aria-live="polite">{isSaved ? "Saved" : "Unsaved"}</span>
                 </div>
                 {(mode === "code" || mode === "split") && (
-                    <div className="hover:text-[var(--text-primary)] cursor-default transition-colors">
+                    // Tabular digits (footer) plus a minimum width: Ln/Col and
+                    // the counts no longer nudge their neighbours sideways as
+                    // they grow while typing. RLL-05.
+                    <div className="min-w-[6.5rem] text-right hover:text-[var(--text-primary)] cursor-default transition-colors">
                         Ln {lineNumber}, Col {columnNumber}
                     </div>
                 )}

@@ -52,6 +52,9 @@ export interface ScrollSync {
      * of wherever it was left. MODE-01.
      */
     handoff: (from: SyncSide, to: SyncSide, opts?: HandoffOptions) => void;
+    /** Record side X's current top line now, if it can be measured (a
+     *  visible pane). Called right before a layout change. MODE-02. */
+    capture: (side: SyncSide) => void;
 }
 
 /** Top/bottom snap zone for the fraction ends. */
@@ -116,6 +119,15 @@ export function createScrollSync(): ScrollSync {
             if (line == null) return;
             setIgnore(to);
             apply(target, lastFraction[from], line, { handoff: true, ...opts });
+            // The target now shows this line; don't wait for its scroll
+            // event (a programmatic scroll may never produce one before the
+            // next switch). MODE-02.
+            lastTop[to] = line;
+            lastFraction[to] = lastFraction[from];
+        },
+        capture: (side) => {
+            const line = scrollers[side]?.getTopLine?.() ?? null;
+            if (line != null) lastTop[side] = line;
         },
     };
 }

@@ -95,6 +95,39 @@ describe("useFileSession", () => {
     expect(result.current.tabs.map((t) => t.fileName)).toEqual(["a.md", expect.stringMatching(/^Untitled/), "b.md"]);
   });
 
+  it("a tab switch during Save stamps the saved tab, not the new one; onSaved replaces the toast (SAVE-06/07)", async () => {
+    const onSaved = vi.fn();
+    const showToast = vi.fn();
+    const { result } = renderHook(() => useFileSession(options({ onSaved, showToast })));
+    await act(() => result.current.loadFile("C:/a.md"));
+    const aId = result.current.activeTabId!;
+    await act(() => result.current.loadFile("C:/b.md"));
+    const bId = result.current.activeTabId!;
+    act(() => result.current.activateTab(aId));
+    act(() => result.current.setContent("alpha edited"));
+
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    (invoke as Mock).mockImplementation(async (command: string, args?: { path?: string }) => {
+      if (command === "read_file" && args?.path) return files.get(args.path);
+      if (command === "save_file") { await gate; return 40; }
+      return 30;
+    });
+    let saving: Promise<void> = Promise.resolve();
+    act(() => { saving = result.current.handleSaveFile(); });
+    await act(async () => { await Promise.resolve(); });
+    act(() => result.current.activateTab(bId));
+    await act(async () => { release(); await saving; });
+
+    expect(result.current.filePath).toBe("C:/b.md");
+    expect(result.current.isDirty).toBe(false);
+    act(() => result.current.activateTab(aId));
+    expect(result.current.content).toBe("alpha edited");
+    expect(result.current.isDirty).toBe(false);
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(showToast).not.toHaveBeenCalledWith("File saved", "success");
+  });
+
   it("closes a clean tab and activates its neighbour", async () => {
     const { result } = renderHook(() => useFileSession(options()));
     await act(() => result.current.loadFile("C:/a.md"));
