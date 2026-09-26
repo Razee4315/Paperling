@@ -8,7 +8,7 @@ const { items = faqs } = Astro.props;
 
 <div class="faq-list">
   {items.map(([question, answer]) => (
-    <details>
+    <details data-reveal>
       <summary>
         {question}
         <span aria-hidden="true">+</span>
