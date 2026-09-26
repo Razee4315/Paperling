@@ -1608,3 +1608,14 @@ html.touch ::-webkit-scrollbar {
 .cm-editor .cm-deletedLineGutter {
   background-color: var(--diff-del-border);
 }
+
+/* The tab strip scrolls with the wheel and keeps the active tab in view
+   (TABS-13); a native horizontal scrollbar only ate into the 36px row and
+   covered the bottom of the tab labels. RLL-03. */
+.tab-strip {
+  scrollbar-width: none;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
+}

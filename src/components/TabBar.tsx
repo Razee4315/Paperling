@@ -123,7 +123,7 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
             // Double-click the empty strip for a new tab, as in browsers and
             // VS Code. TABS-21.
             onDoubleClick={(e) => { if (e.target === e.currentTarget) onNewTab(); }}
-            className="h-9 shrink-0 flex items-stretch overflow-x-auto bg-[var(--bg-titlebar)] border-b border-[var(--border)] no-select"
+            className="tab-strip h-9 shrink-0 flex items-stretch overflow-x-auto bg-[var(--bg-titlebar)] border-b border-[var(--border)] no-select"
         >
             {tabs.map((tab, index) => {
                 const isActive = tab.id === activeId;

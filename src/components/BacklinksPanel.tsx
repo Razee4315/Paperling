@@ -36,20 +36,31 @@ export function BacklinksPanel({
     const [error, setError] = useState<string | null>(null);
     const panelRef = useRef<HTMLElement>(null);
 
+    // Only the latest request may land: switching notes quickly let a slow
+    // search for the PREVIOUS note overwrite this one's backlinks. A refresh
+    // for the same note (window focus) keeps the list on screen instead of
+    // flashing "Loading". FILES-02.
+    const requestRef = useRef(0);
+    const shownForRef = useRef<string | null>(null);
     const loadBacklinks = useCallback(async () => {
-        setIsLoading(true);
+        const id = ++requestRef.current;
+        const sameNote = shownForRef.current === currentFilePath;
+        if (!sameNote) setIsLoading(true);
         setError(null);
         try {
             const next = await invoke<BacklinkResult[]>("find_backlinks", {
                 directory,
                 targetFile: currentFilePath,
             });
+            if (id !== requestRef.current) return;
+            shownForRef.current = currentFilePath;
             setResults(next);
         } catch (err) {
+            if (id !== requestRef.current) return;
             setResults([]);
             setError(String(err));
         } finally {
-            setIsLoading(false);
+            if (id === requestRef.current) setIsLoading(false);
         }
     }, [currentFilePath, directory]);
 
