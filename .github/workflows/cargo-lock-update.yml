@@ -1,0 +1,34 @@
+name: Cargo lock update (temporary)
+
+# One-off: the owner's machine has no Rust toolchain, so run
+# `cargo update -p rustls` here for RUSTSEC-2026-0285 and push Cargo.lock
+# back. Deleted again in the same branch before merge.
+on:
+  push:
+    paths:
+      - ".github/workflows/cargo-lock-update.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo update -p rustls
+        working-directory: src-tauri
+        run: cargo update -p rustls
+      - name: Commit Cargo.lock
+        run: |
+          git diff --stat src-tauri/Cargo.lock
+          if git diff --quiet src-tauri/Cargo.lock; then echo "no change"; exit 1; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/Cargo.lock
+          git commit -m "chore(deps): cargo update -p rustls (RUSTSEC-2026-0285)"
+          git push
