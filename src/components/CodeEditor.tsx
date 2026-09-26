@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState, useMemo, memo } from "react";
+import { useRef, useCallback, useEffect, useLayoutEffect, useState, useMemo, memo } from "react";
 import { EditorState as CMEditorState, EditorSelection, Compartment, Prec, type Extension, type StateEffect } from "@codemirror/state";
 import { selectNextOccurrence, highlightSelectionMatches } from "@codemirror/search";
 import {
@@ -865,7 +865,9 @@ function CodeEditorImpl({
     // first it recorded the swap in the OLD history, which we then discard; if it
     // hasn't run yet, `content` already equals the new doc so we set it here.
     // TABS-03.
-    useEffect(() => {
+    // useLayoutEffect: the swap lands in the same paint as the new tab, so
+    // the previous note never flashes in the editor for a frame. SWITCH-01.
+    useLayoutEffect(() => {
         const view = viewRef.current;
         if (!view) return;
         if (appliedSwapRef.current === docSwapId) return;

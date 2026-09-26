@@ -528,7 +528,14 @@ function AppContent() {
   // (still heavy) full re-parse fires. Combined with the preview's startTransition
   // render, this keeps typing responsive on large files. PREVIEW-01.
   const previewDebounceMs = content.length > 40_000 ? 250 : content.length > 12_000 ? 160 : 80;
-  const [deferredContent, flushDeferredPreview] = useDebouncedValue(content, previewDebounceMs);
+  // The debounce carries the doc-swap id with the text, so the preview can
+  // tell "typing in this note" (debounced) from "switched to another note"
+  // (must show at once): after a tab switch the preview used to keep showing
+  // the PREVIOUS note for up to 250ms, then pop the new one in at the old
+  // scroll position before jumping to the saved place. SWITCH-01.
+  const contentWithSwap = useMemo(() => ({ content, swap: docSwapId }), [content, docSwapId]);
+  const [deferredWithSwap, flushDeferredPreview] = useDebouncedValue(contentWithSwap, previewDebounceMs);
+  const deferredContent = deferredWithSwap.swap === docSwapId ? deferredWithSwap.content : content;
 
   // Word/char counts feed the status bar — fine to lag a frame behind on huge
   // docs, so they read deferred too. countSourceWords is the SAME pipeline the
@@ -1828,15 +1835,27 @@ function AppContent() {
       {/* Tab bar — always shown once a file is open (even with one tab), with a
           + button, so it's clear more files can be opened in tabs. TABS-01. */}
       {hasFile && !zenActive && tabBarItems.length >= 1 && (
-        <TabBar
-          tabs={tabBarItems}
-          activeId={activeTabId}
-          onSelect={activateTab}
-          onClose={closeTab}
-          onNewTab={handleNewFile}
-          onReorder={handleReorderTab}
-          onContextMenu={handleTabContextMenu}
-        />
+        // The docked side panels start at this row, so the tab strip moves
+        // over beside them (like the editor below) instead of hiding its
+        // first tabs underneath. RLL-03.
+        <div
+          className="shrink-0 bg-[var(--bg-titlebar)]"
+          style={{
+            paddingLeft: !IS_MOBILE && (showFileExplorer || showTOC || showBacklinks) ? `${SIDEBAR_WIDTH}px` : 0,
+            paddingRight: !IS_MOBILE && showAIPanel && aiEnabled ? `min(${aiPanelWidth}px, 90vw)` : 0,
+            transition: "padding 0.15s ease",
+          }}
+        >
+          <TabBar
+            tabs={tabBarItems}
+            activeId={activeTabId}
+            onSelect={activateTab}
+            onClose={closeTab}
+            onNewTab={handleNewFile}
+            onReorder={handleReorderTab}
+            onContextMenu={handleTabContextMenu}
+          />
+        </div>
       )}
 
       {/* Startup update check; invisible unless an update is actually available.
@@ -1967,6 +1986,7 @@ function AppContent() {
               <Suspense fallback={null}>
                 <MarkdownPreview
                   content={deferredContent}
+                  docKey={activeTabId}
                   fileName={fileName || ""}
                   fileSize={fileSize}
                   readableLineLength={readableLineLength}

@@ -246,6 +246,9 @@ interface MarkdownPreviewProps {
     /** Called after the body for `content` has been committed to the DOM.
      *  Export/print wait on it instead of guessing a number of frames. */
     onRendered?: (content: string) => void;
+    /** Identity of the document shown (the tab id). A change is a tab switch:
+     *  render at once and restore that tab's reading position. SWITCH-01. */
+    docKey?: string | null;
 }
 
 /** Slugify heading text into a stable, URL-safe id (GitHub-style). Unicode
@@ -819,8 +822,14 @@ function MarkdownPreviewImpl({
     onWikilinkClick,
     onNavigateRelative,
     onRendered,
+    docKey = null,
 }: MarkdownPreviewProps) {
     const mainRef = useRef<HTMLElement>(null);
+    // Per-tab reading positions (see the SWITCH-01 layout effect below).
+    const scrollByKeyRef = useRef(new Map<string, number>());
+    const lastScrollTopRef = useRef(0);
+    const shownKeyRef = useRef(docKey);
+    const restoredScrollRef = useRef(false);
     const [zoomImage, setZoomImage] = useState<{ src: string; alt: string } | null>(null);
 
     // lineCount is derived here (instead of being passed as a prop) so the
@@ -1102,6 +1111,16 @@ function MarkdownPreviewImpl({
     // never blocks the commit that paints the latest keystroke, and React can
     // interrupt + restart this reconcile if newer input arrives. PREVIEW-01.
     const [rendered, setRendered] = useState({ body: renderBody, content });
+    // A tab switch renders the new note in THIS render (not in a background
+    // transition), so the previous note never lingers on screen. SWITCH-01.
+    const [renderedKey, setRenderedKey] = useState(docKey);
+    if (docKey !== renderedKey) {
+        // The DOM still shows the outgoing note here: take its exact reading
+        // offset now (a programmatic scroll may not have fired an event yet).
+        if (mainRef.current) lastScrollTopRef.current = mainRef.current.scrollTop;
+        setRenderedKey(docKey);
+        setRendered({ body: renderBody, content });
+    }
     const renderedBody = rendered.body;
     const [, startBodyTransition] = useTransition();
     useEffect(() => {
@@ -1197,6 +1216,38 @@ function MarkdownPreviewImpl({
         scrollRafRef.current = 0;
     }, []);
 
+    // Per-tab reading position (SWITCH-01). The scroll offset is recorded as
+    // the reader scrolls; on a tab switch it is saved for the outgoing tab
+    // and the incoming tab's offset is restored before the first paint, so
+    // there is no flash of the wrong place followed by a jump. A tab last
+    // seen while the preview was hidden (code mode) has no entry and falls
+    // back to the line-based restore event from the session.
+    useEffect(() => {
+        const el = mainRef.current;
+        if (!el) return;
+        const record = () => { lastScrollTopRef.current = el.scrollTop; };
+        el.addEventListener("scroll", record, { passive: true });
+        return () => el.removeEventListener("scroll", record);
+    }, []);
+    useLayoutEffect(() => {
+        const el = mainRef.current;
+        const outgoing = shownKeyRef.current;
+        if (!el || outgoing === docKey) return;
+        shownKeyRef.current = docKey;
+        const cache = scrollByKeyRef.current;
+        const visible = el.clientHeight > 0;
+        if (outgoing) {
+            cache.delete(outgoing);
+            if (visible) cache.set(outgoing, lastScrollTopRef.current);
+            while (cache.size > 40) cache.delete(cache.keys().next().value as string);
+        }
+        const saved = docKey ? cache.get(docKey) : undefined;
+        restoredScrollRef.current = visible && saved !== undefined;
+        el.scrollTop = restoredScrollRef.current ? saved! : 0;
+        lastScrollTopRef.current = el.scrollTop;
+        refreshScrollMax();
+    }, [docKey, refreshScrollMax]);
+
     // Jump-to-line requests from the TOC / command palette (NAV-01). Finds the
     // last rendered block whose source line is at-or-above the target line via
     // the data-source-line anchors — exact even when headings repeat, unlike
@@ -1204,6 +1255,8 @@ function MarkdownPreviewImpl({
     // are body-relative, hence the frontmatter offset.
     useEffect(() => {
         const handler = (e: Event) => {
+            // The tab switch already restored the exact reading position.
+            if ((e as CustomEvent).detail?.source === "tab-restore" && restoredScrollRef.current) return;
             const line = Number((e as CustomEvent).detail?.line);
             const container = mainRef.current;
             if (!container || !Number.isFinite(line) || line < 1) return;
@@ -1230,7 +1283,10 @@ function MarkdownPreviewImpl({
     // Snap to the top when a different file is opened, so you don't land
     // mid-document at the previous file's scroll offset. NAV-04.
     useEffect(() => {
-        const toTop = () => { if (mainRef.current) mainRef.current.scrollTop = 0; };
+        const toTop = (e: Event) => {
+            if ((e as CustomEvent).detail?.source === "tab-restore" && restoredScrollRef.current) return;
+            if (mainRef.current) mainRef.current.scrollTop = 0;
+        };
         window.addEventListener("paperling:scroll-top", toTop);
         return () => window.removeEventListener("paperling:scroll-top", toTop);
     }, []);
