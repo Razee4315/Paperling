@@ -1238,7 +1238,8 @@ function AppContent() {
       // Touch has no keyboard to advertise: point at the visible exit chip.
       showToast(IS_MOBILE
         ? "Zen mode — tap Normal up top to go back"
-        : `Zen mode — ${formatShortcut("toggleMode")} to edit, ${formatShortcut("zenMode")} to exit`, "info");
+        // The window controls live in the hidden top bar; say where. ZEN-04.
+        : `Zen mode — ${formatShortcut("toggleMode")} to edit, ${formatShortcut("zenMode")} to exit. Window controls: top edge`, "info");
     } else {
       const prev = preZenModeRef.current;
       preZenModeRef.current = null;
