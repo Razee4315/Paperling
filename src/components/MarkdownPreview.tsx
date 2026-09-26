@@ -179,9 +179,13 @@ function dedupeHeadingIds(root: HTMLElement) {
 
 /** Absolute (body-relative) source line of a rendered top-level block: its
  *  block-relative data-source-line plus its block wrapper's offset. */
-function sourceLineOf(el: Element): number {
+export function sourceLineOf(el: Element): number {
     const rel = Number(el.getAttribute("data-source-line")) || 1;
-    const offset = Number(el.parentElement?.getAttribute("data-line-offset")) || 0;
+    // closest(), not parentElement: tables and code blocks sit inside their
+    // own scroll / copy-button wrapper div, so the chunk wrapper is two
+    // levels up for them. Reading the parent gave offset 0 and a wrong line
+    // for every table and code block. SYNC-02.
+    const offset = Number(el.closest("[data-line-offset]")?.getAttribute("data-line-offset")) || 0;
     return rel + offset;
 }
 
