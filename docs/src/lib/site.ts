@@ -27,7 +27,7 @@ export const features = [
     sections: [
       [
         "Read without the punctuation",
-        "Open a .md file directly. Reader view renders headings, tables, task lists, and code without the Markdown punctuation.",
+        "Open a .md file directly. Reader view renders headings, tables, task lists, callouts, and code without the Markdown punctuation.",
       ],
       [
         "Keep the source in sight",
@@ -79,7 +79,7 @@ export const features = [
       ],
       [
         "Make the page feel like yours",
-        "Seven themes, adjustable reading fonts, and an optional Vim mode. Pick what feels right.",
+        "Seven themes, adjustable reading fonts, right-to-left text support, custom shortcuts, and an optional Vim mode.",
       ],
     ],
   },
@@ -115,7 +115,7 @@ export const features = [
     sections: [
       [
         "Start with one file",
-        "Open a .md file or browse a folder. Tabs and recent files keep your documents within reach.",
+        "Open a .md file or browse a folder, and create, rename or trash notes from the file panel. Unsaved changes survive a crash.",
       ],
       [
         "Give your notes a little context",
@@ -167,6 +167,10 @@ export const faqs = [
   [
     "Which platforms can I download it for?",
     "Windows, macOS, Linux, and Android. Android is distributed as an arm64 APK on GitHub Releases. There is currently no iOS version.",
+  ],
+  [
+    "Does Paperling support right-to-left languages?",
+    "Yes. Arabic, Hebrew, Persian and Urdu lines read right-to-left automatically in the editor and the reader, while code stays left-to-right. You can also force a direction in Settings → Editor → Text direction.",
   ],
   [
     "Can I use my existing Markdown notes?",
