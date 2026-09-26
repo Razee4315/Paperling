@@ -20,9 +20,13 @@ jobs:
         with:
           ref: ${{ github.ref }}
       - uses: dtolnay/rust-toolchain@stable
-      - name: cargo update -p rustls
+      - name: cargo update rustls (+ the deps 0.23.45 needs)
         working-directory: src-tauri
-        run: cargo update -p rustls
+        run: |
+          cargo update -p rustls -p rustls-webpki -p aws-lc-rs
+          grep -A1 '^name = "rustls"$' Cargo.lock
+          # RUSTSEC-2026-0285 is fixed in 0.23.45; fail loudly if cargo held back.
+          grep -A1 '^name = "rustls"$' Cargo.lock | grep -qE 'version = "0\.23\.(4[5-9]|[5-9][0-9])"'
       - name: Commit Cargo.lock
         run: |
           git diff --stat src-tauri/Cargo.lock
@@ -30,5 +34,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src-tauri/Cargo.lock
-          git commit -m "chore(deps): cargo update -p rustls (RUSTSEC-2026-0285)"
+          git commit -m "chore(deps): update rustls, rustls-webpki, aws-lc-rs (RUSTSEC-2026-0285)"
           git push
