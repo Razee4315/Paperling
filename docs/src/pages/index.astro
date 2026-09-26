@@ -1,34 +1,379 @@
 ---
+import { Image } from "astro:assets";
 import Base from "../layouts/Base.astro";
-import Nav from "../components/Nav.astro";
-import Hero from "../components/Hero.astro";
-import TrustBar from "../components/TrustBar.astro";
-import Features from "../components/Features.astro";
-import EditorShowcase from "../components/EditorShowcase.astro";
-import Themes from "../components/Themes.astro";
-import PowerFeatures from "../components/PowerFeatures.astro";
-import AIShowcase from "../components/AIShowcase.astro";
-import Stats from "../components/Stats.astro";
-import Download from "../components/Download.astro";
-import OpenSource from "../components/OpenSource.astro";
+import PaperArt from "../components/PaperArt.astro";
 import Faq from "../components/Faq.astro";
-import Footer from "../components/Footer.astro";
+import CTA from "../components/CTA.astro";
+import { url, absolute, SITE, faqs } from "../lib/site";
+import split from "../assets/screenshots/split-dark.png";
+import paper from "../assets/screenshots/reader-paper.png";
+import light from "../assets/screenshots/reader-light.png";
+import showcase from "../assets/screenshots/showcase-dark.png";
+const views = [
+  {
+    name: "Split view",
+    image: split,
+    caption: "Markdown on the left. Your ideas taking shape on the right.",
+    alt: "Paperling split view with Markdown source beside a rendered table, task list, and headings",
+  },
+  {
+    name: "Paper theme",
+    image: paper,
+    caption: "A warm, quiet page for a longer read.",
+    alt: "Paperling Reader view in the warm Paper theme",
+  },
+  {
+    name: "Light theme",
+    image: light,
+    caption: "A bright canvas for your next document.",
+    alt: "Paperling Reader view in the Light theme",
+  },
+  {
+    name: "Math & diagrams",
+    image: showcase,
+    caption: "Equations and diagrams, right in your document.",
+    alt: "Paperling displaying a mathematical equation and a Mermaid flowchart beside their Markdown source",
+  },
+];
+const schema = [
+  {
+    "@type": "SoftwareApplication",
+    name: "Paperling",
+    applicationCategory: "DeveloperApplication",
+    operatingSystem: "Windows, macOS, Linux, Android",
+    url: absolute(),
+    downloadUrl: SITE.releases,
+    license: SITE.repo + "/blob/main/LICENSE",
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    description:
+      "A free, open-source Markdown reader and editor with live preview, math, diagrams, and optional AI.",
+  },
+];
 ---
 
-<Base>
-  <Nav />
-  <main>
-    <Hero />
-    <TrustBar />
-    <Features />
-    <EditorShowcase />
-    <Themes />
-    <PowerFeatures />
-    <AIShowcase />
-    <Stats />
-    <Download />
-    <OpenSource />
-    <Faq />
-  </main>
-  <Footer />
+<Base schema={schema}>
+  <section class="hero wrap" id="top">
+    <div class="hero-topline">
+      <span>
+        <i class="live-dot"></i> YOUR WORDS. A LITTLE MORE AT HOME.
+      </span>
+      <span>FREE & OPEN SOURCE / MADE FOR MARKDOWN</span>
+    </div>
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow">THE NO-SETUP MARKDOWN EDITOR</p>
+        <h1>
+          A little space.
+          <br />
+          For your
+          <br />
+          <em>big ideas.</em>
+        </h1>
+        <p class="hero-description">
+          Open a Markdown file. Read beautifully. Write freely.
+        </p>
+        <div class="actions">
+          <a class="button" href={url("download/")}>
+            Download Paperling <span aria-hidden="true">↓</span>
+          </a>
+          <a class="text-link" href="#editor">
+            Take a look inside ↗
+          </a>
+        </div>
+        <p class="fine">Free. No account. Just you and the page.</p>
+      </div>
+      <div class="hero-visual">
+        <PaperArt />
+        <span class="edition-stamp">
+          PLAIN TEXT.
+          <br />
+          POSSIBILITIES.
+          <br />✳
+        </span>
+        <span class="paper-note">a good place to begin.</span>
+      </div>
+    </div>
+    <div class="hero-strip">
+      <span>SMALL TOOLS. ROOM TO THINK.</span>
+      <span>
+        Local files <i>✳</i> Live preview <i>✳</i> Math & diagrams <i>✳</i>{" "}
+        Optional AI
+      </span>
+      <a href="#editor" aria-label="Explore the editor">
+        ↓
+      </a>
+    </div>
+  </section>
+  <section class="section showcase-section wrap" id="editor">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">01 / THE WORDS ARE YOURS. THE VIEW IS TOO.</p>
+        <h2>
+          Plain text.
+          <br />
+          <em>A whole new perspective.</em>
+        </h2>
+      </div>
+      <p>Write in source. Read in comfort. Or see both at once.</p>
+    </div>
+    <div id="themes" data-showcase>
+      <div
+        class="view-switcher"
+        role="tablist"
+        aria-label="Explore Paperling views"
+      >
+        {views.map((v, i) => (
+          <button
+            role="tab"
+            id={"view-tab-" + i}
+            aria-controls={"view-panel-" + i}
+            aria-selected={i === 0 ? "true" : "false"}
+            tabindex={i === 0 ? 0 : -1}
+            data-view-tab={i}
+          >
+            {v.name}
+          </button>
+        ))}
+      </div>
+      {views.map((v, i) => (
+        <div
+          id={"view-panel-" + i}
+          role="tabpanel"
+          aria-labelledby={"view-tab-" + i}
+          tabindex="0"
+          hidden={i !== 0}
+          data-view-panel={i}
+        >
+          <figure>
+            <div class="screenshot-frame">
+              <div class="frame-bar">
+                <span class="frame-dots" aria-hidden="true">
+                  ● ● ●
+                </span>
+                <span>PAPERLING / {v.name.toUpperCase()}</span>
+                <span aria-hidden="true">↗</span>
+              </div>
+              <Image
+                src={v.image}
+                alt={v.alt}
+                widths={[640, 960, 1280, 1600]}
+                sizes="(max-width: 720px) 94vw, 90vw"
+                loading="lazy"
+                format="webp"
+              />
+            </div>
+            <figcaption class="shot-caption">
+              <span>{v.caption}</span>
+              <span>REAL APP SCREENSHOT</span>
+            </figcaption>
+          </figure>
+        </div>
+      ))}
+    </div>
+  </section>
+  <section class="section torn" id="features">
+    <div class="wrap">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">02 / A THOUGHTFUL LITTLE TOOLKIT</p>
+          <h2>
+            Less fiddling.
+            <br />
+            More <em>“there it is.”</em>
+          </h2>
+        </div>
+        <a class="text-link" href={url("features/")}>
+          Explore every feature ↗
+        </a>
+      </div>
+      <div class="feature-grid">
+        <a
+          class="feature-card"
+          href={url("features/focused-writing/")}
+          data-reveal
+        >
+          <span class="card-number">01 / FIND YOUR FLOW</span>
+          <span class="card-arrow" aria-hidden="true">
+            ↗
+          </span>
+          <div class="feature-art" aria-hidden="true">
+            <div class="mini-page">
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+          </div>
+          <h3>
+            A quiet place
+            <br />
+            to get it down.
+          </h3>
+          <p>
+            Focus mode, slash commands, and table tools. Room for the words.
+          </p>
+        </a>
+        <a
+          class="feature-card"
+          href={url("features/math-and-diagrams/")}
+          data-reveal
+        >
+          <span class="card-number">02 / MAKE IT MAKE SENSE</span>
+          <span class="card-arrow" aria-hidden="true">
+            ↗
+          </span>
+          <div class="feature-art math-art" aria-hidden="true">
+            ∫ <span>f(x)</span>
+            <small>dx</small>
+          </div>
+          <h3>
+            For wonderfully
+            <br />
+            complicated ideas.
+          </h3>
+          <p>Math and Mermaid diagrams. Written as text, rendered live.</p>
+        </a>
+        <a
+          class="feature-card"
+          href={url("features/ai-assistant/")}
+          id="ai"
+          data-reveal
+        >
+          <span class="card-number">03 / A SECOND PAIR OF EYES</span>
+          <span class="card-arrow" aria-hidden="true">
+            ↗
+          </span>
+          <div class="feature-art ai-art" aria-hidden="true">
+            <del>maybe</del>
+            <ins>yes.</ins>
+          </div>
+          <h3>
+            A little assistance.
+            <br />
+            Your final say.
+          </h3>
+          <p>
+            Optional AI. Review every suggested edit. Provider costs may apply.
+          </p>
+        </a>
+      </div>
+    </div>
+  </section>
+  <section class="section wrap story-grid" id="open-source">
+    <div data-reveal>
+      <p class="eyebrow">03 / A SMALL PERSONAL PROJECT</p>
+      <h2>
+        Made for myself.
+        <br />
+        <em>Shared with you.</em>
+      </h2>
+      <p>
+        “I built Paperling when I was starting my journey. I wanted an easier
+        way to read .md files, so I made one for myself.”
+      </p>
+      <p>— Saqlain, creator of Paperling</p>
+      <a class="text-link" href={url("open-source/")}>
+        The story & the source ↗
+      </a>
+    </div>
+    <div class="story-art" data-reveal>
+      <div class="file-label">
+        <span>~/a-few-good-ideas/</span>
+        <span>↗</span>
+      </div>
+      <div class="file-art">
+        <span>↳</span> the-next-big-thing.md
+        <br />
+        <span>↳</span> notes-to-self.md
+        <br />
+        <span>↳</span> a-small-discovery.md
+        <br />
+        <br />
+        <small># A note to myself</small>
+        <br />
+        Good ideas need room.
+        <br />
+        <span>Not another login.</span>
+      </div>
+      <div class="note-callout">Yours to write. Yours to keep.</div>
+    </div>
+  </section>
+  <section class="section compare-section" id="compare">
+    <div class="wrap">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">A GOOD FIT BEATS A LONG FEATURE LIST</p>
+          <h2>
+            Your editor.
+            <br />
+            <em>Your kind of thinking.</em>
+          </h2>
+        </div>
+        <p>A few honest comparisons. Find what fits you.</p>
+      </div>
+      <div class="compare-links">
+        {[
+          ["obsidian", "Obsidian"],
+          ["typora", "Typora"],
+          ["vscode", "VS Code"],
+          ["marktext", "MarkText"],
+        ].map(([s, n]) => (
+          <a href={url("compare/" + s + "/")}>
+            vs {n}
+            <span aria-hidden="true">↗</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+  <section class="section wrap faq-section" id="faq">
+    <div>
+      <p class="eyebrow">A FEW THINGS YOU MIGHT WONDER</p>
+      <h2>
+        Good questions.
+        <br />
+        <em>Straight answers.</em>
+      </h2>
+      <div class="actions">
+        <a class="text-link" href={url("faq/")}>
+          All questions & answers ↗
+        </a>
+      </div>
+    </div>
+    <Faq items={faqs.slice(0, 5)} />
+  </section>
+  <CTA />
 </Base>
+<script>
+  const showcase = document.querySelector("[data-showcase]");
+  if (showcase) {
+    const tabs = [
+      ...showcase.querySelectorAll<HTMLButtonElement>("[data-view-tab]"),
+    ];
+    const activate = (index: number) => {
+      tabs.forEach((t, i) => {
+        t.setAttribute("aria-selected", String(i === index));
+        t.tabIndex = i === index ? 0 : -1;
+      });
+      showcase
+        .querySelectorAll<HTMLElement>("[data-view-panel]")
+        .forEach((p, i) => (p.hidden = i !== index));
+    };
+    tabs.forEach((tab, i) => {
+      tab.addEventListener("click", () => activate(i));
+      tab.addEventListener("keydown", (e) => {
+        let next = i;
+        if (e.key === "ArrowRight") next = (i + 1) % tabs.length;
+        else if (e.key === "ArrowLeft")
+          next = (i + tabs.length - 1) % tabs.length;
+        else if (e.key === "Home") next = 0;
+        else if (e.key === "End") next = tabs.length - 1;
+        else return;
+        e.preventDefault();
+        activate(next);
+        tabs[next].focus();
+      });
+    });
+  }
+</script>

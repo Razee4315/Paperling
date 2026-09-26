@@ -1,0 +1,107 @@
+---
+import Base from "../layouts/Base.astro";
+import Aside from "../components/Aside.astro";
+import {
+  BINDINGS,
+  type BindingId,
+  type Binding,
+} from "../../../src/config/keybindings";
+const commands: [BindingId, string][] = [
+  ["openFile", "Open file"],
+  ["newFile", "New file"],
+  ["save", "Save"],
+  ["saveAs", "Save as"],
+  ["toggleMode", "Switch Reader / Code"],
+  ["toggleSplit", "Toggle Split view"],
+  ["palette", "Command palette"],
+  ["settings", "Settings"],
+  ["bold", "Bold"],
+  ["italic", "Italic"],
+  ["link", "Insert link"],
+  ["find", "Find"],
+  ["replace", "Replace"],
+  ["toggleFileExplorer", "File explorer"],
+  ["toggleTOC", "Outline"],
+  ["zenMode", "Zen mode"],
+  ["nextTab", "Next tab"],
+  ["prevTab", "Previous tab"],
+];
+function label(id: BindingId, mac: boolean) {
+  const b: Binding = BINDINGS[id];
+  return [
+    b.mod ? (mac ? "Cmd" : "Ctrl") : b.ctrl ? "Ctrl" : "",
+    b.alt ? "Alt" : "",
+    b.shift ? "Shift" : "",
+    b.key.length === 1 ? b.key.toUpperCase() : b.key,
+  ]
+    .filter(Boolean)
+    .join(" + ");
+}
+---
+
+<Base
+  title="Paperling Keyboard Shortcuts for Windows, Mac & Linux"
+  description="A desktop keyboard shortcut reference for Paperling: open and save files, switch views, format Markdown, find text, and navigate tabs."
+  path="shortcuts/"
+  crumbs={[{ label: "Keyboard shortcuts", path: "shortcuts/" }]}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <p class="eyebrow">KEEP YOUR HANDS ON THE THOUGHT</p>
+      <h1>
+        Less reaching.
+        <br />
+        <em>More writing.</em>
+      </h1>
+      <p>
+        The everyday desktop shortcuts, straight from Paperling's keybinding
+        configuration. Some commands depend on the active view or editor focus.
+      </p>
+    </header>
+    <div class="article-layout">
+      <article class="prose">
+        <div
+          class="table-scroll shortcuts"
+          role="region"
+          aria-label="Desktop keyboard shortcuts"
+          tabindex="0"
+        >
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Action</th>
+                <th scope="col">Windows / Linux</th>
+                <th scope="col">macOS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {commands.map(([id, name]) => (
+                <tr>
+                  <th scope="row">{name}</th>
+                  <td>
+                    <kbd>{label(id, false)}</kbd>
+                  </td>
+                  <td>
+                    <kbd>{label(id, true)}</kbd>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <h2>A couple of useful habits</h2>
+        <p>
+          Open the command palette to discover actions by name. Type / at the
+          beginning of a line in the editor for slash commands. Tab moves
+          between table cells when your caret is inside a Markdown table.
+        </p>
+        <p>
+          Tab cycling uses Control on every desktop platform because Cmd+Tab
+          belongs to the macOS app switcher. On some keyboards, function keys
+          also require Fn.
+        </p>
+      </article>
+      <Aside />
+    </div>
+  </div>
+</Base>

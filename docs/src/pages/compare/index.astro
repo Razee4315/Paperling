@@ -1,0 +1,37 @@
+---
+import Base from "../../layouts/Base.astro";
+import { comparisons } from "../../lib/comparisons";
+import { url } from "../../lib/site";
+---
+
+<Base
+  title="Compare Markdown Editors: Find Your Fit | Paperling"
+  description="An honest comparison of Paperling with Obsidian, Typora, VS Code, and MarkText. Choose an editor around your actual writing workflow."
+  path="compare/"
+  crumbs={[{ label: "Compare", path: "compare/" }]}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <p class="eyebrow">GOOD TOOLS. DIFFERENT PRIORITIES.</p>
+      <h1>
+        Find your kind
+        <br />
+        of <em>writing space.</em>
+      </h1>
+      <p>
+        There is no single best Markdown editor for everyone. Start with what
+        you need to do, then pick the tool that gets out of your way.
+      </p>
+    </header>
+    <div class="index-grid">
+      {comparisons.map((c) => (
+        <a class="index-card" href={url("compare/" + c.slug + "/")}>
+          <span class="eyebrow">PAPERLING VS {c.name}</span>
+          <h2>{c.tagline}</h2>
+          <p>{c.intro}</p>
+          <span class="text-link">Read the comparison ↗</span>
+        </a>
+      ))}
+    </div>
+  </div>
+</Base>

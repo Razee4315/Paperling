@@ -1,0 +1,90 @@
+---
+import Base from "../../layouts/Base.astro";
+import { comparisons } from "../../lib/comparisons";
+import { url, SITE } from "../../lib/site";
+export function getStaticPaths() {
+  return comparisons.map((comparison) => ({
+    params: { slug: comparison.slug },
+    props: { comparison },
+  }));
+}
+const { comparison: c } = Astro.props;
+---
+
+<Base
+  title={"Paperling vs " + c.name + ": An Honest Markdown Editor Comparison"}
+  description={c.description}
+  path={"compare/" + c.slug + "/"}
+  crumbs={[
+    { label: "Compare", path: "compare/" },
+    { label: "vs " + c.name, path: "compare/" + c.slug + "/" },
+  ]}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <p class="eyebrow">PAPERLING VS {c.name} / REVIEWED SEPTEMBER 26, 2026</p>
+      <h1>
+        Paperling vs <em>{c.name}</em>
+      </h1>
+      <p>{c.intro}</p>
+    </header>
+    <div class="comparison-body">
+      <article class="prose comparison-prose">
+        <div
+          class="table-scroll"
+          role="region"
+          aria-label={"Paperling and " + c.name + " feature comparison"}
+          tabindex="0"
+        >
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">What matters</th>
+                <th scope="col">Paperling</th>
+                <th scope="col">{c.name}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.rows.map(([label, paperling, other]) => (
+                <tr>
+                  <th scope="row">{label}</th>
+                  <td>{paperling}</td>
+                  <td>{other}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <h2>Which should you choose?</h2>
+        <p>{c.verdict}</p>
+        <p class="subtle">
+          Standard Markdown travels well; app-specific extensions may differ.
+          Try a copy of your notes first.
+        </p>
+        <details class="comparison-sources">
+          <summary>Sources & review notes</summary>
+          <p class="subtle">
+            Reviewed September 26, 2026 by the Paperling project. Features can
+            change. No performance benchmarks are implied.
+          </p>
+          <ul class="source-list">
+            {c.sources.map(([label, href]) => (
+              <li>
+                <a href={href}>{label} ↗</a>
+              </li>
+            ))}
+            <li>
+              <a href={SITE.repo + "#features"}>
+                Paperling features and source code ↗
+              </a>
+            </li>
+          </ul>
+        </details>
+        <p>
+          <a href={url("compare/")}>Explore the other comparisons</a> or{" "}
+          <a href={url("guide/")}>try a first document in Paperling</a>.
+        </p>
+      </article>
+    </div>
+  </div>
+</Base>

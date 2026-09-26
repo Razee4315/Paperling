@@ -1,0 +1,107 @@
+---
+import Base from "../layouts/Base.astro";
+import { SITE, url } from "../lib/site";
+const platforms = [
+  {
+    name: "Windows",
+    label: "01 / DESKTOP",
+    note: "Windows 10 and 11. Choose x64 for most PCs, or ARM64 for a Windows on ARM device.",
+    formats: ".exe · .msi · x64 portable .zip",
+    steps:
+      "Use an .exe or .msi installer, or extract the x64 portable archive into a folder you control. The release asset name identifies the architecture.",
+  },
+  {
+    name: "macOS",
+    label: "02 / DESKTOP",
+    note: "A universal download for Apple Silicon and Intel Macs.",
+    formats: "Universal .dmg",
+    steps:
+      "Open the .dmg and copy Paperling into Applications. The app is not Apple-notarized; read the installation notes in the repository if macOS blocks it.",
+  },
+  {
+    name: "Linux",
+    label: "03 / DESKTOP",
+    note: "Choose the package format appropriate for your x86_64 distribution.",
+    formats: ".AppImage · .deb · .rpm",
+    steps:
+      "Use a .deb on Debian/Ubuntu or an .rpm on an RPM-based distribution. An AppImage needs executable permission and compatible system libraries.",
+  },
+  {
+    name: "Android",
+    label: "04 / IN YOUR POCKET",
+    note: "Android 10+ on arm64 devices. Distributed directly as an APK, rather than through the Play Store.",
+    formats: "arm64 .apk",
+    steps:
+      "Open the release page on your phone and download the .apk. Android may ask you to allow installation from your browser. Review that permission before continuing.",
+  },
+];
+---
+
+<Base
+  title="Download Paperling for Windows, macOS, Linux & Android"
+  description="Download the free, open-source Paperling Markdown editor. Find Windows installers, a universal macOS app, Linux packages, and the Android APK."
+  path="download/"
+  crumbs={[{ label: "Download", path: "download/" }]}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <p class="eyebrow">A FRESH PAGE. ON YOUR DEVICE.</p>
+      <h1>
+        Make yourself
+        <br />
+        <em>at home.</em>
+      </h1>
+      <p>
+        Free and open source. No Paperling account required. Choose your
+        platform, then pick the matching file under Assets on GitHub Releases.
+      </p>
+    </header>
+    <div class="platform-grid">
+      {platforms.map((p) => (
+        <section class="platform-card">
+          <span class="platform-symbol">{p.label}</span>
+          <h2>{p.name}</h2>
+          <p>{p.note}</p>
+          <p class="fine">{p.formats}</p>
+          <a class="button" href={SITE.releases}>
+            Find {p.name} downloads ↗
+          </a>
+          <details class="install-notes">
+            <summary>Installation notes</summary>
+            <p>{p.steps}</p>
+          </details>
+        </section>
+      ))}
+    </div>
+    <div class="article-layout">
+      <article class="prose">
+        <h2>Before your first launch</h2>
+        <p>
+          Desktop builds are currently unsigned or unnotarized, so your
+          operating system may show a security warning. Download only from the
+          official repository and review the{" "}
+          <a href={SITE.repo + "#installation"}>installation notes</a> before
+          deciding whether to proceed.
+        </p>
+        <p>
+          The latest release page is the source of truth for available packages.
+          There is no iPhone or iPad build. Keep copies of important documents
+          when installing or updating software.
+        </p>
+        <h2>New to Markdown?</h2>
+        <p>
+          <a href={url("guide/")}>Start with a short guide</a>: open a file, try
+          a heading, and see the preview. You can set up optional AI later, or
+          leave it off entirely.
+        </p>
+      </article>
+      <aside class="aside-card">
+        <h2>Curious what changed?</h2>
+        <p>Read the published release notes before choosing an update.</p>
+        <a class="text-link" href={url("changelog/")}>
+          What's new ↗
+        </a>
+      </aside>
+    </div>
+  </div>
+</Base>

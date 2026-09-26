@@ -1,0 +1,71 @@
+---
+import Base from "../layouts/Base.astro";
+import Aside from "../components/Aside.astro";
+import { SITE } from "../lib/site";
+---
+
+<Base
+  title="Privacy & Local Files: How Paperling Works"
+  description="Understand Paperling's local files, optional AI connections, remote content, update checks, and GitHub Pages hosting."
+  path="privacy/"
+  crumbs={[{ label: "Privacy & your files", path: "privacy/" }]}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <p class="eyebrow">YOUR FILES. CLEAR EXPECTATIONS.</p>
+      <h1>
+        Local by nature.
+        <br />
+        <em>Clear about connections.</em>
+      </h1>
+      <p>
+        Paperling is a local Markdown editor. That describes where you write and
+        save; it does not mean every feature is unable to use the network.
+      </p>
+    </header>
+    <div class="article-layout">
+      <article class="prose">
+        <h2>Your documents</h2>
+        <p>
+          Reading and editing local Markdown files work offline. Paperling does
+          not require an account or provide a hosted note-sync service. You
+          choose the folders, backups, and external storage tools you use.
+        </p>
+        <h2>Optional AI</h2>
+        <p>
+          If you configure a remote AI endpoint, that provider receives the
+          document context and prompts you send. Its data practices and charges
+          apply. A compatible local model server is another option, with its own
+          setup requirements. Keep credentials private and avoid including them
+          in bug reports.
+        </p>
+        <h2>Other network activity</h2>
+        <p>
+          Update checks and downloads connect to the release service. Remote
+          images or other online content referenced by a document may contact
+          their host. Following external links opens the destination site under
+          its own privacy practices.
+        </p>
+        <h2>This website</h2>
+        <p>
+          This site is hosted on GitHub Pages. It does not add advertising
+          trackers or an analytics script. Fonts and artwork are served with the
+          site. GitHub can process request information as the hosting provider;
+          see its{" "}
+          <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">
+            privacy statement
+          </a>
+          .
+        </p>
+        <h2>Check the implementation</h2>
+        <p>
+          Paperling is open source. You can inspect the{" "}
+          <a href={SITE.repo}>repository</a> or{" "}
+          <a href={SITE.repo + "/issues"}>report a problem</a>. Remove private
+          notes, tokens, and API keys before posting publicly.
+        </p>
+      </article>
+      <Aside />
+    </div>
+  </div>
+</Base>

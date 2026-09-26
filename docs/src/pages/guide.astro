@@ -1,0 +1,85 @@
+---
+import Base from "../layouts/Base.astro";
+import Aside from "../components/Aside.astro";
+import { url } from "../lib/site";
+const sample =
+  "# A little room to think\n\nToday, I want to **make something useful**.\n\n- [x] Open a fresh page\n- [ ] Write a first thought\n\n## A useful link\n\n[Markdown guide](https://www.markdownguide.org/)\n\n| Idea | Next step |\n| --- | --- |\n| A better README | Write the introduction |";
+---
+
+<Base
+  title="Getting Started with Paperling: A Markdown Guide"
+  description="Open your first Markdown file in Paperling, try live preview, save a note, and explore math, diagrams, and optional AI at your own pace."
+  path="guide/"
+  crumbs={[{ label: "Getting started", path: "guide/" }]}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <p class="eyebrow">FIVE MINUTES. ONE FRESH PAGE.</p>
+      <h1>
+        From opening a file
+        <br />
+        to <em>finding your flow.</em>
+      </h1>
+      <p>
+        You don't need a system before you can write a note. Start with one file
+        and let the rest follow.
+      </p>
+    </header>
+    <div class="article-layout">
+      <article class="prose">
+        <h2>1. Open a note</h2>
+        <p>
+          <a href={url("download/")}>Download Paperling</a> for your device and
+          launch the app. Open an existing .md file, or create a new document.
+          On desktop, Ctrl+O opens a file and Ctrl+N creates a note; use Cmd
+          instead of Ctrl on macOS.
+        </p>
+        <h2>2. Make a little structure</h2>
+        <p>
+          Markdown is plain text with a few conventions. A # starts a heading,
+          pairs of asterisks make text bold, and a dash starts a list. Try this
+          in Code view:
+        </p>
+        <pre><code>{sample}</code></pre>
+        <h2>3. Find your favorite view</h2>
+        <p>
+          Use Reader view to read the rendered document. Code view gives you the
+          source. Split view keeps both alongside each other. On desktop, Ctrl+E
+          toggles Reader/Code and Ctrl+backslash toggles Split; use Cmd on
+          macOS.
+        </p>
+        <h2>4. Give it a home</h2>
+        <p>
+          Save your document with a .md extension in a folder you control.
+          Ctrl+S saves; Ctrl+Shift+S uses Save As (Cmd on macOS). Keep backups
+          of important work. Optional auto-save can be configured in settings.
+        </p>
+        <h2>5. Add only what you need</h2>
+        <p>
+          Try the{" "}
+          <a href={url("features/math-and-diagrams/")}>
+            math and diagram syntax
+          </a>{" "}
+          for technical notes,{" "}
+          <a href={url("features/focused-writing/")}>focus mode</a> for a longer
+          draft, or <a href={url("features/ai-assistant/")}>optional AI</a> when
+          you want another perspective.
+        </p>
+        <h2>Taking your document elsewhere</h2>
+        <p>
+          The original stays Markdown. The{" "}
+          <a href={url("features/export/")}>Export menu</a> offers shareable
+          formats. Check the exported document before sending it, especially
+          when it includes local images, equations, or diagrams.
+        </p>
+        <p>
+          <a href={url("shortcuts/")}>
+            Keep the keyboard shortcut reference handy
+          </a>{" "}
+          while you settle in.
+        </p>
+      </article>
+      <Aside />
+    </div>
+  </div>
+</Base>
