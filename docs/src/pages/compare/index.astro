@@ -24,7 +24,7 @@ import { url } from "../../lib/site";
     </header>
     <div class="index-grid">
       {comparisons.map((c) => (
-        <a class="index-card" href={url("compare/" + c.slug + "/")}>
+        <a class="index-card" data-reveal href={url("compare/" + c.slug + "/")}>
           <span class="card-label">Paperling vs {c.name}</span>
           <h2>{c.tagline}</h2>
           <p>{c.intro}</p>

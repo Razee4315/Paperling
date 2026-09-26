@@ -26,7 +26,7 @@ import { featureIcons } from "../../lib/art";
     </header>
     <div class="index-grid">
       {features.map((f) => (
-        <a class="index-card" href={url("features/" + f.slug + "/")}>
+        <a class="index-card" data-reveal href={url("features/" + f.slug + "/")}>
           <Image
             class="index-icon"
             src={featureIcons[f.slug]}

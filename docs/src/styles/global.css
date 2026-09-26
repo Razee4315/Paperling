@@ -936,14 +936,55 @@ td {
 .subtle {
   font-size: 12px;
 }
-.reveal-wait {
-  opacity: 0.15;
-  transform: translateY(20px);
-}
-[data-reveal] {
+/* WEB-07: soft fade-up on scroll; motion.ts staggers siblings via --reveal-delay. */
+/* Extra specificity so component transitions (buttons, cards) don't cancel the reveal. */
+html [data-reveal].reveal {
   transition:
-    opacity 0.7s ease,
-    transform 0.7s ease;
+    opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+.reveal-wait {
+  opacity: 0;
+  transform: translateY(32px);
+}
+/* First paint: the hero settles in, one piece after another. */
+.hero-copy > *,
+.hero-visual,
+.hero-shot {
+  animation: rise-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.hero-copy > :nth-child(2) {
+  animation-delay: 0.08s;
+}
+.hero-copy > :nth-child(3) {
+  animation-delay: 0.16s;
+}
+.hero-copy > :nth-child(4) {
+  animation-delay: 0.24s;
+}
+.hero-visual {
+  animation-delay: 0.2s;
+}
+.hero-shot {
+  animation-delay: 0.36s;
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(26px);
+  }
+}
+/* Lenis owns wheel smoothing when active; native smooth scroll would fight it. */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+html.lenis {
+  scroll-behavior: auto;
+}
+.lenis.lenis-stopped {
+  overflow: clip;
 }
 @keyframes paper-breathe {
   0%,
