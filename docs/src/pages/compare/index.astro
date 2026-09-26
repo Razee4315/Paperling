@@ -12,7 +12,6 @@ import { url } from "../../lib/site";
 >
   <div class="wrap">
     <header class="page-heading">
-      <p class="eyebrow">GOOD TOOLS. DIFFERENT PRIORITIES.</p>
       <h1>
         Find your kind
         <br />
@@ -26,7 +25,7 @@ import { url } from "../../lib/site";
     <div class="index-grid">
       {comparisons.map((c) => (
         <a class="index-card" href={url("compare/" + c.slug + "/")}>
-          <span class="eyebrow">PAPERLING VS {c.name}</span>
+          <span class="card-label">Paperling vs {c.name}</span>
           <h2>{c.tagline}</h2>
           <p>{c.intro}</p>
           <span class="text-link">Read the comparison ↗</span>

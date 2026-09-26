@@ -6,7 +6,6 @@ import { mascotJuggle } from "../lib/art";
 const platforms = [
   {
     name: "Windows",
-    label: "01 / DESKTOP",
     note: "Windows 10 and 11. Choose x64 for most PCs, or ARM64 for a Windows on ARM device.",
     formats: ".exe · .msi · x64 portable .zip",
     steps:
@@ -14,7 +13,6 @@ const platforms = [
   },
   {
     name: "macOS",
-    label: "02 / DESKTOP",
     note: "A universal download for Apple Silicon and Intel Macs.",
     formats: "Universal .dmg",
     steps:
@@ -22,7 +20,6 @@ const platforms = [
   },
   {
     name: "Linux",
-    label: "03 / DESKTOP",
     note: "Choose the package format appropriate for your x86_64 distribution.",
     formats: ".AppImage · .deb · .rpm",
     steps:
@@ -30,7 +27,6 @@ const platforms = [
   },
   {
     name: "Android",
-    label: "04 / IN YOUR POCKET",
     note: "Android 10+ on arm64 devices. Distributed directly as an APK, rather than through the Play Store.",
     formats: "arm64 .apk",
     steps:
@@ -55,7 +51,6 @@ const platforms = [
         sizes="240px"
         loading="eager"
       />
-      <p class="eyebrow">A FRESH PAGE. ON YOUR DEVICE.</p>
       <h1>
         Make yourself
         <br />
@@ -69,7 +64,6 @@ const platforms = [
     <div class="platform-grid">
       {platforms.map((p) => (
         <section class="platform-card">
-          <span class="platform-symbol">{p.label}</span>
           <h2>{p.name}</h2>
           <p>{p.note}</p>
           <p class="fine">{p.formats}</p>

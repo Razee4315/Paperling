@@ -102,13 +102,6 @@ main:focus {
 .section {
   padding-block: 100px;
 }
-.eyebrow {
-  font: 11px/1.6 var(--mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--green);
-  margin-bottom: 22px;
-}
 .text-link {
   display: inline-flex;
   gap: 22px;
@@ -226,23 +219,6 @@ main:focus {
   padding: 38px 0 0;
   position: relative;
 }
-.hero-topline {
-  display: flex;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 15px;
-  font: 10px var(--mono);
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
-.live-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  background: var(--green);
-  border-radius: 50%;
-  margin-right: 8px;
-}
 .hero-grid {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
@@ -294,34 +270,6 @@ main:focus {
   transform: rotate(-7deg);
   color: var(--green);
 }
-.edition-stamp {
-  position: absolute;
-  right: 1%;
-  top: 8%;
-  width: 83px;
-  height: 83px;
-  border: 1px solid var(--green);
-  border-radius: 50%;
-  display: grid;
-  place-content: center;
-  text-align: center;
-  transform: rotate(12deg);
-  font: 10px/1.5 var(--mono);
-  background: var(--paper);
-}
-.hero-strip {
-  padding: 21px 0;
-  border-block: 1px solid var(--line);
-  display: flex;
-  gap: 15px;
-  justify-content: space-between;
-  font: 10px var(--mono);
-  letter-spacing: 0.04em;
-}
-.hero-strip i {
-  font-style: normal;
-  color: var(--clay);
-}
 .showcase-section {
   padding-top: 66px;
 }
@@ -346,23 +294,9 @@ main:focus {
   width: 100%;
   border-radius: 3px;
 }
-.frame-bar {
-  display: flex;
-  justify-content: space-between;
-  color: #e1e7d8;
-  font: 10px var(--mono);
-  padding: 0 0 13px;
-}
-.frame-dots {
-  letter-spacing: 3px;
-  color: #a6b59b;
-}
 .shot-caption {
-  display: flex;
-  justify-content: space-between;
-  gap: 15px;
-  margin-top: 20px;
-  font: 10px/1.6 var(--mono);
+  margin-top: 16px;
+  font-size: 14px;
   color: var(--muted);
 }
 .view-switcher {
@@ -463,10 +397,6 @@ main:focus {
   font-size: 13px;
   line-height: 1.8;
   margin-top: 13px;
-}
-.card-number {
-  font: 10px var(--mono);
-  color: var(--muted);
 }
 .card-arrow {
   position: absolute;
@@ -647,7 +577,6 @@ main:focus {
 .cta-section h2 em {
   color: var(--gold);
 }
-.cta-section .eyebrow,
 .cta-section p {
   color: #d9e3d1;
 }
@@ -911,6 +840,17 @@ main:focus {
   background: var(--sage);
   transform: translateY(-3px);
 }
+.card-label {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--green);
+}
+.meta-line {
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: 30px;
+}
 .index-card h2 {
   font-size: 36px;
   margin: 20px 0 16px;
@@ -989,12 +929,6 @@ td {
 .platform-card .button {
   margin-top: 10px;
 }
-.platform-symbol {
-  font: 11px var(--mono);
-  color: var(--muted);
-  margin-bottom: 20px;
-  display: block;
-}
 .shortcuts kbd {
   font: 12px var(--mono);
   white-space: nowrap;
@@ -1041,12 +975,6 @@ td {
   .hero-visual .paper-note {
     font-size: 19px;
     bottom: 0;
-  }
-  .edition-stamp {
-    width: 65px;
-    height: 65px;
-    font-size: 8px;
-    top: 0;
   }
   .feature-card {
     padding: 24px;
@@ -1148,12 +1076,6 @@ td {
   .hero {
     padding-top: 22px;
   }
-  .hero-topline {
-    font-size: 9px;
-  }
-  .hero-topline > span:last-child {
-    display: none;
-  }
   .hero-grid {
     grid-template-columns: 1fr;
     padding: 38px 0 28px;
@@ -1182,9 +1104,6 @@ td {
   }
   .hero-shot .screenshot-frame {
     padding: 8px;
-  }
-  .hero-shot .frame-bar {
-    padding-bottom: 8px;
   }
   .toolkit-title {
     margin-top: 50px;
@@ -1232,20 +1151,6 @@ td {
   .paper-note {
     right: -2%;
   }
-  .edition-stamp {
-    top: 8%;
-    right: 0;
-  }
-  .hero-strip {
-    font-size: 8px;
-    gap: 10px;
-    flex-wrap: wrap;
-    line-height: 1.9;
-    justify-content: center;
-  }
-  .hero-strip > span:first-child {
-    display: none;
-  }
   .section {
     padding-block: 65px;
   }
@@ -1260,23 +1165,12 @@ td {
   .section-heading h2 {
     font-size: 45px;
   }
-  .eyebrow {
-    font-size: 9px;
-    margin-bottom: 16px;
-  }
   .screenshot-frame {
     padding: 8px;
     border-radius: 5px;
   }
-  .frame-bar {
-    font-size: 8px;
-    padding-bottom: 9px;
-  }
   .shot-caption {
-    font-size: 8px;
-  }
-  .shot-caption span:last-child {
-    display: none;
+    font-size: 13px;
   }
   .view-switcher button {
     font-size: 11px;
