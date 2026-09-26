@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
 import { saveTextFile } from "./utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { save, ask } from "@tauri-apps/plugin-dialog";
@@ -473,6 +473,16 @@ function AppContent() {
   useEffect(() => {
     if (mode !== "preview") setPreviewFindOpen(false);
   }, [mode]);
+
+  // A document swap that leaves focus nowhere (Ctrl+W closed the focused
+  // tab's editor, a native Open dialog returned, a file was dropped) puts it
+  // in the visible document, so typing or PageDown just works. FOCUS-01.
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) {
+      window.dispatchEvent(new CustomEvent("paperling:focus-document"));
+    }
+  }, [docSwapId]);
 
   // Reveal the window once the tree has mounted and painted the themed
   // background. The window is created hidden (visible:false) so the webview's

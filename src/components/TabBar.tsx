@@ -158,6 +158,13 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                                 return;
                             }
                             onSelect(tab.id);
+                            // A mouse click on a tab means "show me this
+                            // note": focus goes to the note, as in VS Code.
+                            // It used to stay on the tab, so typing did
+                            // nothing and Backspace/Delete (the tab strip's
+                            // keyboard close keys) CLOSED the tab. Keyboard
+                            // navigation of the strip keeps focus. FOCUS-01.
+                            window.dispatchEvent(new CustomEvent("paperling:focus-document"));
                         }}
                         onDragStart={(e) => {
                             setDragIndex(index);

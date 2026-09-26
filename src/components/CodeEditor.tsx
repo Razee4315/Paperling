@@ -1181,7 +1181,16 @@ function CodeEditorImpl({
             v.scrollDOM.scrollTop = 0;
         };
         window.addEventListener("paperling:scroll-top", toTop);
-        return () => window.removeEventListener("paperling:scroll-top", toTop);
+        // "Focus the document" (FOCUS-01): the visible editor takes focus.
+        const focusDoc = () => {
+            const v = viewRef.current;
+            if (v && v.scrollDOM.clientHeight > 0) v.focus();
+        };
+        window.addEventListener("paperling:focus-document", focusDoc);
+        return () => {
+            window.removeEventListener("paperling:scroll-top", toTop);
+            window.removeEventListener("paperling:focus-document", focusDoc);
+        };
     }, []);
 
     // Alt+J (and the command palette's "AI assist") is selection-aware, matching

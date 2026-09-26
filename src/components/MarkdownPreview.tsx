@@ -1338,6 +1338,19 @@ function MarkdownPreviewImpl({
         if (list) el.scrollTop = lineToOffset(list, pending.line);
     }, [renderedBody, anchorList]);
 
+    // "Focus the document" requests (FOCUS-01): in reader mode the preview
+    // is the document; in split mode the editor takes it (it listens too).
+    useEffect(() => {
+        const onFocusDoc = () => {
+            const el = mainRef.current;
+            if (!el || el.clientHeight === 0) return;
+            const editorVisible = !!document.querySelector(".cm-editor")?.getBoundingClientRect().height;
+            if (!editorVisible) el.focus({ preventScroll: true });
+        };
+        window.addEventListener("paperling:focus-document", onFocusDoc);
+        return () => window.removeEventListener("paperling:focus-document", onFocusDoc);
+    }, []);
+
     // Register imperative scroller for split-view sync
     useEffect(() => {
         if (!registerScroller) return;
@@ -1368,7 +1381,10 @@ function MarkdownPreviewImpl({
         <>
             <main
                 ref={mainRef}
-                className="flex-1 overflow-y-auto bg-[var(--bg-primary)] transition-colors"
+                // Focusable (not in the Tab order) so Space / PageDown /
+                // arrows scroll the reader after a tab switch. FOCUS-01.
+                tabIndex={-1}
+                className="flex-1 overflow-y-auto bg-[var(--bg-primary)] transition-colors outline-none"
             >
                 <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 py-12`}>
                     {hasFrontmatter && (
