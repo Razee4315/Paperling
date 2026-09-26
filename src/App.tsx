@@ -365,6 +365,16 @@ function AppContent() {
   // unreadable anyway) — "open" means the in-app files browser. That action
   // lives right after useFileSession below (it needs the hook's handleOpenFile).
 
+  // Ctrl+S confirmation (SAVE-07): a brief pulse on the status bar's
+  // "Saved" instead of a toast over the text; zen hides the status bar, so
+  // there it stays a toast.
+  const [savePulse, setSavePulse] = useState(0);
+  const zenActiveRef = useRef(false);
+  const handleManualSaved = useCallback(() => {
+    if (zenActiveRef.current || IS_MOBILE) showToast("Saved", "success");
+    else setSavePulse((n) => n + 1);
+  }, [showToast]);
+
   // File state and the complete open/save/new/tab lifecycle live behind one
   // typed boundary. UI-only state remains in App; switching documents clears
   // any review because a proposal belongs to the file it was created for.
@@ -415,6 +425,7 @@ function AppContent() {
     setMode,
     showToast,
     promptSavePath: promptForSavePath,
+    onSaved: handleManualSaved,
   });
 
   // On the phone there is no OS open panel (and its SAF result would be
@@ -1119,6 +1130,7 @@ function AppContent() {
   // Effective zen: the flag alone means nothing on the welcome screen (there
   // is no canvas to isolate), so chrome hides only once a file is open.
   const zenActive = zenMode && hasFile;
+  zenActiveRef.current = zenActive;
 
   // Handle file drop
   const handleFileDrop = useCallback(
@@ -2094,6 +2106,7 @@ function AppContent() {
           {!IS_MOBILE && !zenActive && (
             <StatusBar
               isSaved={!isDirty}
+              savePulse={savePulse}
               lineNumber={mode === "preview" ? previewLine : cursorPosition.line}
               columnNumber={cursorPosition.col}
               mode={mode}

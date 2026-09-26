@@ -1619,3 +1619,19 @@ html.touch ::-webkit-scrollbar {
 .tab-strip::-webkit-scrollbar {
   display: none;
 }
+
+/* Ctrl+S confirmation on the status bar's "Saved" (SAVE-07): a short
+   accent flash instead of a toast over the text. */
+@keyframes save-pulse {
+  0% { color: var(--accent); transform: scale(1.08); }
+  100% { color: inherit; transform: scale(1); }
+}
+
+.save-pulse {
+  animation: save-pulse 0.9s ease-out;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-pulse { animation: none; }
+}

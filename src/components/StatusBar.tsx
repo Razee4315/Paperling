@@ -19,6 +19,8 @@ interface StatusBarProps {
     /** Word count inside the active selection. Only meaningful when
      *  `selectionLength > 0`. */
     selectionWordCount?: number;
+    /** Bumped on each manual Ctrl+S; replays the "Saved" pulse. SAVE-07. */
+    savePulse?: number;
 }
 
 const formatReadingTime = (min: number): string => {
@@ -45,6 +47,7 @@ function StatusBarImpl({
     readingTimeMin,
     selectionLength = 0,
     selectionWordCount = 0,
+    savePulse = 0,
 }: StatusBarProps) {
     const hasSelection = selectionLength > 0;
     return (
@@ -105,7 +108,12 @@ function StatusBarImpl({
                 </button>
             </div>
             <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5" aria-label={isSaved ? "File saved" : "File has unsaved changes"}>
+                <div
+                    // key: a new pulse remounts the element so the animation replays.
+                    key={savePulse}
+                    className={`flex items-center gap-1.5 ${savePulse > 0 ? "save-pulse" : ""}`}
+                    aria-label={isSaved ? "File saved" : "File has unsaved changes"}
+                >
                     <span
                         className={`w-2 h-2 rounded-full transition-all ${isSaved
                             ? "bg-[var(--status-saved)] shadow-[0_0_4px_rgba(80,250,123,0.4)]"
