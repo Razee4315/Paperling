@@ -9,6 +9,9 @@
 - [ ] Open a big note (a long README, 100 kB+) in split view and type. The preview keeps up without freezing. In code mode, typing never stutters.
 
 ## 🗂️ Tabs
+- [ ] Open 3–4 long notes, scroll each somewhere, then flick between tabs (click, Ctrl+Tab). Each tab appears **already at its place**: no flash of other text, no jump.
+- [ ] Open the file panel (Ctrl+Shift+E): the tabs move over beside it, and the first tab is fully visible. Many tabs: no scrollbar covering the tab labels.
+- [ ] With the file panel open, switch to a tab from a **different folder**: the panel follows to that folder and highlights the note, without flickering.
 - [ ] In a note, put the caret mid-line far down, type something, switch to another tab and back. The caret, the scroll position **and Ctrl+Z** all still work.
 - [ ] Press **New File**, then open a file right away. No leftover empty "Untitled" tab.
 - [ ] Double-click the empty part of the tab strip to get a new tab.
