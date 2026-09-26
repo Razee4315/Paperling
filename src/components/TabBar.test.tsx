@@ -31,9 +31,15 @@ describe("TabBar unsaved indicator", () => {
             { name: "other.md", dirty: false },
         ]);
 
-        // Bullet prefix on the visible label, mirroring the window title.
-        expect(screen.getByText("• notes.md")).toBeInTheDocument();
-        expect(screen.queryByText("• other.md")).not.toBeInTheDocument();
+        // Bullet before the label, mirroring the window title. It lives in a
+        // fixed slot that clean tabs keep too (invisible), so a tab never
+        // changes width when it becomes dirty or is saved. TABS-23.
+        const bullet = (name: string) =>
+            screen.getByRole("tab", { name: new RegExp(`^${name.replace(".", "\\.")}`) }).querySelector("span[aria-hidden='true'].w-1\\.5")!;
+        expect(bullet("notes.md").textContent).toBe("•");
+        expect(bullet("notes.md").className).not.toContain("invisible");
+        expect(bullet("other.md").className).toContain("invisible");
+        expect(screen.getByText("notes.md")).toBeInTheDocument();
 
         // Accessible name exposes unsaved state for screen readers.
         expect(screen.getByRole("tab", { name: "notes.md (unsaved changes)" })).toBeInTheDocument();

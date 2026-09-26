@@ -56,7 +56,7 @@ function StatusBarImpl({
         // state is announced, from its own polite region below. A11Y-05.
         <footer
             aria-label="Status bar"
-            className="h-7 shrink-0 bg-[var(--bg-titlebar)] border-t border-[var(--border)] px-4 flex items-center justify-between text-[11px] font-medium tracking-wide text-[var(--text-secondary)] no-select transition-colors"
+            className="h-7 shrink-0 bg-[var(--bg-titlebar)] border-t border-[var(--border)] px-4 flex items-center justify-between text-[11px] font-medium tracking-wide tabular-nums text-[var(--text-secondary)] no-select transition-colors"
         >
             <div className="flex items-center gap-1">
                 {/* File Explorer Toggle */}
@@ -123,7 +123,10 @@ function StatusBarImpl({
                     <span className="transition-colors" role="status" aria-live="polite">{isSaved ? "Saved" : "Unsaved"}</span>
                 </div>
                 {(mode === "code" || mode === "split") && (
-                    <div className="hover:text-[var(--text-primary)] cursor-default transition-colors">
+                    // Tabular digits (footer) plus a minimum width: Ln/Col and
+                    // the counts no longer nudge their neighbours sideways as
+                    // they grow while typing. RLL-05.
+                    <div className="min-w-[6.5rem] text-right hover:text-[var(--text-primary)] cursor-default transition-colors">
                         Ln {lineNumber}, Col {columnNumber}
                     </div>
                 )}

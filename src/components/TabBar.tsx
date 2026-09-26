@@ -207,7 +207,12 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                             marker (• filename), so every dirty tab — active or
                             background — is identifiable at a glance and stays
                             indicated while hovered, unlike the trailing dot. */}
-                        <span className="truncate text-xs">{tab.dirty ? `• ${tab.label}` : tab.label}</span>
+                        {/* Fixed-width slot, always laid out: inserting "• "
+                            into the label made the tab wider on the first
+                            keystroke, shifting every tab to its right (and
+                            back on save). TABS-23. */}
+                        <span className={`-mr-1 w-1.5 shrink-0 text-xs leading-none ${tab.dirty ? "" : "invisible"}`} aria-hidden="true">•</span>
+                        <span className="truncate text-xs">{tab.label}</span>
                         {/* Trailing control. On hover it's always a close (×)
                             button. When the tab has unsaved edits and isn't
                             hovered, it shows a small "unsaved" dot instead —
