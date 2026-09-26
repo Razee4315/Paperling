@@ -15,6 +15,15 @@ Vuoom informed the editorial spacing, tactile paper details, and substantial foo
 
 Fresh app screenshots replace the old MarkLite sample. No invented testimonials, download statistics, performance benchmarks, or ratings are used. Comparisons explicitly credit competitors and distinguish free app licensing from optional paid services. Offline and AI copy explains relevant network use and provider charges.
 
+## Mascot, icons and hero screenshot (WEB-04/05)
+
+At the owner's request, the hand-drawn mascot and icon set from the previous site are back, and the hero again leads with a real app screenshot.
+
+- **Hero:** the waving mascot replaces the SVG paper illustration; the split-view screenshot sits directly under the headline, as on the earlier site. The view tabs below now start at the Paper theme so the same image doesn't appear twice.
+- **Icons:** the three homepage feature cards use the pencil, math, and sparkles icons. A new twelve-item "in the box" grid (`src/lib/art.ts`) lists smaller features, each with its icon; every line was checked against the app and the privacy page. The Features index and each feature page show that feature's icon.
+- **Mascot poses:** painting (story card), rocket (closing banner), juggling (Download), crumpled (404).
+- Images go through `astro:assets` (responsive WebP, lazy below the fold). Decorative art uses empty alt text; the hero and 404 mascots carry descriptions. The unused `PaperArt` component and its CSS were removed.
+
 ## Search implementation
 
 - `/Paperling/` remains the canonical homepage. Existing `#top`, `#features`, `#editor`, `#themes`, `#ai`, `#download`, and `#faq` links still resolve.

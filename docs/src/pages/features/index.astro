@@ -1,6 +1,8 @@
 ---
 import Base from "../../layouts/Base.astro";
+import { Image } from "astro:assets";
 import { features, url } from "../../lib/site";
+import { featureIcons } from "../../lib/art";
 ---
 
 <Base
@@ -26,6 +28,13 @@ import { features, url } from "../../lib/site";
     <div class="index-grid">
       {features.map((f, i) => (
         <a class="index-card" href={url("features/" + f.slug + "/")}>
+          <Image
+            class="index-icon"
+            src={featureIcons[f.slug]}
+            alt=""
+            widths={[88, 176]}
+            sizes="88px"
+          />
           <span class="eyebrow">
             0{i + 1} / {f.name}
           </span>

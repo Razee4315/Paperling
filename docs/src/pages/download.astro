@@ -1,6 +1,8 @@
 ---
 import Base from "../layouts/Base.astro";
+import { Image } from "astro:assets";
 import { SITE, url } from "../lib/site";
+import { mascotJuggle } from "../lib/art";
 const platforms = [
   {
     name: "Windows",
@@ -44,7 +46,15 @@ const platforms = [
   crumbs={[{ label: "Download", path: "download/" }]}
 >
   <div class="wrap">
-    <header class="page-heading">
+    <header class="page-heading has-art">
+      <Image
+        class="heading-art"
+        src={mascotJuggle}
+        alt=""
+        widths={[240, 480]}
+        sizes="240px"
+        loading="eager"
+      />
       <p class="eyebrow">A FRESH PAGE. ON YOUR DEVICE.</p>
       <h1>
         Make yourself

@@ -1,6 +1,8 @@
 ---
 import Base from "../layouts/Base.astro";
+import { Image } from "astro:assets";
 import { url } from "../lib/site";
+import { mascotCrumpled } from "../lib/art";
 ---
 
 <Base
@@ -10,6 +12,14 @@ import { url } from "../lib/site";
   noindex
 >
   <div class="wrap section">
+    <Image
+      class="lost-mascot"
+      src={mascotCrumpled}
+      alt="Paperling's mascot, crumpled into a dizzy paper ball"
+      widths={[180, 360]}
+      sizes="180px"
+      loading="eager"
+    />
     <p class="eyebrow">404 / A LOOSE SHEET</p>
     <h1>
       This page

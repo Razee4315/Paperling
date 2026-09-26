@@ -1,7 +1,9 @@
 ---
 import Base from "../../layouts/Base.astro";
 import Aside from "../../components/Aside.astro";
+import { Image } from "astro:assets";
 import { features, url } from "../../lib/site";
+import { featureIcons } from "../../lib/art";
 export function getStaticPaths() {
   return features.map((feature) => ({
     params: { slug: feature.slug },
@@ -21,7 +23,15 @@ const { feature } = Astro.props;
   ]}
 >
   <div class="wrap">
-    <header class="page-heading">
+    <header class="page-heading has-art">
+      <Image
+        class="heading-art"
+        src={featureIcons[feature.slug]}
+        alt=""
+        widths={[200, 400]}
+        sizes="200px"
+        loading="eager"
+      />
       <p class="eyebrow">{feature.label}</p>
       <h1>{feature.title}</h1>
       <p>{feature.intro}</p>

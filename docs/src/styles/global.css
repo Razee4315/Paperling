@@ -274,16 +274,17 @@ main:focus {
 .hero-visual {
   position: relative;
 }
-.paper-art {
-  width: 100%;
-  overflow: visible;
-}
-.art-sheet {
-  transform-origin: 50% 80%;
+/* WEB-04: the waving mascot is the hero art again; one gentle sway, then still. */
+.hero-mascot {
+  display: block;
+  width: min(100%, 420px);
+  height: auto;
+  margin: 0 auto;
+  transform-origin: 50% 90%;
   animation: paper-breathe 4s ease-in-out 1;
 }
-.art-pencil {
-  animation: pencil-breathe 4s ease-in-out 1;
+.hero-shot {
+  padding-bottom: 46px;
 }
 .paper-note {
   position: absolute;
@@ -481,53 +482,53 @@ main:focus {
   margin: 20px 0 28px;
   position: relative;
 }
-.math-art {
-  font: italic 62px var(--display);
-  gap: 12px;
+.feature-art img {
+  width: 150px;
+  height: 150px;
+  object-fit: contain;
+  transition: transform 0.3s;
 }
-.math-art small {
-  font-size: 18px;
-  align-self: flex-end;
-  margin-bottom: 30px;
+.feature-card:hover .feature-art img {
+  transform: rotate(-6deg) scale(1.05);
 }
-.mini-page {
-  width: 135px;
-  height: 145px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  padding: 25px 15px;
-  box-shadow: 7px 7px 0 var(--sage);
-  transform: rotate(-7deg);
+.toolkit-title {
+  font: 650 24px var(--display);
+  letter-spacing: -0.03em;
+  margin: 70px 0 26px;
 }
-.mini-page span {
-  height: 5px;
-  background: #bac6b4;
-  display: block;
-  margin-bottom: 12px;
+.toolkit-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
 }
-.mini-page span:first-child {
-  width: 70%;
-  background: var(--green);
-  height: 9px;
+.toolkit-item {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid #bec8b6;
+  border-radius: 5px;
 }
-.mini-page span:last-child {
-  width: 50%;
+.toolkit-item img {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
 }
-.ai-art {
-  font: 48px var(--display);
-  color: var(--green);
-  gap: 6px;
+.toolkit-item h4 {
+  margin: 0;
+  font: 650 15px var(--display);
+  letter-spacing: -0.01em;
 }
-.ai-art del {
-  color: var(--clay);
-  font-size: 32px;
-  text-decoration-thickness: 1px;
-}
-.ai-art ins {
-  text-decoration: none;
-  background: var(--sage);
-  padding: 3px 12px;
-  transform: rotate(-5deg);
+.toolkit-item p {
+  font-size: 12.5px;
+  line-height: 1.6;
+  margin-top: 4px;
+  color: var(--muted);
 }
 .story-grid {
   display: grid;
@@ -543,6 +544,7 @@ main:focus {
   margin-top: 28px;
 }
 .story-art {
+  position: relative;
   background: #eae6d9;
   border: 1px solid var(--line);
   padding: 34px;
@@ -673,6 +675,51 @@ main:focus {
   top: auto;
   bottom: 5%;
   font-size: 100px;
+}
+.cta-mascot {
+  position: absolute;
+  right: 9%;
+  top: 12%;
+  width: 170px;
+  height: auto;
+  transform: rotate(8deg);
+}
+.story-mascot {
+  position: absolute;
+  right: -38px;
+  bottom: -64px;
+  width: 140px;
+  height: auto;
+  transform: rotate(6deg);
+}
+.lost-mascot {
+  display: block;
+  width: 170px;
+  height: auto;
+  margin-bottom: 18px;
+}
+.page-heading.has-art {
+  position: relative;
+  max-width: none;
+  padding-right: 300px;
+}
+.page-heading.has-art > * {
+  max-width: 880px;
+}
+.heading-art {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  translate: 0 -50%;
+  width: 220px;
+  height: auto;
+}
+.index-icon {
+  display: block;
+  width: 76px;
+  height: 76px;
+  object-fit: contain;
+  margin-bottom: 18px;
 }
 .site-footer {
   padding-top: 75px;
@@ -973,15 +1020,6 @@ td {
     transform: rotate(1deg) translateY(-7px);
   }
 }
-@keyframes pencil-breathe {
-  0%,
-  100% {
-    translate: 0 0;
-  }
-  50% {
-    translate: 3px -9px;
-  }
-}
 @media (min-width: 1500px) {
   .hero-grid {
     padding-block: 65px;
@@ -1012,6 +1050,19 @@ td {
   }
   .feature-card {
     padding: 24px;
+  }
+  .toolkit-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cta-mascot {
+    width: 120px;
+    right: 4%;
+  }
+  .page-heading.has-art {
+    padding-right: 220px;
+  }
+  .heading-art {
+    width: 170px;
   }
   .story-grid,
   .faq-section {
@@ -1122,6 +1173,61 @@ td {
     max-width: 400px;
     width: 92%;
     margin: auto;
+  }
+  .hero-mascot {
+    width: 250px;
+  }
+  .hero-shot {
+    padding-bottom: 30px;
+  }
+  .hero-shot .screenshot-frame {
+    padding: 8px;
+  }
+  .hero-shot .frame-bar {
+    padding-bottom: 8px;
+  }
+  .toolkit-title {
+    margin-top: 50px;
+    font-size: 21px;
+  }
+  .toolkit-grid {
+    gap: 10px;
+  }
+  .toolkit-item {
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+  }
+  .toolkit-item img {
+    width: 44px;
+    height: 44px;
+  }
+  .cta-mascot {
+    position: static;
+    display: block;
+    width: 110px;
+    margin: 0 auto 14px;
+  }
+  .story-mascot {
+    width: 96px;
+    right: -8px;
+    bottom: -48px;
+  }
+  .page-heading.has-art {
+    padding-right: 0;
+  }
+  .heading-art {
+    position: static;
+    translate: none;
+    width: 120px;
+    margin-bottom: 16px;
+  }
+  .lost-mascot {
+    width: 130px;
+  }
+  .index-icon {
+    width: 60px;
+    height: 60px;
   }
   .paper-note {
     right: -2%;
