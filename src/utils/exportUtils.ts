@@ -296,7 +296,14 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
             color: ${colors.codeText};
         }
 
+        /* Code stays left-to-right inside RTL text (BIDI-03). */
+        pre, code, kbd {
+            direction: ltr;
+            unicode-bidi: isolate;
+        }
+
         pre {
+            text-align: left;
             background: ${colors.codeBg};
             border: 1px solid ${colors.border};
             border-radius: 0.375rem;
@@ -314,7 +321,7 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
         }
 
         ul, ol {
-            padding-left: 1.5rem;
+            padding-inline-start: 1.5rem;
             margin-bottom: 1rem;
         }
 
@@ -329,7 +336,8 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
         }
 
         li.task-list-item > input[type="checkbox"] {
-            margin: 0 0.45em 0.2em -1.4em;
+            margin-block: 0 0.2em;
+            margin-inline: -1.4em 0.45em;
             vertical-align: middle;
         }
 
@@ -339,13 +347,14 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
         }
 
         blockquote {
-            border-left: 4px solid ${colors.accent};
+            border-inline-start: 4px solid ${colors.accent};
             background: ${colors.blockquoteBg};
             padding: 0.5rem 1rem;
             margin: 1rem 0;
             font-style: italic;
             color: ${colors.textSecondary};
-            border-radius: 0 0.25rem 0.25rem 0;
+            border-start-end-radius: 0.25rem;
+            border-end-end-radius: 0.25rem;
         }
 
         blockquote p:last-child {
@@ -355,9 +364,10 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
         /* Callouts + #tags (SYNTAX-02) — icon-free for portability. */
         .callout {
             --callout: #4a8fe7;
-            border-left: 4px solid var(--callout);
+            border-inline-start: 4px solid var(--callout);
             background: color-mix(in srgb, var(--callout) 10%, transparent);
-            border-radius: 0 0.375rem 0.375rem 0;
+            border-start-end-radius: 0.375rem;
+            border-end-end-radius: 0.375rem;
             padding: 0.6rem 1rem;
             margin: 1rem 0;
         }
@@ -397,7 +407,7 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
         th, td {
             border: 1px solid ${colors.border};
             padding: 0.5rem 0.75rem;
-            text-align: left;
+            text-align: start;
         }
 
         th {

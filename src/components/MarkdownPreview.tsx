@@ -8,6 +8,7 @@ import remarkCustomHeadingId from "../utils/remarkCustomHeadingId";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import { rehypeBlockDirection, type TextDirection } from "../utils/textDirection";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseFrontmatter, serializeFrontmatter, type FrontmatterValue } from "../utils/frontmatter";
@@ -241,6 +242,9 @@ interface MarkdownPreviewProps {
     onLineChange?: (line: number) => void;
     filePath?: string | null;
     markdownBodyRef?: React.RefObject<HTMLDivElement | null>;
+    /** Reading order (issue #216): "auto" gives each block the direction of
+     *  its first strong character; "rtl"/"ltr" force the whole document. */
+    textDirection?: TextDirection;
     onContentChange?: (newContent: string) => void;
     onScrollFraction?: (fraction: number) => void;
     registerScroller?: (scroller: Scroller | null) => void;
@@ -823,6 +827,7 @@ function MarkdownPreviewImpl({
     filePath,
     readableLineLength = true,
     markdownBodyRef,
+    textDirection = "auto",
     onContentChange,
     onScrollFraction,
     registerScroller,
@@ -1108,12 +1113,14 @@ function MarkdownPreviewImpl({
             : [[remarkGfm, GFM_OPTIONS], remarkFlexibleMarkers, remarkSupersub, remarkDefinitionList, remarkCustomHeadingId, remarkNoteSyntax]),
         [mathPlugins]
     );
-    const rehypePlugins = useMemo(
-        () => (mathPlugins
+    // rehypeBlockDirection (BIDI-01) runs last, after sanitize, and only in
+    // "auto": a forced direction is a single `dir` on .markdown-body instead.
+    const rehypePlugins = useMemo(() => {
+        const base = mathPlugins
             ? [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], mathPlugins.rehype, [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds]
-            : [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds]),
-        [mathPlugins]
-    );
+            : [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds];
+        return textDirection === "auto" ? [...base, rehypeBlockDirection] : base;
+    }, [mathPlugins, textDirection]);
 
     // Render the heavy markdown tree from a deferred copy of the body, updated
     // inside a transition. A burst of edits (already coalesced by App's debounce)
@@ -1430,6 +1437,7 @@ function MarkdownPreviewImpl({
                     <div
                         className="markdown-body"
                         ref={markdownBodyRef}
+                        dir={textDirection === "auto" ? undefined : textDirection}
                         // #tag pills: search the folder for the tag. SYNTAX-02.
                         onClick={(e) => {
                             const tag = (e.target as HTMLElement).closest<HTMLElement>(".md-tag")?.dataset.tag;

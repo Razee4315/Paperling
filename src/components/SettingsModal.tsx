@@ -3,6 +3,8 @@ import { useTheme, ACCENT_CHOICES, type Theme, type FontFamily, type FontSize } 
 import { ShortcutSettings } from "./ShortcutSettings";
 import { getInstalledFontFamilies } from "../utils/fontDiscovery";
 import { IS_MOBILE } from "../utils/platform";
+import type { TextDirection } from "../utils/textDirection";
+import { isMac } from "../config/keybindings";
 import {
     getTypewriterMode, setTypewriterMode,
     getToolbarEnabled, setToolbarEnabled,
@@ -14,6 +16,7 @@ import {
     getAutoSave, setAutoSave,
     getOpenInReader, setOpenInReader,
     getReadableLineLength, setReadableLineLength,
+    getTextDirection, setTextDirection,
     getZenMode, setZenMode,
     getAIHistoryTurns, setAIHistoryTurns, AI_HISTORY_TURNS_MAX,
     getAIIconAnimation, setAIIconAnimation,
@@ -50,7 +53,7 @@ const sections: Array<{ id: Section; label: string; icon: string }> = [
 // nothing). SET-05.
 const SECTION_KEYWORDS: Record<Section, string> = {
     appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small",
-    editor: "typewriter toolbar word wrap spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode",
+    editor: "typewriter toolbar word wrap spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
     shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
     ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
     about: "about version update tour guide help license",
@@ -116,6 +119,47 @@ function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
     );
 }
 
+const DIRECTION_OPTIONS: Array<{ id: TextDirection; label: string }> = [
+    { id: "auto", label: "Auto" },
+    { id: "ltr", label: "LTR" },
+    { id: "rtl", label: "RTL" },
+];
+
+// Three-way choice in the same row shape as ToggleRow; a radiogroup so screen
+// readers announce it as one setting with the current value. BIDI-02.
+function DirectionRow({ value, onChange }: { value: TextDirection; onChange: (v: TextDirection) => void }) {
+    return (
+        <div className="w-full flex items-center justify-between gap-4 px-3.5 py-3">
+            <div className="flex flex-col items-start min-w-0">
+                <span id="setting-text-direction" className="text-sm font-medium text-[var(--text-primary)]">Text direction</span>
+                <span className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                    Auto follows each line's language (Arabic, Hebrew, Persian… read right-to-left).
+                    {!isMac && !IS_MOBILE && " In the editor, Ctrl+Right Shift switches to RTL and Ctrl+Left Shift back to Auto."}
+                </span>
+            </div>
+            <div role="radiogroup" aria-labelledby="setting-text-direction" className="flex shrink-0 rounded-[var(--radius-md)] border border-[var(--border)] overflow-hidden">
+                {DIRECTION_OPTIONS.map((o) => {
+                    const active = value === o.id;
+                    return (
+                        <button
+                            key={o.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            onClick={() => onChange(o.id)}
+                            className={`px-2.5 py-1 text-xs font-medium transition-colors ${active
+                                ? "bg-[var(--accent)] text-[var(--accent-text)]"
+                                : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"}`}
+                        >
+                            {o.label}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
     const [section, setSection] = useState<Section>("appearance");
@@ -130,6 +174,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [autoSave, setAutoSaveLocal] = useState(getAutoSave);
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
     const [readableLength, setReadableLengthLocal] = useState(getReadableLineLength);
+    const [textDirection, setTextDirectionLocal] = useState(getTextDirection);
     // Installed-font suggestions for the custom-font input. Computed lazily on
     // first focus (never at startup), cached per session; the <datalist> does
     // the type-to-filter natively. SET-03.
@@ -500,6 +545,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 {matches("readable line length preview width column") && (
                                     <ToggleRow label="Readable line length" description="Center the reading column at a comfortable width (Obsidian-style). Off: the preview fills the window" checked={readableLength}
                                         onChange={(v) => { setReadableLengthLocal(v); setReadableLineLength(v); fire("paperling:readable-toggle", v); }} />
+                                )}
+                                {matches("text direction right to left rtl ltr arabic hebrew persian urdu") && (
+                                    <DirectionRow value={textDirection}
+                                        onChange={(v) => {
+                                            setTextDirectionLocal(v);
+                                            setTextDirection(v);
+                                            window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: v } }));
+                                        }} />
                                 )}
                                 {matches("zen mode") && (
                                     <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}
