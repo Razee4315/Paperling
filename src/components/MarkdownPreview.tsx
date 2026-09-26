@@ -954,6 +954,7 @@ function MarkdownPreviewImpl({
                                     }
                                 }
                             }
+                            if (el) window.dispatchEvent(new CustomEvent("paperling:record-nav"));
                             el?.scrollIntoView({ behavior: "smooth", block: "start" });
                         }}
                     >

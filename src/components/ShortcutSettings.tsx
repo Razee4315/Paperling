@@ -57,6 +57,8 @@ const GROUPS: Array<{ title: string; items: Array<{ id: BindingId; label: string
             { id: "replace", label: "Find and replace" },
             { id: "selectNextOccurrence", label: "Select next occurrence" },
             { id: "toggleTask", label: "Toggle task checkbox" },
+            { id: "navBack", label: "Go back (after following a link)" },
+            { id: "navForward", label: "Go forward" },
         ],
     },
 ];

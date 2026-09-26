@@ -125,7 +125,9 @@ import { TabBar, type TabBarItem } from "./components/TabBar";
 import { TabContextMenu } from "./components/TabContextMenu";
 import {
   computeTabLabels,
+  samePath,
 } from "./utils/tabsModel";
+import { emptyNavHistory, navigateBack, navigateForward, recordNavigation, type NavEntry } from "./utils/navHistory";
 import { countSourceWords, countWords } from "./utils/documentStats";
 import { Tour } from "./components/Tour";
 import { FindBar, findSeedFromSelection } from "./components/FindBar";
@@ -880,6 +882,21 @@ function AppContent() {
     renderedPreviewContentRef.current = rendered;
   }, []);
 
+  // Back / forward through followed links (NAV-13): wikilinks, relative
+  // links, #heading links and search results record where you were.
+  const navHistoryRef = useRef(emptyNavHistory());
+  const navPositionRef = useRef<NavEntry | null>(null);
+  navPositionRef.current = filePath ? { path: filePath, line: mode === "preview" ? previewLine : cursorPosition.line } : null;
+  const recordNav = useCallback(() => {
+    const here = navPositionRef.current;
+    if (here) navHistoryRef.current = recordNavigation(navHistoryRef.current, here);
+  }, []);
+  useEffect(() => {
+    // In-page #anchor clicks in the reader scroll the preview themselves.
+    window.addEventListener("paperling:record-nav", recordNav);
+    return () => window.removeEventListener("paperling:record-nav", recordNav);
+  }, [recordNav]);
+
   // Wikilink click: resolve target relative to the current file's folder.
   // Tries `<target>.md` first, then `<target>` literal. Silently fails if neither exists.
   // SECURITY: rejects path-traversal and absolute paths so a crafted document
@@ -888,6 +905,7 @@ function AppContent() {
     // `[[Note#Heading]]` / `[[Note#^block]]` / `[[#Heading]]`: the part after
     // `#` is an anchor inside the note, not part of its file name. NAV-09.
     const { file, anchor } = splitWikilinkTarget(target);
+    recordNav();
     const jumpTo = (text: string | null) => {
       if (!anchor || text == null) return;
       const line = findAnchorLine(text, anchor);
@@ -940,7 +958,7 @@ function AppContent() {
     // Nothing matched — offer to create the note next to the current file, the
     // way Obsidian turns a dangling [[link]] into a new file. NAV-07.
     offerCreateNote(`${dir}${sep}${cleaned}.md`, `${cleaned}.md`);
-  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote]);
+  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote, recordNav]);
 
   // Standard relative markdown links — `[text](note.md)`, `[x](sub/note.md)`,
   // `[y](../other.md)` — open in-app like wikilinks (the preview only routes
@@ -949,6 +967,7 @@ function AppContent() {
   const handleNavigateRelative = useCallback(async (href: string) => {
     if (!filePath) return;
     const resolved = resolveRelativePath(filePath, href);
+    recordNav();
     if (!resolved) return;
     try {
       // Probe first so a link to a not-yet-created note offers creation rather
@@ -959,7 +978,7 @@ function AppContent() {
       const name = resolved.replace(/\\/g, "/").split("/").pop() || resolved;
       offerCreateNote(resolved, name);
     }
-  }, [filePath, loadFile, offerCreateNote]);
+  }, [filePath, loadFile, offerCreateNote, recordNav]);
 
   // Ctrl/Cmd+click on a link in the editor (NAV-11): the same destinations a
   // click in the reader reaches.
@@ -975,9 +994,12 @@ function AppContent() {
       const text = liveContentRef.current;
       const line = findAnchorLine(text, link.target) ?? findAnchorLine(text, link.target.replace(/-/g, " "));
       if (line == null) showToast(`No "${link.target}" heading in this note`, "info");
-      else window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
+      else {
+        recordNav();
+        window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
+      }
     }
-  }, [handleWikilinkClick, handleNavigateRelative, showToast]);
+  }, [handleWikilinkClick, handleNavigateRelative, recordNav, showToast]);
 
   // Open a cross-file search result: load the file (if not already open) and
   // jump to the matching line once it has rendered. The goto-line event is the
@@ -985,13 +1007,59 @@ function AppContent() {
   const handleOpenSearchResult = useCallback(async (path: string, line: number) => {
     // Wait for the file to actually load before jumping, instead of racing a
     // fixed timeout that a large document could lose (landing at the top). SEARCH-01.
+    recordNav();
     if (path !== filePath) {
       await loadFile(path);
     }
     requestAnimationFrame(() =>
       window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }))
     );
-  }, [filePath, loadFile]);
+  }, [filePath, loadFile, recordNav]);
+
+  // Go to a history entry: an open tab restores its exact place itself; a
+  // closed one is reopened at the recorded line. NAV-13.
+  const goToNavEntry = useCallback(async (entry: NavEntry) => {
+    const here = navPositionRef.current;
+    const gotoLine = () =>
+      requestAnimationFrame(() =>
+        window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line: entry.line } })),
+      );
+    if (here && samePath(here.path, entry.path)) {
+      gotoLine();
+      return;
+    }
+    const wasOpen = getOpenBuffer(entry.path) != null;
+    await loadFile(entry.path);
+    if (!wasOpen) gotoLine();
+  }, [getOpenBuffer, loadFile]);
+  const handleNavBack = useCallback(() => {
+    const step = navigateBack(navHistoryRef.current, navPositionRef.current);
+    if (!step) return;
+    navHistoryRef.current = step.history;
+    void goToNavEntry(step.target);
+  }, [goToNavEntry]);
+  const handleNavForward = useCallback(() => {
+    const step = navigateForward(navHistoryRef.current, navPositionRef.current);
+    if (!step) return;
+    navHistoryRef.current = step.history;
+    void goToNavEntry(step.target);
+  }, [goToNavEntry]);
+  // Mouse back/forward buttons (the thumb buttons) step through the same
+  // history, as in browsers. Their default is swallowed so the webview can't
+  // try to navigate its own page history.
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => { if (e.button === 3 || e.button === 4) e.preventDefault(); };
+    const onUp = (e: MouseEvent) => {
+      if (e.button === 3) { e.preventDefault(); handleNavBack(); }
+      else if (e.button === 4) { e.preventDefault(); handleNavForward(); }
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [handleNavBack, handleNavForward]);
 
   // Folder the cross-file search runs in: the open file's directory.
   const currentDirectory = useMemo(() => {
@@ -1250,6 +1318,8 @@ function AppContent() {
     prevTab: () => cycleTab(-1),
     nextTab: () => cycleTab(1),
     reopenClosedTab,
+    navBack: handleNavBack,
+    navForward: handleNavForward,
     gotoTab: gotoTabByIndex,
     hasFile, content, mode,
   });
