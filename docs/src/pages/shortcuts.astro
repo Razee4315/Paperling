@@ -20,19 +20,26 @@ const commands: [BindingId, string][] = [
   ["link", "Insert link"],
   ["find", "Find"],
   ["replace", "Replace"],
+  ["searchInFolder", "Search (and replace) in folder"],
+  ["selectNextOccurrence", "Select next occurrence"],
+  ["toggleTask", "Toggle task checkbox"],
+  ["gotoLine", "Go to line"],
+  ["navBack", "Go back"],
+  ["navForward", "Go forward"],
   ["toggleFileExplorer", "File explorer"],
   ["toggleTOC", "Outline"],
   ["zenMode", "Zen mode"],
   ["nextTab", "Next tab"],
   ["prevTab", "Previous tab"],
 ];
+const KEY_NAMES: Record<string, string> = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓" };
 function label(id: BindingId, mac: boolean) {
   const b: Binding = BINDINGS[id];
   return [
     b.mod ? (mac ? "Cmd" : "Ctrl") : b.ctrl ? "Ctrl" : "",
     b.alt ? "Alt" : "",
     b.shift ? "Shift" : "",
-    b.key.length === 1 ? b.key.toUpperCase() : b.key,
+    b.key.length === 1 ? b.key.toUpperCase() : (KEY_NAMES[b.key] ?? b.key),
   ]
     .filter(Boolean)
     .join(" + ");
@@ -93,6 +100,11 @@ function label(id: BindingId, mac: boolean) {
           Open the command palette to discover actions by name. Type / at the
           beginning of a line in the editor for slash commands. Tab moves
           between table cells when your caret is inside a Markdown table.
+        </p>
+        <p>
+          Every shortcut in this table can be changed in Settings → Shortcuts.
+          In the editor on Windows and Linux, Ctrl + Right Shift switches a note
+          to right-to-left and Ctrl + Left Shift switches back to automatic.
         </p>
         <p>
           Tab cycling uses Control on every desktop platform because Cmd+Tab
