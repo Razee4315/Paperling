@@ -1,5 +1,7 @@
 ---
+import { Image } from "astro:assets";
 import { url } from "../lib/site";
+import { mascotRocket } from "../lib/art";
 ---
 
 <section class="cta-section" id="download">
@@ -7,6 +9,13 @@ import { url } from "../lib/site";
     <span class="cta-spark" aria-hidden="true">
       ✳
     </span>
+    <Image
+      class="cta-mascot"
+      src={mascotRocket}
+      alt=""
+      widths={[170, 340]}
+      sizes="170px"
+    />
     <p class="eyebrow">A FRESH PAGE IS WAITING.</p>
     <h2>
       Your next big idea.

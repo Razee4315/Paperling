@@ -1,7 +1,6 @@
 ---
 import { Image } from "astro:assets";
 import Base from "../layouts/Base.astro";
-import PaperArt from "../components/PaperArt.astro";
 import Faq from "../components/Faq.astro";
 import CTA from "../components/CTA.astro";
 import { url, absolute, SITE, faqs } from "../lib/site";
@@ -9,13 +8,9 @@ import split from "../assets/screenshots/split-dark.png";
 import paper from "../assets/screenshots/reader-paper.png";
 import light from "../assets/screenshots/reader-light.png";
 import showcase from "../assets/screenshots/showcase-dark.png";
+import { featureIcons, toolkit, mascotWave, mascotPaint } from "../lib/art";
+// WEB-05: split view leads the hero now, so the tabs below start on the themes.
 const views = [
-  {
-    name: "Split view",
-    image: split,
-    caption: "Markdown on the left. Your ideas taking shape on the right.",
-    alt: "Paperling split view with Markdown source beside a rendered table, task list, and headings",
-  },
   {
     name: "Paper theme",
     image: paper,
@@ -83,7 +78,14 @@ const schema = [
         <p class="fine">Free. No account. Just you and the page.</p>
       </div>
       <div class="hero-visual">
-        <PaperArt />
+        <Image
+          class="hero-mascot"
+          src={mascotWave}
+          alt="Paperling's mascot, a friendly sheet of paper, waving hello"
+          widths={[300, 460, 640]}
+          sizes="(max-width: 720px) 300px, 460px"
+          loading="eager"
+        />
         <span class="edition-stamp">
           PLAIN TEXT.
           <br />
@@ -93,6 +95,30 @@ const schema = [
         <span class="paper-note">a good place to begin.</span>
       </div>
     </div>
+    <figure class="hero-shot">
+      <div class="screenshot-frame">
+        <div class="frame-bar">
+          <span class="frame-dots" aria-hidden="true">
+            ● ● ●
+          </span>
+          <span>PAPERLING / SPLIT VIEW</span>
+          <span aria-hidden="true">↗</span>
+        </div>
+        <Image
+          src={split}
+          alt="Paperling split view with Markdown source beside a rendered table, task list, and headings"
+          widths={[640, 960, 1280, 1600]}
+          sizes="(max-width: 720px) 94vw, 90vw"
+          loading="eager"
+          fetchpriority="high"
+          format="webp"
+        />
+      </div>
+      <figcaption class="shot-caption">
+        <span>Markdown on the left. Your ideas taking shape on the right.</span>
+        <span>REAL APP SCREENSHOT</span>
+      </figcaption>
+    </figure>
     <div class="hero-strip">
       <span>SMALL TOOLS. ROOM TO THINK.</span>
       <span>
@@ -196,14 +222,13 @@ const schema = [
           <span class="card-arrow" aria-hidden="true">
             ↗
           </span>
-          <div class="feature-art" aria-hidden="true">
-            <div class="mini-page">
-              <span></span>
-              <span></span>
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
+          <div class="feature-art">
+            <Image
+              src={featureIcons["focused-writing"]}
+              alt=""
+              widths={[150, 300]}
+              sizes="150px"
+            />
           </div>
           <h3>
             A quiet place
@@ -223,9 +248,13 @@ const schema = [
           <span class="card-arrow" aria-hidden="true">
             ↗
           </span>
-          <div class="feature-art math-art" aria-hidden="true">
-            ∫ <span>f(x)</span>
-            <small>dx</small>
+          <div class="feature-art">
+            <Image
+              src={featureIcons["math-and-diagrams"]}
+              alt=""
+              widths={[150, 300]}
+              sizes="150px"
+            />
           </div>
           <h3>
             For wonderfully
@@ -244,9 +273,13 @@ const schema = [
           <span class="card-arrow" aria-hidden="true">
             ↗
           </span>
-          <div class="feature-art ai-art" aria-hidden="true">
-            <del>maybe</del>
-            <ins>yes.</ins>
+          <div class="feature-art">
+            <Image
+              src={featureIcons["ai-assistant"]}
+              alt=""
+              widths={[150, 300]}
+              sizes="150px"
+            />
           </div>
           <h3>
             A little assistance.
@@ -258,6 +291,18 @@ const schema = [
           </p>
         </a>
       </div>
+      <h3 class="toolkit-title">And a few more things in the box.</h3>
+      <ul class="toolkit-grid">
+        {toolkit.map((t) => (
+          <li class="toolkit-item" data-reveal>
+            <Image src={t.icon} alt="" widths={[64, 128]} sizes="64px" />
+            <div>
+              <h4>{t.name}</h4>
+              <p>{t.text}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   </section>
   <section class="section wrap story-grid" id="open-source">
@@ -278,6 +323,13 @@ const schema = [
       </a>
     </div>
     <div class="story-art" data-reveal>
+      <Image
+        class="story-mascot"
+        src={mascotPaint}
+        alt=""
+        widths={[180, 360]}
+        sizes="180px"
+      />
       <div class="file-label">
         <span>~/a-few-good-ideas/</span>
         <span>↗</span>
