@@ -24,6 +24,10 @@ At the owner's request, the hand-drawn mascot and icon set from the previous sit
 - **Mascot poses:** painting (story card), rocket (closing banner), juggling (Download), crumpled (404).
 - Images go through `astro:assets` (responsive WebP, lazy below the fold). Decorative art uses empty alt text; the hero and 404 mascots carry descriptions. The unused `PaperArt` component and its CSS were removed.
 
+## Decluttered labels (WEB-06)
+
+At the owner's request, the small monospace tag lines were removed site-wide: section eyebrows ("01 / …"), the hero top line and bottom strip, the circular "Plain text. Possibilities." stamp, card numbers, Download card labels, and the fake window bar over screenshots (the screenshots already show the app's own title bar). Where a label carried information it stays as plain text: feature and competitor names on index cards, and the comparison review date beside the sources.
+
 ## Search implementation
 
 - `/Paperling/` remains the canonical homepage. Existing `#top`, `#features`, `#editor`, `#themes`, `#ai`, `#download`, and `#faq` links still resolve.

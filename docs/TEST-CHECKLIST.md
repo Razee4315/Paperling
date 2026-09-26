@@ -3,6 +3,7 @@
 ## Quick visual check
 
 - [ ] Open the homepage on desktop and a phone. Check the Manrope headings, green/paper palette, the waving mascot beside the headline, the split-view app screenshot right under it, and the footer.
+- [ ] No small all-caps tag lines anywhere (no “01 / …” labels, no circular stamp, no strip under the hero, no fake window bar over screenshots). Comparison pages show “Reviewed September 26, 2026” above Sources.
 - [ ] Use “Take a look inside”; switch all three screenshot tabs (Paper, Light, Math & diagrams). Arrow keys, Home, and End should work when a tab has focus.
 - [ ] Each of the three feature cards shows its hand-drawn icon (pencil, math, sparkles), and “And a few more things in the box” shows twelve icon cards: four across on desktop, two on a phone.
 - [ ] The painting mascot leans on the corner of the story card, and the rocket mascot flies beside “Your next big idea.” in the green banner.

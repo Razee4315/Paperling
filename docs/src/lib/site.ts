@@ -23,7 +23,6 @@ export const features = [
     name: "Live preview",
     description:
       "Read Markdown, edit the source, or keep both side by side with a synchronized live preview.",
-    label: "A view for every thought",
     intro: "Read, write, or see both at once.",
     sections: [
       [
@@ -46,7 +45,6 @@ export const features = [
     name: "Math & diagrams",
     description:
       "Write KaTeX math, mhchem chemistry, and Mermaid diagrams directly in your Markdown documents.",
-    label: "For the wonderfully technical",
     intro: "Keep the equation, diagram, and explanation in one file.",
     sections: [
       [
@@ -69,7 +67,6 @@ export const features = [
     name: "Focused writing",
     description:
       "Write with focus and typewriter modes, slash commands, visual table tools, and seven built-in themes.",
-    label: "Less between you and the page",
     intro: "A comfortable page, with the tools close by.",
     sections: [
       [
@@ -92,7 +89,6 @@ export const features = [
     name: "Optional AI",
     description:
       "Connect an OpenAI-compatible provider, ask about a document, and review proposed AI edits inside Paperling.",
-    label: "Optional means optional",
     intro: "A little help when you want it. Off when you do not.",
     sections: [
       [
@@ -115,7 +111,6 @@ export const features = [
     name: "Local files",
     description:
       "Open ordinary Markdown files, browse a folder, follow wikilinks, and keep your notes in a portable text format.",
-    label: "No vault required",
     intro: "Open the files you already have. No vault required.",
     sections: [
       [
@@ -138,7 +133,6 @@ export const features = [
     name: "Export & sharing",
     description:
       "Share Markdown documents with HTML, PDF, and Word export options, with platform-specific printing behavior.",
-    label: "Give your work somewhere to go",
     intro: "Keep the Markdown original. Share a copy in another format.",
     sections: [
       [

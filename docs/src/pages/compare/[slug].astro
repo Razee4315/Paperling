@@ -22,7 +22,6 @@ const { comparison: c } = Astro.props;
 >
   <div class="wrap">
     <header class="page-heading">
-      <p class="eyebrow">PAPERLING VS {c.name} / REVIEWED SEPTEMBER 26, 2026</p>
       <h1>
         Paperling vs <em>{c.name}</em>
       </h1>
@@ -61,6 +60,7 @@ const { comparison: c } = Astro.props;
           Standard Markdown travels well; app-specific extensions may differ.
           Try a copy of your notes first.
         </p>
+        <p class="meta-line">Reviewed September 26, 2026</p>
         <details class="comparison-sources">
           <summary>Sources & review notes</summary>
           <p class="subtle">

@@ -13,7 +13,6 @@ import { featureIcons } from "../../lib/art";
 >
   <div class="wrap">
     <header class="page-heading">
-      <p class="eyebrow">A THOUGHTFUL LITTLE TOOLKIT</p>
       <h1>
         Room for the words.
         <br />
@@ -26,7 +25,7 @@ import { featureIcons } from "../../lib/art";
       </p>
     </header>
     <div class="index-grid">
-      {features.map((f, i) => (
+      {features.map((f) => (
         <a class="index-card" href={url("features/" + f.slug + "/")}>
           <Image
             class="index-icon"
@@ -35,9 +34,7 @@ import { featureIcons } from "../../lib/art";
             widths={[88, 176]}
             sizes="88px"
           />
-          <span class="eyebrow">
-            0{i + 1} / {f.name}
-          </span>
+          <span class="card-label">{f.name}</span>
           <h2>{f.title}</h2>
           <p>{f.description}</p>
           <span class="text-link">Take a closer look ↗</span>

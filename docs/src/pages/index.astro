@@ -48,15 +48,8 @@ const schema = [
 
 <Base schema={schema}>
   <section class="hero wrap" id="top">
-    <div class="hero-topline">
-      <span>
-        <i class="live-dot"></i> YOUR WORDS. A LITTLE MORE AT HOME.
-      </span>
-      <span>FREE & OPEN SOURCE / MADE FOR MARKDOWN</span>
-    </div>
     <div class="hero-grid">
       <div class="hero-copy">
-        <p class="eyebrow">THE NO-SETUP MARKDOWN EDITOR</p>
         <h1>
           A little space.
           <br />
@@ -86,24 +79,11 @@ const schema = [
           sizes="(max-width: 720px) 300px, 460px"
           loading="eager"
         />
-        <span class="edition-stamp">
-          PLAIN TEXT.
-          <br />
-          POSSIBILITIES.
-          <br />✳
-        </span>
         <span class="paper-note">a good place to begin.</span>
       </div>
     </div>
     <figure class="hero-shot">
       <div class="screenshot-frame">
-        <div class="frame-bar">
-          <span class="frame-dots" aria-hidden="true">
-            ● ● ●
-          </span>
-          <span>PAPERLING / SPLIT VIEW</span>
-          <span aria-hidden="true">↗</span>
-        </div>
         <Image
           src={split}
           alt="Paperling split view with Markdown source beside a rendered table, task list, and headings"
@@ -116,24 +96,12 @@ const schema = [
       </div>
       <figcaption class="shot-caption">
         <span>Markdown on the left. Your ideas taking shape on the right.</span>
-        <span>REAL APP SCREENSHOT</span>
       </figcaption>
     </figure>
-    <div class="hero-strip">
-      <span>SMALL TOOLS. ROOM TO THINK.</span>
-      <span>
-        Local files <i>✳</i> Live preview <i>✳</i> Math & diagrams <i>✳</i>{" "}
-        Optional AI
-      </span>
-      <a href="#editor" aria-label="Explore the editor">
-        ↓
-      </a>
-    </div>
   </section>
   <section class="section showcase-section wrap" id="editor">
     <div class="section-heading">
       <div>
-        <p class="eyebrow">01 / THE WORDS ARE YOURS. THE VIEW IS TOO.</p>
         <h2>
           Plain text.
           <br />
@@ -172,13 +140,6 @@ const schema = [
         >
           <figure>
             <div class="screenshot-frame">
-              <div class="frame-bar">
-                <span class="frame-dots" aria-hidden="true">
-                  ● ● ●
-                </span>
-                <span>PAPERLING / {v.name.toUpperCase()}</span>
-                <span aria-hidden="true">↗</span>
-              </div>
               <Image
                 src={v.image}
                 alt={v.alt}
@@ -190,7 +151,6 @@ const schema = [
             </div>
             <figcaption class="shot-caption">
               <span>{v.caption}</span>
-              <span>REAL APP SCREENSHOT</span>
             </figcaption>
           </figure>
         </div>
@@ -201,7 +161,6 @@ const schema = [
     <div class="wrap">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">02 / A THOUGHTFUL LITTLE TOOLKIT</p>
           <h2>
             Less fiddling.
             <br />
@@ -218,7 +177,6 @@ const schema = [
           href={url("features/focused-writing/")}
           data-reveal
         >
-          <span class="card-number">01 / FIND YOUR FLOW</span>
           <span class="card-arrow" aria-hidden="true">
             ↗
           </span>
@@ -244,7 +202,6 @@ const schema = [
           href={url("features/math-and-diagrams/")}
           data-reveal
         >
-          <span class="card-number">02 / MAKE IT MAKE SENSE</span>
           <span class="card-arrow" aria-hidden="true">
             ↗
           </span>
@@ -269,7 +226,6 @@ const schema = [
           id="ai"
           data-reveal
         >
-          <span class="card-number">03 / A SECOND PAIR OF EYES</span>
           <span class="card-arrow" aria-hidden="true">
             ↗
           </span>
@@ -307,7 +263,6 @@ const schema = [
   </section>
   <section class="section wrap story-grid" id="open-source">
     <div data-reveal>
-      <p class="eyebrow">03 / A SMALL PERSONAL PROJECT</p>
       <h2>
         Made for myself.
         <br />
@@ -355,7 +310,6 @@ const schema = [
     <div class="wrap">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">A GOOD FIT BEATS A LONG FEATURE LIST</p>
           <h2>
             Your editor.
             <br />
@@ -381,7 +335,6 @@ const schema = [
   </section>
   <section class="section wrap faq-section" id="faq">
     <div>
-      <p class="eyebrow">A FEW THINGS YOU MIGHT WONDER</p>
       <h2>
         Good questions.
         <br />
