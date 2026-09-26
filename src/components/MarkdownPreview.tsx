@@ -253,6 +253,9 @@ interface MarkdownPreviewProps {
     /** Identity of the document shown (the tab id). A change is a tab switch:
      *  render at once and restore that tab's reading position. SWITCH-01. */
     docKey?: string | null;
+    /** The text last selected in the reader and its content-relative source
+     *  line (null when cleared), so Ctrl+E can put the caret on it. MODE-03. */
+    onReaderSelection?: (sel: { line: number; text: string } | null) => void;
 }
 
 /** Slugify heading text into a stable, URL-safe id (GitHub-style). Unicode
@@ -827,6 +830,7 @@ function MarkdownPreviewImpl({
     onNavigateRelative,
     onRendered,
     docKey = null,
+    onReaderSelection,
 }: MarkdownPreviewProps) {
     const mainRef = useRef<HTMLElement>(null);
     // Per-tab reading positions (see the SWITCH-01 layout effect below).
@@ -1337,6 +1341,31 @@ function MarkdownPreviewImpl({
         const list = anchorList();
         if (list) el.scrollTop = lineToOffset(list, pending.line);
     }, [renderedBody, anchorList]);
+
+    // Track the reader's text selection (MODE-03). A selection collapsed by a
+    // click INSIDE the reader clears it; clicks elsewhere (the mode pill,
+    // the toolbar) keep the last one, so "double-click a word, then switch
+    // to Edit" works with the mouse as well as with Ctrl+E.
+    const onReaderSelectionRef = useRef(onReaderSelection);
+    onReaderSelectionRef.current = onReaderSelection;
+    useEffect(() => {
+        const onChange = () => {
+            const el = mainRef.current;
+            const sel = window.getSelection();
+            if (!el || !sel || !sel.anchorNode || !el.contains(sel.anchorNode)) return;
+            if (sel.isCollapsed) {
+                onReaderSelectionRef.current?.(null);
+                return;
+            }
+            const anchorEl = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? (sel.anchorNode as Element) : sel.anchorNode.parentElement;
+            const block = anchorEl?.closest("[data-source-line]");
+            const text = sel.toString().trim();
+            if (!block || !text) return;
+            onReaderSelectionRef.current?.({ line: sourceLineOf(block) + fmOffsetRef.current, text });
+        };
+        document.addEventListener("selectionchange", onChange);
+        return () => document.removeEventListener("selectionchange", onChange);
+    }, []);
 
     // "Focus the document" requests (FOCUS-01): in reader mode the preview
     // is the document; in split mode the editor takes it (it listens too).

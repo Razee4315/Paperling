@@ -54,6 +54,7 @@ import { matchWikilinkPrefix, rankFileNames, toWikiName } from "../utils/wikilin
 import { applyTableOp, findTableAt, locateCell, type Align } from "../utils/tableModel";
 import { toCmKey, isMac } from "../config/keybindings";
 import { linkAt, type EditorLink } from "../utils/editorLinks";
+import { locateText } from "../utils/revealText";
 import { highlightCaretLine } from "../utils/caretLineHighlight";
 import type { HandoffOptions, Scroller } from "../utils/scrollSync";
 
@@ -1190,7 +1191,23 @@ function CodeEditorImpl({
             if (v && v.scrollDOM.clientHeight > 0) v.focus();
         };
         window.addEventListener("paperling:focus-document", focusDoc);
+        // Reader -> Edit with a selection: select that text in the source.
+        // MODE-03.
+        const reveal = (e: Event) => {
+            const v = viewRef.current;
+            const detail = (e as CustomEvent).detail as { line?: number; text?: string } | undefined;
+            if (!v || !detail?.text || v.scrollDOM.clientHeight === 0) return;
+            const hit = locateText(v.state.doc.toString(), Math.max(1, detail.line ?? 1), detail.text);
+            if (!hit) return;
+            v.dispatch({
+                selection: { anchor: hit.from, head: hit.to },
+                effects: EditorView.scrollIntoView(hit.from, { y: "nearest", yMargin: 48 }),
+            });
+            v.focus();
+        };
+        window.addEventListener("paperling:reveal-text", reveal);
         return () => {
+            window.removeEventListener("paperling:reveal-text", reveal);
             window.removeEventListener("paperling:scroll-top", toTop);
             window.removeEventListener("paperling:focus-document", focusDoc);
         };

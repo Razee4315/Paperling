@@ -479,6 +479,24 @@ function AppContent() {
   const { registerCodeScroller, registerPreviewScroller, onCodeScrollFraction, onPreviewScrollFraction } =
     useScrollSync(mode);
 
+  // "Edit here" (MODE-03): the text last selected in the reader. Switching
+  // Reader -> Edit/Split selects it in the source, right after the scroll
+  // handoff above (layout effects run in declaration order), so a typo
+  // spotted while reading is one double-click + Ctrl+E away from fixing.
+  const readerSelectionRef = useRef<{ line: number; text: string } | null>(null);
+  const handleReaderSelection = useCallback((sel: { line: number; text: string } | null) => {
+    readerSelectionRef.current = sel;
+  }, []);
+  const modeForRevealRef = useRef(mode);
+  useLayoutEffect(() => {
+    const prev = modeForRevealRef.current;
+    modeForRevealRef.current = mode;
+    const sel = readerSelectionRef.current;
+    if (prev !== "preview" || mode === "preview" || !sel) return;
+    readerSelectionRef.current = null;
+    window.dispatchEvent(new CustomEvent("paperling:reveal-text", { detail: sel }));
+  }, [mode]);
+
   // Reader-mode find only makes sense over the preview; close it (and drop
   // its highlights) when the user switches to code or split.
   useEffect(() => {
@@ -489,6 +507,8 @@ function AppContent() {
   // tab's editor, a native Open dialog returned, a file was dropped) puts it
   // in the visible document, so typing or PageDown just works. FOCUS-01.
   useLayoutEffect(() => {
+    // A reader selection belongs to the note it was made in. MODE-03.
+    readerSelectionRef.current = null;
     const active = document.activeElement;
     if (!active || active === document.body) {
       window.dispatchEvent(new CustomEvent("paperling:focus-document"));
@@ -2035,6 +2055,7 @@ function AppContent() {
                   onWikilinkClick={handleWikilinkClick}
                   onNavigateRelative={handleNavigateRelative}
                   onRendered={handlePreviewRendered}
+                  onReaderSelection={handleReaderSelection}
                 />
               </Suspense>
 
