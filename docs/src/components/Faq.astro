@@ -1,120 +1,19 @@
 ---
-import { Icon } from "astro-icon/components";
-
-const faqs = [
-  {
-    q: "Is Paperling really free?",
-    a: "Yes, and open source. It's free for both personal and commercial use under the Apache 2.0 license, with no account and no telemetry.",
-  },
-  {
-    q: "Which platforms are supported?",
-    a: "Windows (10/11, 64-bit and ARM), macOS (one universal .dmg for Apple Silicon and Intel), Linux (.deb, .rpm, .AppImage), and Android (arm64 phones, Android 10 or newer) as an APK download.",
-  },
-  {
-    q: "How do I install the Android app?",
-    a: "Download the APK from the releases page on your phone and open it. Android asks you to allow installs from your browser once — that's normal for apps outside the Play Store. The build targets arm64-v8a, which is what virtually every phone sold since 2019 uses.",
-  },
-  {
-    q: "How do Android updates work?",
-    a: "The app checks nothing on its own: when a new version lands on the releases page, download the new APK and install it straight over the old one — your notes stay where they are. All releases use the same signing key, so updates install in place.",
-  },
-  {
-    q: "Does it send my notes anywhere?",
-    a: "No. Paperling is a native app that works fully offline and your files stay on your machine. The only network calls are ones you opt into, like connecting an AI provider.",
-  },
-  {
-    q: "Do I need an API key to use the AI features?",
-    a: "Only if you want them. The AI assistant is optional and bring-your-own-model: point it at any OpenAI-compatible endpoint (OpenAI, Gemini, Ollama, LM Studio, llama.cpp). Your key is stored in the OS keychain, never in a plaintext file. Everything else works without it.",
-  },
-  {
-    q: "What Markdown features does it support?",
-    a: "GitHub Flavored Markdown, KaTeX math, mhchem chemistry, Mermaid diagrams, syntax-highlighted code, task lists, tables, wikilinks with a backlinks panel, slash commands, and frontmatter, all rendered live as you type.",
-  },
-  {
-    q: "How is it so small and fast?",
-    a: "It's built with Tauri + Rust instead of bundling a whole browser like Electron apps do, so it starts fast and stays light on memory.",
-  },
-];
+import { faqs } from "../lib/site";
+interface Props {
+  items?: string[][];
+}
+const { items = faqs } = Astro.props;
 ---
 
-<section id="faq" class="py-24 md:py-32">
-  <div class="mx-auto max-w-3xl px-5">
-    <div data-reveal>
-      <p class="mono-label"><span class="tok-mark-cyan">?</span> faq</p>
-      <h2 class="font-serif-display mt-3 text-[clamp(2.2rem,5vw,3.5rem)]">Good questions.</h2>
-    </div>
-
-    <div class="mt-12 divide-y divide-line" data-reveal>
-      {faqs.map((f) => (
-        <details class="faq group py-5">
-          <summary
-            class="flex cursor-pointer list-none items-center justify-between gap-4 text-left text-lg font-medium"
-          >
-            {f.q}
-            <Icon
-              name="lucide:plus"
-              class="h-5 w-5 shrink-0 text-fg-dim transition-transform duration-300 group-open:rotate-45"
-            />
-          </summary>
-          <div class="faq-content overflow-hidden">
-            <p class="pt-3 text-[15px] leading-relaxed text-fg-muted">{f.a}</p>
-          </div>
-        </details>
-      ))}
-    </div>
-  </div>
-</section>
-
-<script type="application/ld+json" set:html={JSON.stringify({
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  mainEntity: faqs.map((f) => ({
-    "@type": "Question",
-    name: f.q,
-    acceptedAnswer: { "@type": "Answer", text: f.a },
-  })),
-})} />
-
-<script>
-  // Smooth open/close for the native <details> accordion via the Web Animations
-  // API. Falls back to the instant native toggle under reduced-motion.
-  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  document.querySelectorAll<HTMLDetailsElement>("details.faq").forEach((d) => {
-    const summary = d.querySelector("summary");
-    const content = d.querySelector<HTMLElement>(".faq-content");
-    if (!summary || !content) return;
-    let anim: Animation | null = null;
-    const easing = "cubic-bezier(0.16, 1, 0.3, 1)";
-
-    summary.addEventListener("click", (e) => {
-      if (reduce) return; // native toggle
-      e.preventDefault();
-      anim?.cancel();
-      if (!d.open) {
-        d.open = true;
-        const h = content.offsetHeight;
-        anim = content.animate(
-          [{ height: "0px", opacity: 0 }, { height: `${h}px`, opacity: 1 }],
-          { duration: 300, easing },
-        );
-        anim.onfinish = () => (content.style.height = "");
-      } else {
-        const h = content.offsetHeight;
-        anim = content.animate(
-          [{ height: `${h}px`, opacity: 1 }, { height: "0px", opacity: 0 }],
-          { duration: 240, easing },
-        );
-        anim.onfinish = () => {
-          d.open = false;
-          content.style.height = "";
-        };
-      }
-    });
-  });
-</script>
-
-<style>
-  .faq summary::-webkit-details-marker {
-    display: none;
-  }
-</style>
+<div class="faq-list">
+  {items.map(([question, answer]) => (
+    <details>
+      <summary>
+        {question}
+        <span aria-hidden="true">+</span>
+      </summary>
+      <p>{answer}</p>
+    </details>
+  ))}
+</div>

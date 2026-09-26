@@ -1,58 +1,54 @@
 ---
-import { Icon } from "astro-icon/components";
-const base = import.meta.env.BASE_URL;
-const repo = "https://github.com/Razee4315/Paperling";
+import { url, SITE } from "../lib/site";
+const { path = "" } = Astro.props;
 const links = [
-  { href: "#features", label: "Features" },
-  { href: "#editor", label: "Editor" },
-  { href: "#themes", label: "Themes" },
-  { href: "#download", label: "Download" },
+  ["features/", "Features"],
+  ["compare/", "Compare"],
+  ["guide/", "Guide"],
 ];
 ---
 
-<nav data-nav class="fixed inset-x-0 top-0 z-50 transition-all duration-300">
-  <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-    <a href="#top" class="flex items-center gap-2.5 font-semibold tracking-tight">
-      <img src={`${base}icon.svg`} alt="Paperling logo" width="26" height="26" class="h-[26px] w-[26px]" />
-      <span class="text-[17px]">Paperling</span>
+<header class="site-header">
+  <div class="wrap nav-inner">
+    <a class="brand" href={url()} aria-label="Paperling home">
+      <img src={url("icon.svg")} alt="" width="29" height="29" />
+      Paperling<span class="brand-dot">✳</span>
     </a>
-
-    <div class="hidden items-center gap-1 md:flex">
-      {links.map((l) => (
-        <a
-          href={l.href}
-          class="rounded-lg px-3 py-2 text-sm text-fg-muted transition-colors hover:bg-fg/5 hover:text-fg"
-        >
-          {l.label}
+    <nav class="desktop-nav" aria-label="Main navigation">
+      {links.map(([p, l]) => (
+        <a href={url(p)} aria-current={path.startsWith(p) ? "page" : undefined}>
+          {l}
         </a>
       ))}
-    </div>
-
-    <div class="flex items-center gap-2">
-      <a
-        href={repo}
-        rel="noopener"
-        aria-label="Paperling on GitHub"
-        class="hidden items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm text-fg-muted transition-colors hover:border-fg/30 hover:text-fg sm:flex"
-      >
-        <Icon name="lucide:github" class="h-4 w-4" /> Star
-      </a>
-      <a href="#download" class="btn btn-primary !px-4 !py-2 text-sm">
-        <Icon name="lucide:download" class="h-4 w-4" /> Download
-      </a>
-    </div>
+      <a href={SITE.repo}>GitHub ↗</a>
+    </nav>
+    <a class="button small" href={url("download/")}>
+      Get Paperling <span aria-hidden="true">↓</span>
+    </a>
+    <details class="mobile-menu">
+      <summary aria-label="Navigation menu">
+        <span class="menu-lines" aria-hidden="true"></span>
+      </summary>
+      <nav aria-label="Mobile navigation">
+        {links.map(([p, l]) => (
+          <a href={url(p)}>{l}</a>
+        ))}
+        <a href={url("download/")}>Download</a>
+        <a href={SITE.repo}>GitHub ↗</a>
+      </nav>
+    </details>
   </div>
-</nav>
-
-<style>
-  nav[data-nav] {
-    background: transparent;
-    border-bottom: 1px solid transparent;
-  }
-  nav[data-nav].is-stuck {
-    background: color-mix(in srgb, var(--color-ink-950) 72%, transparent);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    border-bottom-color: var(--color-line);
-  }
-</style>
+</header>
+<script>
+  const menu = document.querySelector<HTMLDetailsElement>(".mobile-menu");
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && menu?.open) {
+      menu.open = false;
+      menu.querySelector("summary")?.focus();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (menu?.open && e.target instanceof Node && !menu.contains(e.target))
+      menu.open = false;
+  });
+</script>

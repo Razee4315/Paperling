@@ -1,0 +1,63 @@
+---
+import Base from "../layouts/Base.astro";
+import Aside from "../components/Aside.astro";
+import { SITE, url } from "../lib/site";
+---
+
+<Base
+  title="Paperling Is Free & Open Source | Apache-2.0"
+  description="Explore the Paperling source code, Apache-2.0 license, contribution guide, and the story behind a no-setup Markdown editor."
+  path="open-source/"
+  crumbs={[{ label: "Open source", path: "open-source/" }]}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <p class="eyebrow">MADE IN THE OPEN</p>
+      <h1>
+        Small app.
+        <br />
+        <em>Open notebook.</em>
+      </h1>
+      <p>A personal fix for a small frustration. Now open to everyone.</p>
+    </header>
+    <div class="article-layout">
+      <article class="prose">
+        <h2>How it started</h2>
+        <blockquote class="origin-quote">
+          “I built Paperling when I was starting my journey. I kept running into
+          .md files that were awkward to read, so I made something for myself to
+          solve that problem.”
+        </blockquote>
+        <p class="subtle">— Saqlain, creator of Paperling</p>
+        <h2>Free to use. Open to inspect.</h2>
+        <p>
+          Paperling is released under{" "}
+          <a href={SITE.repo + "/blob/main/LICENSE"}>Apache-2.0</a>. You can use
+          it for personal and commercial work under the license terms.
+        </p>
+        <h2>Useful feedback makes a difference</h2>
+        <p>
+          Found a bug? Include your operating system and steps to reproduce it.{" "}
+          <a href={SITE.repo + "/issues"}>
+            Search existing issues or open a report
+          </a>
+          . Keep private notes and API keys out of public reports.
+        </p>
+        <h2>Want to contribute?</h2>
+        <p>
+          Read the{" "}
+          <a href={SITE.repo + "/blob/main/CONTRIBUTING.md"}>
+            contribution guide
+          </a>{" "}
+          before starting. Documentation, bug reports, and fixes all help.
+        </p>
+        <h2>Just here to write?</h2>
+        <p>
+          That's welcome too. <a href={url("download/")}>Download Paperling</a>{" "}
+          and give your next idea a little room.
+        </p>
+      </article>
+      <Aside />
+    </div>
+  </div>
+</Base>

@@ -1,0 +1,57 @@
+---
+import Base from "../layouts/Base.astro";
+import Aside from "../components/Aside.astro";
+import { SITE, url } from "../lib/site";
+---
+
+<Base
+  title="Paperling Changelog & Release Notes"
+  description="Find official Paperling release notes, published downloads, and update information directly from the project's GitHub Releases."
+  path="changelog/"
+  crumbs={[{ label: "What's new", path: "changelog/" }]}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <p class="eyebrow">ONE SMALL IMPROVEMENT AT A TIME</p>
+      <h1>
+        The notebook
+        <br />
+        <em>keeps growing.</em>
+      </h1>
+      <p>
+        Published release notes live on GitHub, alongside the actual downloads.
+        Read what changed in the version you're about to install.
+      </p>
+    </header>
+    <div class="article-layout">
+      <article class="prose">
+        <h2>The latest published release</h2>
+        <p>
+          The link below always opens the latest published release, including
+          its notes and available packages. A development branch or test
+          artifact is not the same as a released app.
+        </p>
+        <p>
+          <a class="button" href={SITE.releases}>
+            Read the latest release notes ↗
+          </a>
+        </p>
+        <h2>Looking for an earlier version?</h2>
+        <p>
+          <a href={SITE.repo + "/releases"}>
+            Browse the complete release history
+          </a>{" "}
+          to find previous notes and packages. Back up important documents
+          before changing versions.
+        </p>
+        <h2>Picking the right download</h2>
+        <p>
+          The <a href={url("download/")}>download guide</a> explains the
+          platform formats and installation notes. No app release is made just
+          to update this website.
+        </p>
+      </article>
+      <Aside />
+    </div>
+  </div>
+</Base>

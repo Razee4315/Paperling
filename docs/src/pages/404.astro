@@ -1,48 +1,31 @@
 ---
-import { Image } from "astro:assets";
-import { Icon } from "astro-icon/components";
 import Base from "../layouts/Base.astro";
-import mascotCrumpled from "../assets/mascot/mascot-crumpled.png";
-
-const base = import.meta.env.BASE_URL;
+import { url } from "../lib/site";
 ---
 
 <Base
-  title="404: page not found · Paperling"
-  description="This page got crumpled. Head back to the Paperling homepage."
+  title="Page not found | Paperling"
+  description="This page seems to have slipped out of the notebook. Find your way back to Paperling."
+  path="404.html"
+  noindex
 >
-  <main class="relative flex min-h-screen items-center justify-center overflow-hidden px-5">
-    <div class="aurora" aria-hidden="true"></div>
-    <div class="grid-bg" aria-hidden="true"></div>
-
-    <div class="relative z-10 mx-auto max-w-xl py-24 text-center">
-      <Image
-        src={mascotCrumpled}
-        alt="A crumpled, dizzy sheet of paper"
-        widths={[256]}
-        sizes="128px"
-        class="mx-auto h-32 w-32 select-none"
-        loading="eager"
-      />
-
-      <h1 class="font-serif-display mt-8 text-balance text-[clamp(2.4rem,7vw,4rem)]">
-        This page got <em class="text-gradient">crumpled</em>.
-      </h1>
-
-      <p class="mono-label mt-6 justify-center">
-        <span class="tok-mark">//</span> 404: file not found
-      </p>
-
-      <p class="mt-4 text-pretty text-fg-muted">
-        Whatever lived here was tossed in the bin, or never existed. The rest of the document is
-        still in great shape.
-      </p>
-
-      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
-        <a href={base} class="btn btn-primary">
-          <Icon name="lucide:arrow-left" class="h-[18px] w-[18px]" /> Back to the homepage
-        </a>
-      </div>
+  <div class="wrap section">
+    <p class="eyebrow">404 / A LOOSE SHEET</p>
+    <h1>
+      This page
+      <br />
+      wandered off.
+    </h1>
+    <p style="margin-top:25px">
+      The rest of the notebook is right where you left it.
+    </p>
+    <div class="actions">
+      <a class="button" href={url()}>
+        Back to Paperling ↗
+      </a>
+      <a class="text-link" href={url("guide/")}>
+        Open the guide
+      </a>
     </div>
-  </main>
+  </div>
 </Base>

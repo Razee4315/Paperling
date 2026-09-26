@@ -1,0 +1,40 @@
+---
+import Base from "../layouts/Base.astro";
+import Faq from "../components/Faq.astro";
+import Aside from "../components/Aside.astro";
+import { faqs } from "../lib/site";
+const schema = [
+  {
+    "@type": "FAQPage",
+    mainEntity: faqs.map(([q, a]) => ({
+      "@type": "Question",
+      name: q,
+      acceptedAnswer: { "@type": "Answer", text: a },
+    })),
+  },
+];
+---
+
+<Base
+  title="Paperling FAQ: Pricing, Platforms, Offline Use & AI"
+  description="Straight answers about Paperling: free and open-source licensing, supported devices, offline editing, Markdown compatibility, and optional AI."
+  path="faq/"
+  crumbs={[{ label: "FAQ", path: "faq/" }]}
+  schema={schema}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <p class="eyebrow">THE SMALL PRINT, IN PLAIN LANGUAGE</p>
+      <h1>
+        Good questions.
+        <br />
+        <em>Straight answers.</em>
+      </h1>
+      <p>A few things to know before making yourself at home.</p>
+    </header>
+    <div class="article-layout">
+      <Faq />
+      <Aside />
+    </div>
+  </div>
+</Base>

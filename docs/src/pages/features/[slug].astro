@@ -1,0 +1,55 @@
+---
+import Base from "../../layouts/Base.astro";
+import Aside from "../../components/Aside.astro";
+import { features, url } from "../../lib/site";
+export function getStaticPaths() {
+  return features.map((feature) => ({
+    params: { slug: feature.slug },
+    props: { feature },
+  }));
+}
+const { feature } = Astro.props;
+---
+
+<Base
+  title={feature.name + " for Markdown | Paperling"}
+  description={feature.description}
+  path={"features/" + feature.slug + "/"}
+  crumbs={[
+    { label: "Features", path: "features/" },
+    { label: feature.name, path: "features/" + feature.slug + "/" },
+  ]}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <p class="eyebrow">{feature.label}</p>
+      <h1>{feature.title}</h1>
+      <p>{feature.intro}</p>
+    </header>
+    <div class="article-layout">
+      <article class="prose">
+        {feature.sections.map(([heading, text]) => (
+          <section>
+            <h2>{heading}</h2>
+            <p>{text}</p>
+          </section>
+        ))}
+        {feature.slug === "math-and-diagrams" && (
+          <>
+            <h2>Try it in a note</h2>
+            <pre><code>{'Inline math: $E = mc^2$\n\nChemistry: $\\ce{2 H2 + O2 -> 2 H2O}$\n\n```mermaid\nflowchart LR\n  Thought --> Draft --> Share\n```'}</code></pre>
+            <p>
+              Paste this into Code view, then open Split view to see the result.
+            </p>
+          </>
+        )}
+        <h2>A good next step</h2>
+        <p>
+          <a href={url("guide/")}>Follow the getting-started guide</a> or{" "}
+          <a href={url("features/")}>explore the rest of the toolkit</a>.
+        </p>
+      </article>
+      <Aside />
+    </div>
+  </div>
+</Base>

@@ -12,6 +12,7 @@ on:
       - "docs/**"
       - ".github/workflows/deploy-docs.yml"
       - "package.json"
+      - "src/config/keybindings.ts"
   release:
     types: [published]
   workflow_dispatch:
@@ -41,11 +42,19 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Node for output verification
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Build site
         run: bun run build
+
+      - name: Verify pages, links and search metadata
+        run: bun run verify
 
       - name: Configure Pages
         uses: actions/configure-pages@v6

@@ -1,83 +1,73 @@
 ---
-import { Image } from "astro:assets";
-import { Icon } from "astro-icon/components";
-import mascotSleep from "../assets/mascot/mascot-sleep.png";
-const base = import.meta.env.BASE_URL;
-const repo = "https://github.com/Razee4315/Paperling";
-const year = new Date().getFullYear();
-
-const links = [
-  { href: repo, label: "GitHub" },
-  { href: `${repo}/releases`, label: "Releases" },
-  { href: `${repo}/blob/main/CONTRIBUTING.md`, label: "Contribute" },
-  { href: `${repo}/blob/main/LICENSE`, label: "License" },
-  { href: "https://www.linkedin.com/in/saqlainrazee/", label: "LinkedIn" },
+import { url, SITE } from "../lib/site";
+const columns = [
+  {
+    title: "THE APP",
+    links: [
+      ["features/", "Explore features"],
+      ["download/", "Download"],
+      ["changelog/", "What's new"],
+      ["open-source/", "Open source"],
+    ],
+  },
+  {
+    title: "MAKE YOURSELF AT HOME",
+    links: [
+      ["guide/", "Getting started"],
+      ["shortcuts/", "Keyboard shortcuts"],
+      ["faq/", "Questions & answers"],
+      ["privacy/", "Privacy & your files"],
+    ],
+  },
+  {
+    title: "FIND YOUR FIT",
+    links: [
+      ["compare/obsidian/", "Paperling vs Obsidian"],
+      ["compare/typora/", "Paperling vs Typora"],
+      ["compare/vscode/", "Paperling vs VS Code"],
+      ["compare/marktext/", "Paperling vs MarkText"],
+    ],
+  },
 ];
 ---
 
-<footer class="relative border-t border-line">
-  <!-- The mascot dozed off on the closing rule of the page. -->
-  <Image
-    src={mascotSleep}
-    alt=""
-    aria-hidden="true"
-    widths={[112]}
-    sizes="56px"
-    class="pointer-events-none absolute right-8 top-0 h-14 w-14 -translate-y-full select-none md:right-16"
-    loading="lazy"
-  />
-
-  <!-- end-of-file motif -->
-  <div class="mx-auto max-w-6xl px-5 pt-10 font-mono text-[13px] leading-relaxed" data-reveal>
-    <div class="flex">
-      <span class="linenum w-8 shrink-0">38</span>
-      <span class="text-fg-muted"><span class="text-brand">#</span> Thanks for scrolling.<span class="caret"></span></span>
+<footer class="site-footer">
+  <div class="wrap footer-top">
+    <div class="footer-intro">
+      <a class="brand" href={url()}>
+        <img src={url("icon.svg")} alt="" width="30" height="30" />
+        Paperling
+      </a>
+      <p>
+        A little space for your
+        <br />
+        next big idea.
+      </p>
+      <a class="text-link" href={SITE.repo}>
+        Made in the open ↗
+      </a>
     </div>
-    {[39, 40, 41].map((n) => (
-      <div class="flex">
-        <span class="linenum w-8 shrink-0">{n}</span>
-        <span class="eof-tilde">~</span>
-      </div>
-    ))}
-  </div>
-
-  <div class="mx-auto mt-8 flex max-w-6xl flex-col items-center justify-between gap-8 px-5 pb-6 md:flex-row">
-    <div class="flex items-center gap-3">
-      <img src={`${base}icon.svg`} alt="Paperling logo" width="30" height="30" class="h-[30px] w-[30px]" />
-      <div>
-        <div class="font-semibold tracking-tight">Paperling</div>
-        <div class="text-sm text-fg-dim">© {year} Saqlain Abbas · Apache-2.0</div>
-      </div>
-    </div>
-
-    <nav class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
-      {links.map((l) => (
-        <a href={l.href} rel="noopener" class="text-fg-muted transition-colors hover:text-fg">
-          {l.label}
-        </a>
+    <nav class="footer-columns" aria-label="Footer">
+      {columns.map((col) => (
+        <div>
+          <h2>{col.title}</h2>
+          <ul>
+            {col.links.map(([p, l]) => (
+              <li>
+                <a href={url(p)}>{l}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
       ))}
     </nav>
-
-    <a
-      href={repo}
-      rel="noopener"
-      aria-label="Star Paperling on GitHub"
-      class="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm text-fg-muted transition-colors hover:border-fg/30 hover:text-fg"
-    >
-      <Icon name="lucide:star" class="h-4 w-4" /> Star on GitHub
-    </a>
   </div>
-
-  <!-- editor status line -->
-  <div class="border-t border-line-soft bg-ink-950/70">
-    <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-1 px-5 py-2.5 font-mono text-[11px] text-fg-dim">
-      <span class="rounded bg-brand/15 px-1.5 py-0.5 font-semibold text-[#b96500]">NORMAL</span>
-      <span>readme.md</span>
-      <span class="text-fg-dim/40">·</span>
-      <span>markdown</span>
-      <span class="text-fg-dim/40">·</span>
-      <span>UTF-8</span>
-      <span class="ml-auto">Ln 42, Col 1</span>
-    </div>
+  <div class="wrap footer-base">
+    <span>© {new Date().getFullYear()} Paperling · Apache-2.0</span>
+    <a href={SITE.repo + "/issues"}>Found a rough edge? Tell us ↗</a>
+    <a href="#content">Back to top ↑</a>
+  </div>
+  <div class="footer-wordmark" aria-hidden="true">
+    paperling<span>✳</span>
   </div>
 </footer>
