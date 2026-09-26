@@ -495,6 +495,19 @@ function AppContent() {
     }
   }, [docSwapId]);
 
+  // The full-screen "Loading..." overlay only appears for a SLOW read. A
+  // normal open takes a few frames, and blurring the whole window for them
+  // read as a flash on every file open and tab restore. LOAD-01.
+  const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
+  useEffect(() => {
+    if (!isLoading) {
+      setShowLoadingOverlay(false);
+      return;
+    }
+    const id = window.setTimeout(() => setShowLoadingOverlay(true), 300);
+    return () => window.clearTimeout(id);
+  }, [isLoading]);
+
   // Reveal the window once the tree has mounted and painted the themed
   // background. The window is created hidden (visible:false) so the webview's
   // white pre-load surface never reaches the screen (#98). A failsafe timeout in
@@ -2206,7 +2219,7 @@ function AppContent() {
       />
 
       {/* Loading overlay */}
-      {isLoading && (
+      {showLoadingOverlay && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[var(--bg-primary)]/80 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3">
             <span className="material-symbols-outlined text-[32px] text-[var(--accent)] animate-spin">progress_activity</span>
