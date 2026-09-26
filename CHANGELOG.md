@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.51] - 2026-09-26
+
 ### Android: one-time reinstall (please read before updating)
 
 This Android update is signed with a new key, so Android will not install it
