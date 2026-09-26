@@ -530,6 +530,16 @@ function AppContent() {
     return () => window.clearTimeout(id);
   }, [isLoading]);
 
+  // The outline and backlinks describe the open note; with the last tab
+  // closed they'd sit over the welcome screen showing nothing. The file
+  // panel stays (it's how you pick the next note). RLL-06.
+  useEffect(() => {
+    if (!hasFile) {
+      setShowTOC(false);
+      setShowBacklinks(false);
+    }
+  }, [hasFile]);
+
   // Reveal the window once the tree has mounted and painted the themed
   // background. The window is created hidden (visible:false) so the webview's
   // white pre-load surface never reaches the screen (#98). A failsafe timeout in
@@ -2001,13 +2011,24 @@ function AppContent() {
             <span className="material-symbols-outlined text-[28px] text-[var(--text-muted)] animate-spin">progress_activity</span>
           </div>
         ) : (
-          <WelcomeScreen
-            onOpenFile={handleOpenFileAction}
-            onNewFile={handleNewFile}
-            onOpenSettings={() => setShowSettings(true)}
-            onFileDrop={handleFileDrop}
-            onOpenRecent={loadFile}
-          />
+          // The file panel stays useful with no note open (pick another
+          // one), so the welcome screen moves over beside it instead of
+          // sliding under it. RLL-06.
+          <div
+            className="flex-1 min-h-0 flex flex-col"
+            style={{
+              paddingLeft: !IS_MOBILE && showFileExplorer ? `${SIDEBAR_WIDTH}px` : 0,
+              transition: "padding 0.15s ease",
+            }}
+          >
+            <WelcomeScreen
+              onOpenFile={handleOpenFileAction}
+              onNewFile={handleNewFile}
+              onOpenSettings={() => setShowSettings(true)}
+              onFileDrop={handleFileDrop}
+              onOpenRecent={loadFile}
+            />
+          </div>
         )
       ) : (
         <>
