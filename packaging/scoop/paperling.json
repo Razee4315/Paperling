@@ -1,16 +1,15 @@
 {
-  "version": "0.6.21",
+  "version": "1.0.50",
   "description": "A minimal, distraction-free Markdown editor with live preview, math, diagrams, and an optional AI assistant.",
   "homepage": "https://github.com/Razee4315/Paperling",
   "license": "Freeware",
   "notes": [
-    "Paperling is free for personal use. Commercial use requires permission from the author.",
-    "Releases from v1.0.51 on ship a portable zip; this manifest auto-updates to it."
+    "Paperling is free for personal use. Commercial use requires permission from the author."
   ],
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Razee4315/Paperling/releases/download/v0.6.21/Paperling_0.6.21_x64-setup.exe#/dl.7z",
-      "hash": "2f93b39ab58bb661167a108455c43f7e969cb92419293a0447f2ae64a344e37f"
+      "url": "https://github.com/Razee4315/Paperling/releases/download/v1.0.50/Paperling_1.0.50_x64-portable.zip",
+      "hash": "8c3e642652d8fbb4185e0b1d2461425c8b0b573d5d473aa5337d28fad62f67dc"
     }
   },
   "bin": "Paperling.exe",

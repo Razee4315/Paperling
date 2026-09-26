@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: Razee4315.Paperling
-PackageVersion: 0.6.21
+PackageVersion: 1.0.50
 PackageLocale: en-US
 Publisher: Saqlain Abbas
 PublisherUrl: https://github.com/Razee4315
@@ -13,10 +13,10 @@ LicenseUrl: https://github.com/Razee4315/Paperling/blob/main/LICENSE
 Copyright: Copyright (c) Saqlain Abbas
 ShortDescription: A minimal, distraction-free Markdown editor with live preview, math, diagrams, and an optional AI assistant.
 Description: |-
-  Paperling is a fast, minimal, open-source Markdown editor built with Tauri, Rust, and React.
+  Paperling is a fast, minimal Markdown reader and editor built with Tauri, Rust, and React.
   It renders Markdown beautifully while keeping the raw text one keystroke away — with a
   Reader / Code / Split view, syntax highlighting, KaTeX math, mhchem chemistry equations,
-  Mermaid diagrams, slash commands, wikilinks, a command palette, four themes, and an
+  Mermaid diagrams, slash commands, wikilinks, a command palette, light and dark themes, and an
   optional AI assistant (bring your own OpenAI-compatible model). No account, no telemetry —
   files stay on your machine.
 Moniker: paperling
@@ -31,6 +31,6 @@ Tags:
   - mermaid
   - productivity
   - writing
-ReleaseNotesUrl: https://github.com/Razee4315/Paperling/releases/tag/v0.6.21
+ReleaseNotesUrl: https://github.com/Razee4315/Paperling/releases/tag/v1.0.50
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
