@@ -264,9 +264,12 @@ const tokens: Token[] = [
   }
 
   /* Syntax cards: position + pointer parallax / idle float / flip. */
+  /* WEB-16: the cards sit above the copy and screenshot layers so hover
+     reaches them; the layers' empty edges used to swallow the pointer.
+     The cards are placed in the margins, so nothing readable is covered. */
   .tokens {
     position: absolute;
-    z-index: 1;
+    z-index: 3;
     inset: 40px 0 auto;
     height: min(640px, 72vh);
     pointer-events: none;

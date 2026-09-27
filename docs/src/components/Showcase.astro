@@ -50,7 +50,9 @@ const views = [
     style={`--frame:${views[0].frame}`}
   >
     <div class="switch" role="tablist" aria-label="Explore Paperling views">
-      <span class="switch-thumb" aria-hidden="true"></span>
+      <span class="switch-thumb" aria-hidden="true">
+        <span class="progress"></span>
+      </span>
       {views.map((v, i) => (
         <button
           role="tab"
@@ -142,6 +144,36 @@ const views = [
       transform 0.5s cubic-bezier(0.65, 0, 0.35, 1),
       width 0.5s cubic-bezier(0.65, 0, 0.35, 1);
   }
+  /* WEB-15: while nobody has touched the switch, it plays through the
+     themes on its own; the line inside the pill shows when the next one
+     comes. Hovering or focusing the section pauses it, and the first
+     click hands control to the visitor for good. */
+  .progress {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: 6px;
+    height: 2px;
+    border-radius: 2px;
+    background: #fffdf5a6;
+    transform: scaleX(0);
+    transform-origin: left;
+    opacity: 0;
+  }
+  .autoplay .progress {
+    opacity: 1;
+  }
+  .autoplay .progress.run {
+    animation: fill 5s linear forwards;
+  }
+  .autoplay.paused .progress.run {
+    animation-play-state: paused;
+  }
+  @keyframes fill {
+    to {
+      transform: scaleX(1);
+    }
+  }
   .stage {
     display: grid;
     padding: 16px;
@@ -216,6 +248,12 @@ const views = [
       thumb.style.setProperty("--x", tab.offsetLeft + "px");
       thumb.style.setProperty("--w", tab.offsetWidth + "px");
     };
+    const progress = root.querySelector<HTMLElement>(".progress")!;
+    const restart = () => {
+      progress.classList.remove("run");
+      void progress.offsetWidth;
+      progress.classList.add("run");
+    };
     const activate = (index: number) => {
       if (index === current) return;
       const prev = panels[current];
@@ -246,9 +284,14 @@ const views = [
         caption.classList.remove("swap");
       }, 250);
       place();
+      if (root.classList.contains("autoplay")) restart();
     };
+    const takeOver = () => root.classList.remove("autoplay");
     tabs.forEach((tab, i) => {
-      tab.addEventListener("click", () => activate(i));
+      tab.addEventListener("click", () => {
+        takeOver();
+        activate(i);
+      });
       tab.addEventListener("keydown", (e) => {
         let next = i;
         if (e.key === "ArrowRight") next = (i + 1) % tabs.length;
@@ -258,6 +301,7 @@ const views = [
         else if (e.key === "End") next = tabs.length - 1;
         else return;
         e.preventDefault();
+        takeOver();
         activate(next);
         tabs[next].focus();
       });
@@ -265,5 +309,34 @@ const views = [
     place();
     list.classList.add("ready");
     new ResizeObserver(place).observe(list);
+
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      let visible = false;
+      let hovering = false;
+      let focused = false;
+      const sync = () =>
+        root.classList.toggle(
+          "paused",
+          !visible || hovering || focused || document.hidden,
+        );
+      root.classList.add("autoplay", "paused");
+      restart();
+      progress.addEventListener("animationend", () => {
+        if (root.classList.contains("autoplay"))
+          activate((current + 1) % tabs.length);
+      });
+      new IntersectionObserver(
+        ([e]) => {
+          visible = e.isIntersecting;
+          sync();
+        },
+        { threshold: 0.4 },
+      ).observe(root);
+      root.addEventListener("pointerenter", () => ((hovering = true), sync()));
+      root.addEventListener("pointerleave", () => ((hovering = false), sync()));
+      root.addEventListener("focusin", () => ((focused = true), sync()));
+      root.addEventListener("focusout", () => ((focused = false), sync()));
+      document.addEventListener("visibilitychange", sync);
+    }
   }
 </script>
