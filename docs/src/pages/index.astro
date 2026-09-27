@@ -4,32 +4,12 @@ import Base from "../layouts/Base.astro";
 import Faq from "../components/Faq.astro";
 import CTA from "../components/CTA.astro";
 import Hero from "../components/Hero.astro";
+import Showcase from "../components/Showcase.astro";
+import Palette from "../components/Palette.astro";
+import StoryNotes from "../components/StoryNotes.astro";
+import CompareCards from "../components/CompareCards.astro";
 import { url, absolute, SITE, faqs } from "../lib/site";
-import paper from "../assets/screenshots/reader-paper.png";
-import light from "../assets/screenshots/reader-light.png";
-import showcase from "../assets/screenshots/showcase-dark.png";
-import { featureIcons, toolkit, mascotPaint } from "../lib/art";
-// WEB-05: split view leads the hero now, so the tabs below start on the themes.
-const views = [
-  {
-    name: "Paper theme",
-    image: paper,
-    caption: "A warm, quiet page for a longer read.",
-    alt: "Paperling Reader view in the warm Paper theme",
-  },
-  {
-    name: "Light theme",
-    image: light,
-    caption: "A bright canvas for your next document.",
-    alt: "Paperling Reader view in the Light theme",
-  },
-  {
-    name: "Math & diagrams",
-    image: showcase,
-    caption: "Equations and diagrams, right in your document.",
-    alt: "Paperling displaying a mathematical equation and a Mermaid flowchart beside their Markdown source",
-  },
-];
+import { featureIcons } from "../lib/art";
 const schema = [
   {
     "@type": "SoftwareApplication",
@@ -48,64 +28,7 @@ const schema = [
 
 <Base schema={schema}>
   <Hero />
-  <section class="section showcase-section wrap" id="editor">
-    <div class="section-heading" data-reveal>
-      <div>
-        <h2>
-          One file.
-          <br />
-          <em>Read it your way.</em>
-        </h2>
-      </div>
-      <p>A warm page, a bright one, or math and diagrams in place.</p>
-    </div>
-    <div id="themes" data-showcase data-reveal>
-      <div
-        class="view-switcher"
-        role="tablist"
-        aria-label="Explore Paperling views"
-      >
-        {views.map((v, i) => (
-          <button
-            role="tab"
-            id={"view-tab-" + i}
-            aria-controls={"view-panel-" + i}
-            aria-selected={i === 0 ? "true" : "false"}
-            tabindex={i === 0 ? 0 : -1}
-            data-view-tab={i}
-          >
-            {v.name}
-          </button>
-        ))}
-      </div>
-      {views.map((v, i) => (
-        <div
-          id={"view-panel-" + i}
-          role="tabpanel"
-          aria-labelledby={"view-tab-" + i}
-          tabindex="0"
-          hidden={i !== 0}
-          data-view-panel={i}
-        >
-          <figure>
-            <div class="screenshot-frame">
-              <Image
-                src={v.image}
-                alt={v.alt}
-                widths={[640, 960, 1280, 1600]}
-                sizes="(max-width: 720px) 94vw, 90vw"
-                loading="lazy"
-                format="webp"
-              />
-            </div>
-            <figcaption class="shot-caption">
-              <span>{v.caption}</span>
-            </figcaption>
-          </figure>
-        </div>
-      ))}
-    </div>
-  </section>
+  <Showcase />
   <section class="section torn" id="features">
     <div class="wrap">
       <div class="section-heading" data-reveal>
@@ -197,23 +120,13 @@ const schema = [
         </a>
       </div>
       <h3 class="toolkit-title" data-reveal>
-        And a few more things in the box.
+        Everything else is one search away.
       </h3>
-      <ul class="toolkit-grid">
-        {toolkit.map((t) => (
-          <li class="toolkit-item" data-reveal>
-            <Image src={t.icon} alt="" widths={[64, 128]} sizes="64px" />
-            <div>
-              <h4>{t.name}</h4>
-              <p>{t.text}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
+      <Palette />
     </div>
   </section>
   <section class="section wrap story-grid" id="open-source">
-    <div data-reveal>
+    <div class="story-copy" data-reveal>
       <h2>
         Made for myself.
         <br />
@@ -228,34 +141,7 @@ const schema = [
         The story & the source ↗
       </a>
     </div>
-    <div class="story-art" data-reveal>
-      <Image
-        class="story-mascot"
-        src={mascotPaint}
-        alt=""
-        widths={[180, 360]}
-        sizes="180px"
-      />
-      <div class="file-label">
-        <span>~/a-few-good-ideas/</span>
-        <span>↗</span>
-      </div>
-      <div class="file-art">
-        <span>↳</span> the-next-big-thing.md
-        <br />
-        <span>↳</span> notes-to-self.md
-        <br />
-        <span>↳</span> a-small-discovery.md
-        <br />
-        <br />
-        <small># A note to myself</small>
-        <br />
-        Good ideas need room.
-        <br />
-        <span>Not another login.</span>
-      </div>
-      <div class="note-callout">Yours to write. Yours to keep.</div>
-    </div>
+    <StoryNotes />
   </section>
   <section class="section compare-section" id="compare">
     <div class="wrap">
@@ -269,19 +155,7 @@ const schema = [
         </div>
         <p>A few honest comparisons. Find what fits you.</p>
       </div>
-      <div class="compare-links" data-reveal>
-        {[
-          ["obsidian", "Obsidian"],
-          ["typora", "Typora"],
-          ["vscode", "VS Code"],
-          ["marktext", "MarkText"],
-        ].map(([s, n]) => (
-          <a href={url("compare/" + s + "/")}>
-            vs {n}
-            <span aria-hidden="true">↗</span>
-          </a>
-        ))}
-      </div>
+      <CompareCards />
     </div>
   </section>
   <section class="section wrap faq-section" id="faq">
@@ -301,35 +175,3 @@ const schema = [
   </section>
   <CTA />
 </Base>
-<script>
-  const showcase = document.querySelector("[data-showcase]");
-  if (showcase) {
-    const tabs = [
-      ...showcase.querySelectorAll<HTMLButtonElement>("[data-view-tab]"),
-    ];
-    const activate = (index: number) => {
-      tabs.forEach((t, i) => {
-        t.setAttribute("aria-selected", String(i === index));
-        t.tabIndex = i === index ? 0 : -1;
-      });
-      showcase
-        .querySelectorAll<HTMLElement>("[data-view-panel]")
-        .forEach((p, i) => (p.hidden = i !== index));
-    };
-    tabs.forEach((tab, i) => {
-      tab.addEventListener("click", () => activate(i));
-      tab.addEventListener("keydown", (e) => {
-        let next = i;
-        if (e.key === "ArrowRight") next = (i + 1) % tabs.length;
-        else if (e.key === "ArrowLeft")
-          next = (i + tabs.length - 1) % tabs.length;
-        else if (e.key === "Home") next = 0;
-        else if (e.key === "End") next = tabs.length - 1;
-        else return;
-        e.preventDefault();
-        activate(next);
-        tabs[next].focus();
-      });
-    });
-  }
-</script>

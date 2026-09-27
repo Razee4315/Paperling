@@ -1,0 +1,269 @@
+---
+import { Image } from "astro:assets";
+import paper from "../assets/screenshots/reader-paper.png";
+import light from "../assets/screenshots/reader-light.png";
+import showcase from "../assets/screenshots/showcase-dark.png";
+
+// WEB-09: switching themes should feel like the app does it. A sliding
+// switch, a wipe across the page, and a frame that takes on each theme's
+// colour. Without JS the first view simply stays put.
+const views = [
+  {
+    name: "Paper",
+    image: paper,
+    frame: "#5b3f31",
+    caption: "A warm, quiet page for a longer read.",
+    alt: "Paperling Reader view in the warm Paper theme",
+  },
+  {
+    name: "Light",
+    image: light,
+    frame: "#c7cfbd",
+    caption: "A bright canvas for your next document.",
+    alt: "Paperling Reader view in the Light theme",
+  },
+  {
+    name: "Math & diagrams",
+    image: showcase,
+    frame: "#171a18",
+    caption: "Equations and diagrams, right in your document.",
+    alt: "Paperling displaying a mathematical equation and a Mermaid flowchart beside their Markdown source",
+  },
+];
+---
+
+<section class="section wrap showcase" id="editor">
+  <div class="section-heading" data-reveal>
+    <div>
+      <h2>
+        One file.
+        <br />
+        <em>Read it your way.</em>
+      </h2>
+    </div>
+    <p>A warm page, a bright one, or math and diagrams in place.</p>
+  </div>
+  <div
+    id="themes"
+    data-showcase
+    data-reveal
+    style={`--frame:${views[0].frame}`}
+  >
+    <div class="switch" role="tablist" aria-label="Explore Paperling views">
+      <span class="switch-thumb" aria-hidden="true"></span>
+      {views.map((v, i) => (
+        <button
+          role="tab"
+          id={"view-tab-" + i}
+          aria-controls={"view-panel-" + i}
+          aria-selected={i === 0 ? "true" : "false"}
+          tabindex={i === 0 ? 0 : -1}
+          data-view-tab={i}
+          data-frame={v.frame}
+          data-blurb={v.caption}
+        >
+          {v.name}
+        </button>
+      ))}
+    </div>
+    <figure>
+      <div class="stage">
+        {views.map((v, i) => (
+          <div
+            id={"view-panel-" + i}
+            role="tabpanel"
+            aria-labelledby={"view-tab-" + i}
+            tabindex="0"
+            hidden={i !== 0}
+            data-view-panel={i}
+            class="panel"
+          >
+            <Image
+              src={v.image}
+              alt={v.alt}
+              widths={[640, 960, 1280, 1600]}
+              sizes="(max-width: 720px) 94vw, 90vw"
+              loading={i === 0 ? "lazy" : "eager"}
+              format="webp"
+            />
+          </div>
+        ))}
+      </div>
+      <figcaption class="shot-caption" data-caption>
+        {views[0].caption}
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<style>
+  .showcase {
+    padding-top: 66px;
+  }
+  .switch {
+    position: relative;
+    display: inline-flex;
+    padding: 5px;
+    margin-bottom: 20px;
+    border: 1px solid var(--line);
+    border-radius: 100px;
+    background: var(--surface);
+  }
+  .switch button {
+    position: relative;
+    z-index: 1;
+    border: 0;
+    background: none;
+    color: var(--ink);
+    border-radius: 100px;
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 550;
+    transition: color 0.35s;
+  }
+  .switch button[aria-selected="true"] {
+    color: #fffdf5;
+  }
+  /* Without JS the selected tab paints its own pill; with JS the thumb slides. */
+  .switch:not(.ready) button[aria-selected="true"] {
+    background: var(--green);
+  }
+  .switch-thumb {
+    position: absolute;
+    top: 5px;
+    bottom: 5px;
+    left: 0;
+    width: 0;
+    border-radius: 100px;
+    background: var(--green);
+    transform: translateX(var(--x, 0));
+    width: var(--w, 0);
+    transition:
+      transform 0.5s cubic-bezier(0.65, 0, 0.35, 1),
+      width 0.5s cubic-bezier(0.65, 0, 0.35, 1);
+  }
+  .stage {
+    display: grid;
+    padding: 16px;
+    border-radius: 12px;
+    background: var(--frame);
+    box-shadow: 0 30px 70px -44px #12331e99;
+    transition: background 0.7s ease;
+  }
+  .panel {
+    grid-area: 1 / 1;
+  }
+  .panel img {
+    width: 100%;
+    border-radius: 4px;
+  }
+  .panel:focus-visible {
+    outline-offset: 22px;
+  }
+  /* The incoming theme sweeps across the old one like a fresh coat of paint. */
+  .panel.entering {
+    z-index: 1;
+    animation: wipe 0.75s cubic-bezier(0.65, 0, 0.35, 1) both;
+  }
+  @keyframes wipe {
+    from {
+      clip-path: inset(0 100% 0 0 round 4px);
+    }
+    to {
+      clip-path: inset(0 0 0 0 round 4px);
+    }
+  }
+  [data-caption] {
+    transition: opacity 0.3s;
+  }
+  [data-caption].swap {
+    opacity: 0;
+  }
+  @media (max-width: 720px) {
+    .switch button {
+      padding: 8px 13px;
+      font-size: 12px;
+    }
+    .stage {
+      padding: 8px;
+      border-radius: 7px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .panel.entering {
+      animation: none;
+    }
+    .switch-thumb,
+    .stage {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-showcase]");
+  if (root) {
+    const list = root.querySelector<HTMLElement>(".switch")!;
+    const thumb = root.querySelector<HTMLElement>(".switch-thumb")!;
+    const caption = root.querySelector<HTMLElement>("[data-caption]")!;
+    const tabs = [
+      ...root.querySelectorAll<HTMLButtonElement>("[data-view-tab]"),
+    ];
+    const panels = [...root.querySelectorAll<HTMLElement>("[data-view-panel]")];
+    let current = 0;
+    const place = () => {
+      const tab = tabs[current];
+      thumb.style.setProperty("--x", tab.offsetLeft + "px");
+      thumb.style.setProperty("--w", tab.offsetWidth + "px");
+    };
+    const activate = (index: number) => {
+      if (index === current) return;
+      const prev = panels[current];
+      const next = panels[index];
+      tabs.forEach((t, i) => {
+        t.setAttribute("aria-selected", String(i === index));
+        t.tabIndex = i === index ? 0 : -1;
+      });
+      panels.forEach((p) => p.classList.remove("entering"));
+      panels.forEach((p) => {
+        if (p !== prev && p !== next) p.hidden = true;
+      });
+      next.hidden = false;
+      // Restart the wipe even when switching quickly.
+      void next.offsetWidth;
+      next.classList.add("entering");
+      const done = () => {
+        if (panels[current] === next) prev.hidden = true;
+        next.classList.remove("entering");
+      };
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) done();
+      else next.addEventListener("animationend", done, { once: true });
+      current = index;
+      root.style.setProperty("--frame", tabs[index].dataset.frame!);
+      caption.classList.add("swap");
+      window.setTimeout(() => {
+        caption.textContent = tabs[index].dataset.blurb!;
+        caption.classList.remove("swap");
+      }, 250);
+      place();
+    };
+    tabs.forEach((tab, i) => {
+      tab.addEventListener("click", () => activate(i));
+      tab.addEventListener("keydown", (e) => {
+        let next = i;
+        if (e.key === "ArrowRight") next = (i + 1) % tabs.length;
+        else if (e.key === "ArrowLeft")
+          next = (i + tabs.length - 1) % tabs.length;
+        else if (e.key === "Home") next = 0;
+        else if (e.key === "End") next = tabs.length - 1;
+        else return;
+        e.preventDefault();
+        activate(next);
+        tabs[next].focus();
+      });
+    });
+    place();
+    list.classList.add("ready");
+    new ResizeObserver(place).observe(list);
+  }
+</script>
