@@ -1,0 +1,123 @@
+---
+import { url } from "../lib/site";
+import { comparisons } from "../lib/comparisons";
+
+// WEB-12: each comparison card carries its one-line verdict, so the honest
+// answer is visible before the click. Order follows the homepage's history.
+const order = ["obsidian", "typora", "vscode", "marktext"];
+const cards = order.flatMap((slug) =>
+  comparisons.filter((c) => c.slug === slug),
+);
+---
+
+<div class="cards">
+  {cards.map((c, i) => (
+    <a href={url("compare/" + c.slug + "/")} data-reveal style={`--i:${i}`}>
+      <span class="vs">Paperling vs</span>
+      <span class="name">{c.name}</span>
+      <span class="verdict">{c.verdict}</span>
+      <span class="go" aria-hidden="true">
+        Read the comparison <span>→</span>
+      </span>
+    </a>
+  ))}
+</div>
+
+<style>
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  a {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 24px 24px 22px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    isolation: isolate;
+    transition:
+      transform 0.35s cubic-bezier(0.34, 1.4, 0.64, 1),
+      border-color 0.3s,
+      color 0.3s;
+  }
+  /* A green sheet slides up from below on hover. */
+  a::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--green);
+    transform: translateY(101%);
+    transition: transform 0.45s cubic-bezier(0.65, 0, 0.35, 1);
+  }
+  a:hover,
+  a:focus-visible {
+    transform: translateY(-4px);
+    border-color: var(--green);
+    color: #fffdf5;
+  }
+  a:hover::before,
+  a:focus-visible::before {
+    transform: none;
+  }
+  .vs {
+    font: 11px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--clay);
+    transition: color 0.3s;
+  }
+  .name {
+    font: 700 30px/1.1 var(--display);
+    letter-spacing: -0.04em;
+  }
+  .verdict {
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--muted);
+    transition: color 0.3s;
+  }
+  .go {
+    margin-top: auto;
+    padding-top: 18px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .go span {
+    display: inline-block;
+    transition: transform 0.3s;
+  }
+  a:hover .vs,
+  a:focus-visible .vs {
+    color: var(--gold);
+  }
+  a:hover .verdict,
+  a:focus-visible .verdict {
+    color: #d9e3d1;
+  }
+  a:hover .go span {
+    transform: translateX(5px);
+  }
+  @media (max-width: 1000px) {
+    .cards {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  @media (max-width: 560px) {
+    .cards {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    a,
+    a::before {
+      transition: none;
+    }
+  }
+</style>
