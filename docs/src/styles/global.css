@@ -215,61 +215,6 @@ main:focus {
 .mobile-menu {
   display: none;
 }
-.hero {
-  padding: 38px 0 0;
-  position: relative;
-}
-.hero-grid {
-  display: grid;
-  grid-template-columns: 1.1fr 1fr;
-  align-items: center;
-  gap: 28px;
-  padding: 56px 0 43px;
-}
-.hero-copy h1 em {
-  color: var(--green);
-  position: relative;
-}
-.hero-copy h1 em:after {
-  content: "";
-  position: absolute;
-  bottom: -5px;
-  left: 0;
-  width: 98%;
-  height: 9px;
-  border-top: 2px solid var(--clay);
-  border-radius: 50%;
-  transform: rotate(-3deg);
-}
-.hero-description {
-  max-width: 460px;
-  font-size: 16px;
-  line-height: 1.8;
-  margin-top: 28px;
-}
-.hero-visual {
-  position: relative;
-}
-/* WEB-04: the waving mascot is the hero art again; one gentle sway, then still. */
-.hero-mascot {
-  display: block;
-  width: min(100%, 420px);
-  height: auto;
-  margin: 0 auto;
-  transform-origin: 50% 90%;
-  animation: paper-breathe 4s ease-in-out 1;
-}
-.hero-shot {
-  padding-bottom: 46px;
-}
-.paper-note {
-  position: absolute;
-  bottom: 6%;
-  right: 0;
-  font: italic 23px var(--display);
-  transform: rotate(-7deg);
-  color: var(--green);
-}
 .showcase-section {
   padding-top: 66px;
 }
@@ -948,27 +893,6 @@ html [data-reveal].reveal {
   opacity: 0;
   transform: translateY(32px);
 }
-/* First paint: the hero settles in, one piece after another. */
-.hero-copy > *,
-.hero-visual,
-.hero-shot {
-  animation: rise-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-.hero-copy > :nth-child(2) {
-  animation-delay: 0.08s;
-}
-.hero-copy > :nth-child(3) {
-  animation-delay: 0.16s;
-}
-.hero-copy > :nth-child(4) {
-  animation-delay: 0.24s;
-}
-.hero-visual {
-  animation-delay: 0.2s;
-}
-.hero-shot {
-  animation-delay: 0.36s;
-}
 @keyframes rise-in {
   from {
     opacity: 0;
@@ -986,36 +910,9 @@ html.lenis {
 .lenis.lenis-stopped {
   overflow: clip;
 }
-@keyframes paper-breathe {
-  0%,
-  100% {
-    transform: rotate(-1deg) translateY(0);
-  }
-  50% {
-    transform: rotate(1deg) translateY(-7px);
-  }
-}
-@media (min-width: 1500px) {
-  .hero-grid {
-    padding-block: 65px;
-  }
-  .hero-copy h1 {
-    font-size: 112px;
-  }
-}
 @media (max-width: 1000px) {
   .wrap {
     width: calc(100% - 56px);
-  }
-  .hero-grid {
-    grid-template-columns: 1.15fr 0.85fr;
-  }
-  .hero-copy h1 {
-    font-size: 7.6vw;
-  }
-  .hero-visual .paper-note {
-    font-size: 19px;
-    bottom: 0;
   }
   .feature-card {
     padding: 24px;
@@ -1114,37 +1011,8 @@ html.lenis {
     display: block;
     padding: 12px;
   }
-  .hero {
-    padding-top: 22px;
-  }
-  .hero-grid {
-    grid-template-columns: 1fr;
-    padding: 38px 0 28px;
-    gap: 20px;
-  }
-  .hero-copy h1 {
-    font-size: clamp(62px, 13.5vw, 94px);
-  }
-  .hero-description {
-    font-size: 15px;
-    margin-top: 27px;
-  }
   .actions {
     gap: 20px;
-  }
-  .hero-visual {
-    max-width: 400px;
-    width: 92%;
-    margin: auto;
-  }
-  .hero-mascot {
-    width: 250px;
-  }
-  .hero-shot {
-    padding-bottom: 30px;
-  }
-  .hero-shot .screenshot-frame {
-    padding: 8px;
   }
   .toolkit-title {
     margin-top: 50px;
@@ -1188,9 +1056,6 @@ html.lenis {
   .index-icon {
     width: 60px;
     height: 60px;
-  }
-  .paper-note {
-    right: -2%;
   }
   .section {
     padding-block: 65px;
@@ -1405,17 +1270,10 @@ h1 {
 h2 {
   font-weight: 650;
 }
-.hero-copy h1 {
-  font-size: clamp(3.5rem, 6.6vw, 6.8rem);
-  line-height: 1.05;
-}
 .section-heading h2,
 .story-grid h2,
 .faq-section h2 {
   font-size: clamp(2.3rem, 3.7vw, 3.8rem);
-}
-.hero-copy h1 em:after {
-  bottom: -11px;
 }
 .page-heading h1 {
   font-size: clamp(3rem, 5.2vw, 5.3rem);
@@ -1424,10 +1282,6 @@ h2 {
 .index-card h2 {
   font-size: 28px;
   font-weight: 650;
-}
-.paper-note {
-  font-size: 17px;
-  font-weight: 550;
 }
 .note-callout {
   font-size: 20px;
@@ -1477,9 +1331,6 @@ h2 {
   letter-spacing: -0.035em;
 }
 @media (max-width: 720px) {
-  .hero-copy h1 {
-    font-size: clamp(49px, 12.3vw, 76px);
-  }
   .section-heading h2,
   .story-grid h2,
   .faq-section h2 {

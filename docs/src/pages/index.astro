@@ -3,12 +3,12 @@ import { Image } from "astro:assets";
 import Base from "../layouts/Base.astro";
 import Faq from "../components/Faq.astro";
 import CTA from "../components/CTA.astro";
+import Hero from "../components/Hero.astro";
 import { url, absolute, SITE, faqs } from "../lib/site";
-import split from "../assets/screenshots/split-dark.png";
 import paper from "../assets/screenshots/reader-paper.png";
 import light from "../assets/screenshots/reader-light.png";
 import showcase from "../assets/screenshots/showcase-dark.png";
-import { featureIcons, toolkit, mascotWave, mascotPaint } from "../lib/art";
+import { featureIcons, toolkit, mascotPaint } from "../lib/art";
 // WEB-05: split view leads the hero now, so the tabs below start on the themes.
 const views = [
   {
@@ -47,68 +47,17 @@ const schema = [
 ---
 
 <Base schema={schema}>
-  <section class="hero wrap" id="top">
-    <div class="hero-grid">
-      <div class="hero-copy">
-        <h1>
-          A little space.
-          <br />
-          For your
-          <br />
-          <em>big ideas.</em>
-        </h1>
-        <p class="hero-description">
-          Open a Markdown file. Read beautifully. Write freely.
-        </p>
-        <div class="actions">
-          <a class="button" href={url("download/")}>
-            Download Paperling <span aria-hidden="true">↓</span>
-          </a>
-          <a class="text-link" href="#editor">
-            Take a look inside ↗
-          </a>
-        </div>
-        <p class="fine">Free. No account. Just you and the page.</p>
-      </div>
-      <div class="hero-visual">
-        <Image
-          class="hero-mascot"
-          src={mascotWave}
-          alt="Paperling's mascot, a friendly sheet of paper, waving hello"
-          widths={[300, 460, 640]}
-          sizes="(max-width: 720px) 300px, 460px"
-          loading="eager"
-        />
-        <span class="paper-note">a good place to begin.</span>
-      </div>
-    </div>
-    <figure class="hero-shot">
-      <div class="screenshot-frame">
-        <Image
-          src={split}
-          alt="Paperling split view with Markdown source beside a rendered table, task list, and headings"
-          widths={[640, 960, 1280, 1600]}
-          sizes="(max-width: 720px) 94vw, 90vw"
-          loading="eager"
-          fetchpriority="high"
-          format="webp"
-        />
-      </div>
-      <figcaption class="shot-caption">
-        <span>Markdown on the left. Your ideas taking shape on the right.</span>
-      </figcaption>
-    </figure>
-  </section>
+  <Hero />
   <section class="section showcase-section wrap" id="editor">
     <div class="section-heading" data-reveal>
       <div>
         <h2>
-          Plain text.
+          One file.
           <br />
-          <em>A whole new perspective.</em>
+          <em>Read it your way.</em>
         </h2>
       </div>
-      <p>Write in source. Read in comfort. Or see both at once.</p>
+      <p>A warm page, a bright one, or math and diagrams in place.</p>
     </div>
     <div id="themes" data-showcase data-reveal>
       <div
@@ -247,7 +196,9 @@ const schema = [
           </p>
         </a>
       </div>
-      <h3 class="toolkit-title" data-reveal>And a few more things in the box.</h3>
+      <h3 class="toolkit-title" data-reveal>
+        And a few more things in the box.
+      </h3>
       <ul class="toolkit-grid">
         {toolkit.map((t) => (
           <li class="toolkit-item" data-reveal>
