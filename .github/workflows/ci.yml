@@ -4,9 +4,26 @@ on:
   push:
     branches:
       - main
+    # Website, docs and packaging manifests can't break the app build, so a
+    # change that only touches them skips the three-OS build. The website's
+    # own lockfile still triggers it, so the OSV scan sees its dependencies.
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!**.md"
+      - "!packaging/**"
+      - "docs/package.json"
+      - "docs/bun.lock"
   pull_request:
     branches:
       - main
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!**.md"
+      - "!packaging/**"
+      - "docs/package.json"
+      - "docs/bun.lock"
 
 jobs:
   check:
