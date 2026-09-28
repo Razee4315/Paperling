@@ -1,0 +1,372 @@
+---
+import { Image } from "astro:assets";
+import { mascotPaint } from "../lib/art";
+
+// WEB-11: the little folder in the story section opens for real. Pick a file
+// to read it, and flip between the rendered page and its Markdown source,
+// the same two views the app has. Notes are authored here, so the tiny
+// renderer below only needs the handful of constructs they use.
+const notes = [
+  {
+    file: "the-next-big-thing.md",
+    md: "# The next big thing\nStart small. **Start today.**\n- [x] Write it down\n- [ ] Show someone",
+  },
+  {
+    file: "notes-to-self.md",
+    md: "# A note to myself\nGood ideas need room.\n> Not another login.",
+  },
+  {
+    file: "a-small-discovery.md",
+    md: "# A small discovery\n`.md` files are just text.\nThey open *anywhere*, forever.",
+  },
+];
+const esc = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const inline = (s: string) =>
+  esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`(.+?)`/g, "<code>$1</code>");
+const render = (md: string) =>
+  md
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("# "))
+        return `<p class="title">${inline(line.slice(2))}</p>`;
+      if (line.startsWith("> "))
+        return `<blockquote>${inline(line.slice(2))}</blockquote>`;
+      const task = line.match(/^- \[( |x)\] (.*)$/);
+      if (task)
+        return `<p class="task${task[1] === "x" ? " done" : ""}"><i></i>${inline(task[2])}</p>`;
+      return `<p>${inline(line)}</p>`;
+    })
+    .join("");
+// Source view: the text as typed, with the Markdown punctuation tinted.
+const source = (md: string) =>
+  md
+    .split("\n")
+    .map(
+      (line) =>
+        "<p>" +
+        esc(line)
+          .replace(/^(#|&gt;|- \[[ x]\])/, "<b>$1</b>")
+          .replace(/(\*\*|\*|`)/g, "<b>$1</b>") +
+        "</p>",
+    )
+    .join("");
+const start = 1;
+---
+
+<div class="story-card" data-notes data-reveal>
+  <Image
+    class="mascot"
+    src={mascotPaint}
+    alt=""
+    widths={[180, 360]}
+    sizes="140px"
+  />
+  <div class="head">
+    <span class="path">~/a-few-good-ideas/</span>
+    <div class="mode" role="group" aria-label="View">
+      <button type="button" aria-pressed="true" data-mode="reader">
+        Reader
+      </button>
+      <button type="button" aria-pressed="false" data-mode="source">
+        Source
+      </button>
+    </div>
+  </div>
+  <div class="files" role="tablist" aria-label="Files">
+    {notes.map((n, i) => (
+      <button
+        type="button"
+        role="tab"
+        id={"note-tab-" + i}
+        aria-controls="note-view"
+        aria-selected={i === start ? "true" : "false"}
+        tabindex={i === start ? 0 : -1}
+        data-note={i}
+      >
+        <span aria-hidden="true">↳</span> {n.file}
+      </button>
+    ))}
+  </div>
+  <div
+    class="note"
+    id="note-view"
+    role="tabpanel"
+    aria-labelledby={"note-tab-" + start}
+    data-view
+  >
+    {notes.map((n, i) => (
+      <div
+        class="page"
+        data-page={i + "-reader"}
+        hidden={i !== start}
+        set:html={render(n.md)}
+      />
+    ))}
+    {notes.map((n, i) => (
+      <div
+        class="page source"
+        data-page={i + "-source"}
+        hidden
+        set:html={source(n.md)}
+      />
+    ))}
+  </div>
+  <p class="callout">Yours to write. Yours to keep.</p>
+</div>
+
+<style>
+  .story-card {
+    position: relative;
+    background: #eae6d9;
+    border: 1px solid var(--line);
+    padding: 30px 34px 34px;
+    border-radius: 8px;
+    transform: rotate(-2deg);
+    transition: transform 0.5s cubic-bezier(0.34, 1.4, 0.64, 1);
+  }
+  .story-card:hover,
+  .story-card:focus-within {
+    transform: rotate(0deg);
+  }
+  .mascot {
+    position: absolute;
+    right: -38px;
+    bottom: -64px;
+    width: 140px;
+    height: auto;
+    transform: rotate(6deg);
+    transition: transform 0.5s cubic-bezier(0.34, 1.6, 0.64, 1);
+  }
+  .story-card:hover .mascot {
+    transform: rotate(-4deg) translateY(-10px);
+  }
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 16px;
+    margin-bottom: 12px;
+  }
+  .path {
+    font: 11px var(--mono);
+  }
+  .mode {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 100px;
+    padding: 3px;
+    background: var(--paper);
+  }
+  .mode button {
+    border: 0;
+    background: none;
+    border-radius: 100px;
+    padding: 4px 12px;
+    font-size: 11px;
+    color: var(--muted);
+    transition:
+      background 0.25s,
+      color 0.25s;
+  }
+  .mode button[aria-pressed="true"] {
+    background: var(--green);
+    color: #fffdf5;
+  }
+  .files {
+    display: grid;
+    justify-items: start;
+  }
+  .files button {
+    border: 0;
+    background: none;
+    padding: 4px 8px;
+    margin-left: -8px;
+    border-radius: 5px;
+    font: 15px/1.8 var(--mono);
+    color: var(--green);
+    transition: background 0.2s;
+  }
+  .files button span {
+    color: var(--clay);
+  }
+  .files button:hover {
+    background: #ddd8c8;
+  }
+  .files button[aria-selected="true"] {
+    background: var(--surface);
+    box-shadow: 0 1px 0 var(--line);
+  }
+  .note {
+    margin-top: 16px;
+    min-height: 150px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 20px 22px;
+  }
+  .page :global(*) {
+    animation: line-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .page :global(:nth-child(2)) {
+    animation-delay: 0.06s;
+  }
+  .page :global(:nth-child(3)) {
+    animation-delay: 0.12s;
+  }
+  .page :global(:nth-child(4)) {
+    animation-delay: 0.18s;
+  }
+  .page :global(p) {
+    margin: 4px 0 0;
+    max-width: none;
+    color: var(--ink);
+    font-size: 15px;
+  }
+  .page :global(p.title) {
+    margin: 0 0 8px;
+    color: var(--ink);
+    font: 700 21px var(--display);
+    letter-spacing: -0.03em;
+  }
+  .page :global(code) {
+    font: 13px var(--mono);
+    background: var(--sage);
+    color: var(--clay);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .page :global(blockquote) {
+    margin: 10px 0 0;
+    padding-left: 12px;
+    border-left: 3px solid var(--clay);
+    color: var(--clay);
+    font-style: italic;
+  }
+  .page :global(.task) {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .page :global(.task i) {
+    width: 15px;
+    height: 15px;
+    border: 1.5px solid var(--green);
+    border-radius: 4px;
+  }
+  .page :global(.task.done i) {
+    background: var(--green)
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / contain;
+  }
+  .page :global(.task.done) {
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+  .page.source :global(p) {
+    margin: 0;
+    font: 14px/1.9 var(--mono);
+    color: var(--green);
+  }
+  .page.source :global(b) {
+    font-weight: 400;
+    color: var(--clay);
+  }
+  .callout {
+    margin-top: 22px;
+    font: 600 22px var(--display);
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  @keyframes line-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+  @media (max-width: 720px) {
+    .story-card {
+      padding: 22px;
+      transform: none;
+    }
+    .mascot {
+      width: 96px;
+      right: -8px;
+      bottom: -48px;
+    }
+    .files button {
+      font-size: 13px;
+    }
+    .callout {
+      padding-right: 84px;
+      font-size: 19px;
+    }
+    .head {
+      flex-wrap: wrap;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .story-card,
+    .mascot {
+      transition: none;
+    }
+    .page :global(*) {
+      animation: none;
+    }
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-notes]");
+  if (root) {
+    const pages = [...root.querySelectorAll<HTMLElement>("[data-page]")];
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>("[data-note]")];
+    const modes = [...root.querySelectorAll<HTMLButtonElement>("[data-mode]")];
+    let note = tabs.findIndex(
+      (t) => t.getAttribute("aria-selected") === "true",
+    );
+    let mode = "reader";
+    const show = () => {
+      // Unhiding restarts each line's entrance animation.
+      pages.forEach((p) => (p.hidden = p.dataset.page !== `${note}-${mode}`));
+      root
+        .querySelector("[role=tabpanel]")!
+        .setAttribute("aria-labelledby", "note-tab-" + note);
+    };
+    tabs.forEach((tab, i) => {
+      tab.addEventListener("click", () => {
+        note = i;
+        tabs.forEach((t, j) => {
+          t.setAttribute("aria-selected", String(j === i));
+          t.tabIndex = j === i ? 0 : -1;
+        });
+        show();
+      });
+      tab.addEventListener("keydown", (e) => {
+        const d =
+          e.key === "ArrowDown" || e.key === "ArrowRight"
+            ? 1
+            : e.key === "ArrowUp" || e.key === "ArrowLeft"
+              ? -1
+              : 0;
+        if (!d) return;
+        e.preventDefault();
+        const next = tabs[(i + d + tabs.length) % tabs.length];
+        next.focus();
+        next.click();
+      });
+    });
+    modes.forEach((b) =>
+      b.addEventListener("click", () => {
+        mode = b.dataset.mode!;
+        modes.forEach((m) => m.setAttribute("aria-pressed", String(m === b)));
+        show();
+      }),
+    );
+  }
+</script>

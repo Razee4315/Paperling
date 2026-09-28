@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-capability",
+  "description": "Desktop-only permissions for the main window. window-state persists window geometry (size, position, maximized) across launches; it has no mobile counterpart, hence the platform-scoped file.",
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "window-state:default"
+  ]
+}

@@ -1,0 +1,73 @@
+---
+import { url, SITE } from "../lib/site";
+const columns = [
+  {
+    title: "THE APP",
+    links: [
+      ["features/", "Explore features"],
+      ["download/", "Download"],
+      ["changelog/", "What's new"],
+      ["open-source/", "Open source"],
+    ],
+  },
+  {
+    title: "MAKE YOURSELF AT HOME",
+    links: [
+      ["guide/", "Getting started"],
+      ["shortcuts/", "Keyboard shortcuts"],
+      ["faq/", "Questions & answers"],
+      ["privacy/", "Privacy & your files"],
+    ],
+  },
+  {
+    title: "FIND YOUR FIT",
+    links: [
+      ["compare/obsidian/", "Paperling vs Obsidian"],
+      ["compare/typora/", "Paperling vs Typora"],
+      ["compare/vscode/", "Paperling vs VS Code"],
+      ["compare/marktext/", "Paperling vs MarkText"],
+    ],
+  },
+];
+---
+
+<footer class="site-footer">
+  <div class="wrap footer-top">
+    <div class="footer-intro">
+      <a class="brand" href={url()}>
+        <img src={url("icon.svg")} alt="" width="30" height="30" />
+        Paperling
+      </a>
+      <p>
+        A little space for your
+        <br />
+        next big idea.
+      </p>
+      <a class="text-link" href={SITE.repo}>
+        Made in the open ↗
+      </a>
+    </div>
+    <nav class="footer-columns" aria-label="Footer">
+      {columns.map((col) => (
+        <div>
+          <h2>{col.title}</h2>
+          <ul>
+            {col.links.map(([p, l]) => (
+              <li>
+                <a href={url(p)}>{l}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </nav>
+  </div>
+  <div class="wrap footer-base">
+    <span>© {new Date().getFullYear()} Paperling · Apache-2.0</span>
+    <a href={SITE.repo + "/issues"}>Found a rough edge? Tell us ↗</a>
+    <a href="#content">Back to top ↑</a>
+  </div>
+  <div class="footer-wordmark" aria-hidden="true">
+    paperling<span>✳</span>
+  </div>
+</footer>

@@ -1,0 +1,45 @@
+---
+import Base from "../../layouts/Base.astro";
+import { Image } from "astro:assets";
+import { features, url } from "../../lib/site";
+import { featureIcons } from "../../lib/art";
+---
+
+<Base
+  title="Markdown Editor Features: Preview, Math & AI | Paperling"
+  description="Explore Paperling's live Markdown preview, math and diagrams, focused writing tools, local files, export, and optional AI assistant."
+  path="features/"
+  crumbs={[{ label: "Features", path: "features/" }]}
+>
+  <div class="wrap">
+    <header class="page-heading">
+      <h1>
+        Room for the words.
+        <br />
+        <em>Tools for the rest.</em>
+      </h1>
+      <p>
+        From a one-line note to a technical deep dive. Everything below is
+        included in Paperling; optional AI services have their own setup and
+        pricing.
+      </p>
+    </header>
+    <div class="index-grid">
+      {features.map((f) => (
+        <a class="index-card" data-reveal href={url("features/" + f.slug + "/")}>
+          <Image
+            class="index-icon"
+            src={featureIcons[f.slug]}
+            alt=""
+            widths={[88, 176]}
+            sizes="88px"
+          />
+          <span class="card-label">{f.name}</span>
+          <h2>{f.title}</h2>
+          <p>{f.description}</p>
+          <span class="text-link">Take a closer look ↗</span>
+        </a>
+      ))}
+    </div>
+  </div>
+</Base>

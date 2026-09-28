@@ -1,0 +1,19 @@
+---
+import { faqs } from "../lib/site";
+interface Props {
+  items?: string[][];
+}
+const { items = faqs } = Astro.props;
+---
+
+<div class="faq-list">
+  {items.map(([question, answer]) => (
+    <details data-reveal>
+      <summary>
+        {question}
+        <span aria-hidden="true">+</span>
+      </summary>
+      <p>{answer}</p>
+    </details>
+  ))}
+</div>

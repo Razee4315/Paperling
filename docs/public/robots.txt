@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://razee4315.github.io/Paperling/sitemap.xml

@@ -1,0 +1,81 @@
+[package]
+name = "paperling"
+version = "1.0.51"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "paperling_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# `macros` (ai.rs's tokio::select!) and `rt` (spawn_blocking) are declared
+# explicitly: desktop builds used to receive them transitively from the
+# desktop-only crates, and the Android build — which compiles none of those —
+# broke on the very first CI run because of that hidden dependency.
+tokio = { version = "1", features = ["fs", "time", "sync", "macros", "rt"] }
+# Native HTTP for AI requests (AI-01): the webview's fetch is cross-origin
+# from https://tauri.localhost, so most OpenAI-compatible servers fail the
+# CORS preflight, and plain-http LAN endpoints are blocked by CSP. reqwest
+# has neither restriction. 0.13 matches what tauri already resolves in the
+# lock file so we don't pull a second copy of the HTTP stack. Its default TLS
+# is rustls + aws-lc-rs (pure Rust), so Android cross-compiles without any
+# native-TLS/OpenSSL swapping.
+reqwest = { version = "0.13", features = ["stream"] }
+futures-util = "0.3"
+
+# Desktop-only crates. Everything here either has no mobile backend or no
+# meaning on a phone; the `use` sites in lib.rs are gated with #[cfg(desktop)]
+# to match (a target-gated dependency with an ungated import fails the mobile
+# build at the `use`, not at the dependency).
+[target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
+# Forward a double-clicked file to the running instance instead of spawning a
+# second app (and racing it for the session-restore state).
+tauri-plugin-single-instance = "2"
+# OS keychain for the AI API key (SECURITY-01). Pure-Rust backends: Windows
+# Credential Manager, macOS Keychain, and Linux Secret Service (zbus + crypto-rust,
+# no system C libs needed at build time). Mobile stores the key in an
+# app-private data file instead (commands.rs) — keyring has no mobile backend.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+# Dev-tooling bridge for UI automation (screenshots, DOM inspection) from
+# Claude Code's Tauri MCP server. Registered only in desktop debug builds
+# (lib.rs), so release binaries never start its WebSocket server.
+tauri-plugin-mcp-bridge = "0.13"
+# Auto-update from GitHub Releases (latest.json) + relaunch after install.
+# Desktop-only: the updater has no mobile implementation.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-window-state = "2"
+
+# Silent "Save as PDF" export: render the document in a hidden WebView2 and call
+# its native PrintToPdf (no OS print dialog). Versions track what wry/tauri
+# already resolve so we don't pull a second copy of the Windows bindings.
+[target."cfg(windows)".dependencies]
+webview2-com = "0.38"
+windows = "0.61"
+
+# Same silent PDF export on macOS: an NSPrintOperation on the hidden WKWebView
+# with a save-to-URL job disposition writes the PDF with no dialogs. Versions
+# track what wry/tauri already resolve so we don't pull a second copy of the
+# Apple bindings.
+[target."cfg(target_os = \"macos\")".dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-web-kit = "0.3"

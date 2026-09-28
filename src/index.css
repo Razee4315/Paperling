@@ -1,0 +1,1652 @@
+@import "tailwindcss";
+
+/* ===== Theme Definitions ===== */
+
+/* Dark Theme (Default) - Black & White with subtle grays */
+:root,
+[data-theme="dark"] {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-titlebar: #0a0a0a;
+  --bg-editor: #0a0a0a;
+  --bg-gutter: #0f0f0f;
+  --bg-hover: #1f1f1f;
+  --bg-input: #141414;
+
+  --text-primary: #ffffff;
+  --text-secondary: #737373;
+  --text-muted: #525252;
+
+  --accent: #ffffff;
+  --accent-hover: rgba(255, 255, 255, 0.9);
+  --accent-text: #0a0a0a;
+
+  --border: #262626;
+  --border-subtle: #1a1a1a;
+
+  --code-bg: #141414;
+  --code-text: #a3a3a3;
+  --blockquote-bg: rgba(20, 20, 20, 0.8);
+
+  --syntax-h1: #ffffff;
+  --syntax-h2: #e5e5e5;
+  --syntax-h3: #d4d4d4;
+  --syntax-link: #a3a3a3;
+  --syntax-bold: #ffffff;
+  --syntax-list: #a3a3a3;
+  --syntax-number: #a3a3a3;
+  --syntax-quote: #737373;
+  --syntax-code: #737373;
+
+  --status-saved: #22c55e;
+  --status-unsaved: #f59e0b;
+  --danger: #ef4444;
+
+  --scrollbar-track: #0a0a0a;
+  --scrollbar-thumb: #262626;
+  --scrollbar-hover: #404040;
+
+  --selection-bg: #404040;
+  --selection-text: #ffffff;
+}
+
+/* Light Theme — a soft, warm-neutral light. The faint warmth gives it a gentle
+   character without drifting toward the cream Paper theme. Only surface/border
+   tokens are warmed; text colors are unchanged so contrast ratios hold. */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #faf9f7;
+  --bg-titlebar: #f4f2ee;
+  --bg-editor: #ffffff;
+  --bg-gutter: #faf9f7;
+  --bg-hover: #efece8;
+  --bg-input: #faf9f7;
+
+  --text-primary: #171717;
+  --text-secondary: #525252;
+  --text-muted: #a3a3a3;
+
+  --accent: #171717;
+  --accent-hover: rgba(23, 23, 23, 0.9);
+  --accent-text: #ffffff;
+
+  --border: #e8e4de;
+  --border-subtle: #efece8;
+
+  --code-bg: #f4f2ee;
+  --code-text: #dc2626;
+  --blockquote-bg: rgba(244, 242, 238, 0.8);
+
+  --syntax-h1: #171717;
+  --syntax-h2: #262626;
+  --syntax-h3: #404040;
+  --syntax-link: #2563eb;
+  --syntax-bold: #171717;
+  --syntax-list: #525252;
+  --syntax-number: #525252;
+  --syntax-quote: #737373;
+  --syntax-code: #737373;
+
+  --status-saved: #16a34a;
+  --status-unsaved: #d97706;
+  --danger: #dc2626;
+
+  --scrollbar-track: #fafafa;
+  --scrollbar-thumb: #d4d4d4;
+  --scrollbar-hover: #a3a3a3;
+
+  /* A light tint, NOT a near-black slab: CodeMirror's drawSelection paints this
+     BEHIND the text and never applies --selection-text, so a dark selection
+     background left dark editor text unreadable (#146). Keeping the selection
+     lighter than the text means it reads correctly on both surfaces. */
+  --selection-bg: #cbc4b8;
+  --selection-text: #171717;
+}
+
+/* Paper Theme */
+[data-theme="paper"] {
+  --bg-primary: #f5f0e6;
+  --bg-secondary: #ebe5d8;
+  --bg-titlebar: #e0d9cc;
+  --bg-editor: #faf8f3;
+  --bg-gutter: #ebe5d8;
+  --bg-hover: #ddd6c6;
+  --bg-input: #ebe5d8;
+
+  --text-primary: #3d3d3d;
+  --text-secondary: #5a5340;
+  --text-muted: #7a7160; /* WCAG AA pass on bg-primary (~4.6:1) — was #9a8f7a (~2.7:1, fail) */
+
+  --accent: #5c4033;
+  --accent-hover: rgba(92, 64, 51, 0.9);
+  --accent-text: #faf8f3;
+
+  --border: #d4cfc2;
+  --border-subtle: #e0d9cc;
+
+  --code-bg: #ebe5d8;
+  --code-text: #8b5a2b;
+  --blockquote-bg: rgba(235, 229, 216, 0.6);
+
+  --syntax-h1: #3d3029;
+  --syntax-h2: #5c4033;
+  --syntax-h3: #6b5344;
+  --syntax-link: #2d5a7b;
+  --syntax-bold: #5c4033;
+  --syntax-list: #6b5344;
+  --syntax-number: #8b5a2b;
+  --syntax-quote: #6b6352;
+  --syntax-code: #6b6352;
+
+  --status-saved: #5a7d5a;
+  --status-unsaved: #b8860b;
+  --danger: #cd5c5c;
+
+  --scrollbar-track: #ebe5d8;
+  --scrollbar-thumb: #c9c0ae;
+  --scrollbar-hover: #a69d8d;
+
+  /* Warm tan tint of the brown accent, light enough that the editor's dark text
+     stays readable on top of it (see the light-theme note above, #146). */
+  --selection-bg: #c9b591;
+  --selection-text: #3d3d3d;
+}
+
+/* Dracula Theme */
+[data-theme="dracula"] {
+  --bg-primary: #282a36;
+  --bg-secondary: #343746;
+  --bg-titlebar: #21222c;
+  --bg-editor: #282a36;
+  --bg-gutter: #21222c;
+  --bg-hover: #44475a;
+  --bg-input: #343746;
+
+  --text-primary: #f8f8f2;
+  --text-secondary: #d6d6d6;
+  --text-muted: #6272a4;
+
+  --accent: #bd93f9;
+  --accent-hover: #a679f7;
+  --accent-text: #f8f8f2;
+
+  --border: #44475a;
+  --border-subtle: #3a3d4d;
+
+  --code-bg: #21222c;
+  --code-text: #f8f8f2;
+  --blockquote-bg: rgba(68, 71, 90, 0.35);
+
+  --syntax-h1: #ff79c6;
+  --syntax-h2: #ff79c6;
+  --syntax-h3: #bd93f9;
+  --syntax-link: #8be9fd;
+  --syntax-bold: #f8f8f2;
+  --syntax-list: #ffb86c;
+  --syntax-number: #bd93f9;
+  --syntax-quote: #6272a4;
+  --syntax-code: #50fa7b;
+
+  --status-saved: #50fa7b;
+  --status-unsaved: #ffb86c;
+  --danger: #ff5555;
+
+  --scrollbar-track: #21222c;
+  --scrollbar-thumb: #44475a;
+  --scrollbar-hover: #6272a4;
+
+  --selection-bg: #44475a;
+  --selection-text: #f8f8f2;
+}
+
+/* Graphite — a warm dark grey (issue #172). The stone family gives it the
+   same gentle character the Paper theme has on the light side, but for night
+   owls: surfaces are soft charcoal with a warm undertone, never pure black. */
+[data-theme="graphite"] {
+  --bg-primary: #1c1917;
+  --bg-secondary: #262220;
+  --bg-titlebar: #1c1917;
+  --bg-editor: #1c1917;
+  --bg-gutter: #211d1b;
+  --bg-hover: #2e2925;
+  --bg-input: #262220;
+
+  --text-primary: #e7e5e4;
+  --text-secondary: #a8a29e;
+  --text-muted: #78716c;
+
+  --accent: #e7e5e4;
+  --accent-hover: rgba(231, 229, 228, 0.9);
+  --accent-text: #1c1917;
+
+  --border: #38332e;
+  --border-subtle: #2a2622;
+
+  --code-bg: #262220;
+  --code-text: #a8a29e;
+  --blockquote-bg: rgba(38, 34, 32, 0.8);
+
+  --syntax-h1: #ffffff;
+  --syntax-h2: #e7e5e4;
+  --syntax-h3: #d6d3d1;
+  --syntax-link: #b8b0a8;
+  --syntax-bold: #ffffff;
+  --syntax-list: #a8a29e;
+  --syntax-number: #a8a29e;
+  --syntax-quote: #78716c;
+  --syntax-code: #a8a29e;
+
+  --status-saved: #22c55e;
+  --status-unsaved: #f59e0b;
+  --danger: #ef4444;
+
+  --scrollbar-track: #1c1917;
+  --scrollbar-thumb: #3a342e;
+  --scrollbar-hover: #57534e;
+
+  --selection-bg: #57534e;
+  --selection-text: #e7e5e4;
+}
+
+/* Nord — the arctic, blue-toned dark palette (issue #172). Polar Night
+   surfaces with Frost accents; muted text keeps the scan-quiet feel of the
+   flat dark theme while headings and links carry the familiar Nord blues. */
+[data-theme="nord"] {
+  --bg-primary: #2e3440;
+  --bg-secondary: #3b4252;
+  --bg-titlebar: #2e3440;
+  --bg-editor: #2e3440;
+  --bg-gutter: #353c4a;
+  --bg-hover: #434c5e;
+  --bg-input: #3b4252;
+
+  --text-primary: #eceff4;
+  --text-secondary: #b9c2d0;
+  --text-muted: #7b88a1;
+
+  --accent: #88c0d0;
+  --accent-hover: rgba(136, 192, 208, 0.85);
+  --accent-text: #2e3440;
+
+  --border: #434c5e;
+  --border-subtle: #3b4252;
+
+  --code-bg: #3b4252;
+  --code-text: #d8dee9;
+  --blockquote-bg: rgba(59, 66, 82, 0.8);
+
+  --syntax-h1: #eceff4;
+  --syntax-h2: #e5e9f0;
+  --syntax-h3: #d8dee9;
+  --syntax-link: #88c0d0;
+  --syntax-bold: #eceff4;
+  --syntax-list: #81a1c1;
+  --syntax-number: #81a1c1;
+  --syntax-quote: #7b88a1;
+  --syntax-code: #a9b6ca;
+
+  --status-saved: #a3be8c;
+  --status-unsaved: #ebcb8b;
+  --danger: #bf616a;
+
+  --scrollbar-track: #2e3440;
+  --scrollbar-thumb: #434c5e;
+  --scrollbar-hover: #4c566a;
+
+  --selection-bg: #4c566a;
+  --selection-text: #eceff4;
+}
+
+/* Midnight — a deep blue-slate dark (issue #172). Tailwind slate surfaces
+   with a sky accent: cooler and bluer than Dark, warmer than Nord, for
+   anyone who finds both pure black and Nord's grey-blue too quiet. */
+[data-theme="midnight"] {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-titlebar: #0f172a;
+  --bg-editor: #0f172a;
+  --bg-gutter: #172033;
+  --bg-hover: #273449;
+  --bg-input: #1e293b;
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --accent: #38bdf8;
+  --accent-hover: rgba(56, 189, 248, 0.85);
+  --accent-text: #0f172a;
+
+  --border: #334155;
+  --border-subtle: #1e293b;
+
+  --code-bg: #1e293b;
+  --code-text: #94a3b8;
+  --blockquote-bg: rgba(30, 41, 59, 0.8);
+
+  --syntax-h1: #f1f5f9;
+  --syntax-h2: #e2e8f0;
+  --syntax-h3: #cbd5e1;
+  --syntax-link: #7dd3fc;
+  --syntax-bold: #f1f5f9;
+  --syntax-list: #94a3b8;
+  --syntax-number: #94a3b8;
+  --syntax-quote: #64748b;
+  --syntax-code: #94a3b8;
+
+  --status-saved: #4ade80;
+  --status-unsaved: #fbbf24;
+  --danger: #f87171;
+
+  --scrollbar-track: #0f172a;
+  --scrollbar-thumb: #334155;
+  --scrollbar-hover: #475569;
+
+  --selection-bg: #334155;
+  --selection-text: #e2e8f0;
+}
+
+
+/* ===== Design Tokens ===== */
+:root {
+  /* Radius scale — replace ad-hoc rounded-{lg,xl,full} usage with these */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 9999px;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+}
+
+/* ===== Font Family Variables ===== */
+/* Default font - must come BEFORE attribute selectors */
+:root {
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+[data-font="inter"] {
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+[data-font="merriweather"] {
+  --font-body: 'Merriweather', Georgia, 'Times New Roman', serif;
+}
+
+[data-font="lora"] {
+  --font-body: 'Lora', Georgia, 'Times New Roman', serif;
+}
+
+[data-font="source-serif"] {
+  --font-body: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+}
+
+[data-font="fira-sans"] {
+  --font-body: 'Fira Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+[data-font="custom"] {
+  --font-body: var(--font-custom, 'Inter');
+}
+
+/* ===== Font Size Variables ===== */
+/* Default font size - must come BEFORE attribute selectors */
+:root {
+  --font-size-base: 16px;
+  --font-size-h1: 2.25em;
+  --font-size-h2: 1.75em;
+  --font-size-h3: 1.25em;
+  --line-height: 1.7;
+}
+
+[data-font-size="small"] {
+  --editor-font-size: 13px;
+  --font-size-base: 14px;
+  --font-size-h1: 1.875em;
+  --font-size-h2: 1.5em;
+  --font-size-h3: 1.125em;
+  --line-height: 1.6;
+}
+
+[data-font-size="medium"] {
+  --editor-font-size: 14px;
+  --font-size-base: 16px;
+  --font-size-h1: 2.25em;
+  --font-size-h2: 1.75em;
+  --font-size-h3: 1.25em;
+  --line-height: 1.7;
+}
+
+[data-font-size="large"] {
+  --editor-font-size: 16px;
+  --font-size-base: 18px;
+  --font-size-h1: 2.5em;
+  --font-size-h2: 2em;
+  --font-size-h3: 1.375em;
+  --line-height: 1.8;
+}
+
+[data-font-size="xlarge"] {
+  --editor-font-size: 18px;
+  --font-size-base: 20px;
+  --font-size-h1: 2.5em;
+  --font-size-h2: 2em;
+  --font-size-h3: 1.375em;
+  --line-height: 1.8;
+}
+
+/* ===== Base Styles ===== */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--font-size-base);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ===== Accessibility ===== */
+
+/* Visible keyboard focus ring on every interactive element. Only fires on
+   keyboard focus (focus-visible), so mouse clicks don't show the ring. */
+*:focus {
+  outline: none;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="option"]:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Find-in-preview match highlights (CSS Custom Highlight API — FIND-01).
+   ::highlight only supports color/background; fixed ambers read fine on every
+   theme since the underlying text color is preserved. */
+::highlight(paperling-find) {
+  background-color: rgba(255, 196, 0, 0.35);
+}
+
+::highlight(paperling-find-active) {
+  background-color: rgba(255, 145, 0, 0.65);
+  color: #1a1a1a;
+}
+
+/* The active find match when it lands inside an AI review's removed lines
+   (issue #111). Those lines are a @codemirror/merge block widget, not document
+   text, so editor decorations can't reach them and the Custom Highlight API is
+   used instead. Same strong amber as the active match above, so "the one you
+   are on" looks the same wherever it is; only ever one range is registered. */
+::highlight(paperling-find-removed) {
+  background-color: rgba(255, 145, 0, 0.65);
+  color: #1a1a1a;
+}
+
+/* Editor-side find matches (CodeMirror decorations — FIND-01). Same amber as the
+   reader-mode preview highlights above so find looks identical on both surfaces:
+   every match dim, the active one brighter. */
+.cm-find-match {
+  background-color: rgba(255, 196, 0, 0.35);
+  border-radius: 2px;
+}
+
+.cm-find-match-active {
+  background-color: rgba(255, 145, 0, 0.65);
+  color: #1a1a1a;
+}
+
+/* Respect users who set "reduce motion" at the OS level. */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ===== Desktop App Styles ===== */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* ===== Custom Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 5px;
+  border: 2px solid var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+}
+
+/* ===== Selection ===== */
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-text);
+}
+
+/* ===== Mobile / touch shell =====
+   `html.mobile` / `html.touch` are stamped ONCE at boot by utils/platform.ts
+   (user agent + coarse pointer, with a ?mobile= query override). Everything
+   below is presentation only; behavior branches live in the components via
+   the IS_MOBILE/IS_TOUCH constants so tests and desktop stay deterministic. */
+
+:root {
+  --keyboard-inset: 0px;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  /* The mobile app bar is 48dp tall plus whatever the status bar claims
+     (viewport-fit=cover means we draw under it). Fixed panels offset from this
+     same variable, so bar and panels always agree. */
+  --mobile-topbar-h: calc(48px + env(safe-area-inset-top, 0px));
+  /* The bottom nav is one 56dp row plus its safe-area padding. Left-side
+     sheets stop above this same variable so Files / Outline / Read stay
+     reachable while a sheet is open. Keep in sync with MobileBottomNav's
+     min-h-[56px] + paddingBottom. */
+  --mobile-bottomnav-h: calc(56px + max(env(safe-area-inset-bottom, 0px), 4px));
+}
+
+/* While the on-screen keyboard is up (html.kb-open, set by useKeyboardInset)
+   the bottom nav would sit behind the IME; hide it — the standard mobile
+   pattern when composing. */
+html.mobile.kb-open .mobile-bottomnav {
+  display: none;
+}
+
+html.touch,
+html.touch button,
+html.touch a,
+html.touch label,
+html.touch [role="button"],
+html.touch [role="tab"],
+html.touch [role="option"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* 100dvh with a 100vh fallback: the shell must track the visual viewport on
+   devices where the URL/gesture bars collapse. Never subtract the keyboard
+   here — the keyboard is applied as padding via --keyboard-inset. */
+html.mobile {
+  height: 100vh;
+  height: 100dvh;
+  overscroll-behavior: none;
+}
+
+/* The app shell: same height treatment as the root element, plus the keyboard
+   inset applied as PADDING (never height). On overlay-keyboard devices the
+   inset is exactly the covered region; on devices that resize the layout
+   viewport, 100dvh already shrank and the measured inset is 0 — the padding
+   approach cannot double-count. */
+html.mobile .app-shell {
+  height: 100vh;
+  height: 100dvh;
+  padding-bottom: var(--keyboard-inset);
+}
+
+/* Safety net for "controls off the edge of the screen": every surface is
+   sized to fit its viewport individually (find-bar rows, tour card, toolbar
+   strip…), but one stray wide element must never turn the whole app into a
+   sideways-pannable page. `clip` kills horizontal panning without creating a
+   scroll container; `hidden` is the fallback for older WebViews. */
+html.mobile body {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+/* Below 16px, focusing a form field makes the Android WebView zoom the page —
+   a jarring viewport jump on every tap into a text box. 16px is the threshold
+   Chrome respects. (CodeMirror content is not a form field and keeps the
+   user's chosen editor font size.) */
+html.mobile input,
+html.mobile textarea,
+html.mobile select {
+  font-size: 16px !important;
+}
+
+/* Panels become full-screen sheets on the phone. The desktop classes reserve
+   288px sidebars / a 400px AI column; a 360px viewport cannot spare either.
+   !important is required only where the component sets an inline width
+   (AIPanel). Left sheets stop above the bottom nav (--mobile-bottomnav-h) so
+   Files / Outline / Read stay on screen while a sheet is open: the user can
+   close the sheet from its ✕ or switch to Read/Edit without dismissing it
+   first. The right-side AI sheet still runs to the bottom — its composer has
+   its own keyboard handling and the nav has no slot there. */
+html.mobile [data-panel="left"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  top: var(--mobile-topbar-h) !important;
+  bottom: var(--mobile-bottomnav-h) !important;
+  border-right: none;
+  box-shadow: none;
+}
+
+html.mobile [data-panel="right"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  top: var(--mobile-topbar-h) !important;
+  bottom: 0 !important;
+  border-left: none;
+  box-shadow: none;
+  /* The composer must stay above the on-screen keyboard. The panel's flex
+     column squeezes the message list, which is exactly what should happen. */
+  padding-bottom: var(--keyboard-inset);
+}
+
+/* Comfortable touch targets inside panels. Rows (w-full) get padding instead
+   so the full-width tap area is ≥44px tall without distorting layout. */
+html.mobile [data-panel] button:not(.w-full) {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+html.mobile [data-panel] [role="option"],
+html.mobile [data-panel] [role="menuitem"],
+html.mobile .mobile-menu [role="menuitem"] {
+  min-height: 44px;
+}
+
+/* The find bar is absolutely positioned top-right on desktop with a 360px
+   min-width — it would overflow a phone. Stretch it edge to edge instead. */
+html.mobile .find-bar {
+  left: 0.5rem;
+  right: 0.5rem;
+  top: 0.5rem;
+  min-width: 0 !important;
+}
+
+html.mobile .find-bar button {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+/* Formatting toolbar: one horizontally scrollable strip of ≥40px buttons —
+   15 buttons don't fit 360px, and wrapping would eat the editor. */
+html.mobile .format-toolbar {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: auto;
+  min-height: 44px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+html.mobile .format-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+html.mobile .format-toolbar button {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+}
+
+/* Preview column: full-bleed-ish reading on a phone instead of the desktop
+   800px centered column's 32px/48px gutters. */
+html.mobile .preview-column {
+  padding: 1rem !important;
+}
+
+html.mobile .preview-column button {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+/* Settings: the fixed 820×600 two-pane modal becomes a full-screen sheet —
+   stacked column, section nav as a horizontal scrollable pill row under the
+   search box. Padding-top keeps the search box clear of the status bar
+   (feedback round 1: it was half-covered). */
+html.mobile .settings-shell {
+  flex-direction: column;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: 100vw !important;
+  max-height: 100dvh !important;
+  border-radius: 0;
+  border: none;
+  padding-top: var(--safe-area-top);
+}
+
+html.mobile .settings-nav {
+  width: 100% !important;
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+}
+
+html.mobile .settings-nav nav {
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  gap: 4px;
+  scrollbar-width: none;
+}
+
+html.mobile .settings-nav nav::-webkit-scrollbar {
+  display: none;
+}
+
+/* Compact section tabs so every section (Appearance / Editor / AI / About) is
+   visible or one swipe away — the desktop full-width rows stacked three of
+   them off-screen. Gently rounded rectangles (full pills read as ambiguous
+   round chips in on-device feedback). */
+html.mobile .settings-nav nav button {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+html.mobile .settings-nav nav button[data-active="true"] {
+  border-color: var(--accent);
+}
+
+/* Wide fixed-width dialogs clamp to the viewport. */
+html.mobile .cheatsheet-shell {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  max-height: 100dvh !important;
+  height: 100dvh;
+  border-radius: 0;
+  border: none;
+  padding-top: var(--safe-area-top);
+}
+
+/* The status bar is replaced by the bottom nav on mobile, and the floating
+   mode pill by the nav's Read/Edit button — both are simply not rendered
+   (App.tsx). Hiding the desktop scrollbars on touch avoids a hover-styled
+   strip with nothing to hover; scrolling is by touch anyway. */
+html.touch ::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+/* ===== Material Icons ===== */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+
+/* ===== Editor / Code Font ===== */
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* ===== Editor overlay scrollbar reservation =====
+   The CodeEditor stacks a transparent <textarea> on top of a styled highlight
+   overlay. They MUST agree on content width or word-wrap fires at different
+   columns and the caret drifts off the rendered glyph after scrolling.
+   `scrollbar-gutter: stable` keeps a fixed-width gutter in both layers
+   regardless of whether the scrollbar is currently shown, eliminating the
+   reflow that used to mis-align the two when content grew past the viewport.
+
+   The highlight layer should never *show* its own scrollbar — the textarea
+   owns the visible one. We hide it by making the scrollbar track + thumb
+   transparent and unclickable. This works with `pointer-events: none` on the
+   parent (so the user never tries to scroll it directly anyway). */
+.editor-overlay-scrollbar-hidden::-webkit-scrollbar-thumb,
+.editor-overlay-scrollbar-hidden::-webkit-scrollbar-track,
+.editor-overlay-scrollbar-hidden::-webkit-scrollbar-corner {
+  background: transparent;
+  border: 0;
+}
+
+.editor-overlay-scrollbar-hidden::-webkit-scrollbar-thumb:hover {
+  background: transparent;
+}
+
+.editor-overlay-scrollbar-hidden {
+  scrollbar-color: transparent transparent;
+}
+
+/* ===== Blinking Cursor Animation ===== */
+@keyframes blink {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+}
+
+.blinking-cursor {
+  animation: blink 1s step-end infinite;
+}
+
+/* ===== Micro-Animations ===== */
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* Fade in and slide up */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Fade in and slide down */
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Scale in animation */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Gentle pulse for status indicators */
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.8;
+    transform: scale(1.1);
+  }
+}
+
+/* Glow pulse for active states */
+@keyframes glowPulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 4px currentColor;
+  }
+
+  50% {
+    box-shadow: 0 0 8px currentColor, 0 0 12px currentColor;
+  }
+}
+
+/* Staggered list item animation */
+@keyframes listItemIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Shimmering AI sparkle — a soft accent highlight sweeps across the glyph.
+   background-clip:text can't use currentColor (the fill must be transparent),
+   so the gradient mixes the muted text tone with the accent explicitly. */
+@keyframes aiShimmer {
+  0% {
+    background-position: 150% 0;
+  }
+
+  100% {
+    background-position: -50% 0;
+  }
+}
+
+.ai-shimmer {
+  background-image: linear-gradient(105deg,
+      var(--text-secondary) 35%,
+      var(--accent) 50%,
+      var(--text-secondary) 65%);
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: aiShimmer 2.6s linear infinite;
+}
+
+/* Animation utility classes */
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+.animate-fade-in-down {
+  animation: fadeInDown 0.2s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s ease-out forwards;
+}
+
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glowPulse 2s ease-in-out infinite;
+}
+
+/* Button press effect */
+.btn-press {
+  transition: transform 0.1s ease-out, box-shadow 0.1s ease-out;
+}
+
+.btn-press:active {
+  transform: scale(0.95);
+}
+
+/* Smooth content transitions */
+.content-fade {
+  transition: opacity 0.15s ease-out;
+}
+
+/* Status dot animations */
+.status-dot-saved {
+  animation: none;
+}
+
+.status-dot-unsaved {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Staggered list items */
+.stagger-item {
+  opacity: 0;
+  animation: listItemIn 0.2s ease-out forwards;
+}
+
+.stagger-item:nth-child(1) {
+  animation-delay: 0.02s;
+}
+
+.stagger-item:nth-child(2) {
+  animation-delay: 0.04s;
+}
+
+.stagger-item:nth-child(3) {
+  animation-delay: 0.06s;
+}
+
+.stagger-item:nth-child(4) {
+  animation-delay: 0.08s;
+}
+
+.stagger-item:nth-child(5) {
+  animation-delay: 0.10s;
+}
+
+.stagger-item:nth-child(6) {
+  animation-delay: 0.12s;
+}
+
+.stagger-item:nth-child(7) {
+  animation-delay: 0.14s;
+}
+
+.stagger-item:nth-child(8) {
+  animation-delay: 0.16s;
+}
+
+.stagger-item:nth-child(9) {
+  animation-delay: 0.18s;
+}
+
+.stagger-item:nth-child(10) {
+  animation-delay: 0.20s;
+}
+
+.stagger-item:nth-child(n+11) {
+  animation-delay: 0.22s;
+}
+
+/* ===== Markdown Preview Styles ===== */
+.markdown-body {
+  line-height: var(--line-height);
+  font-family: var(--font-body);
+  font-size: var(--font-size-base);
+  /* No wide child may pan the document sideways — wide tables scroll inside
+     .table-scroll, code blocks inside their pre, math inside .katex-display;
+     this is the last-resort clip (visible+clip is the legal pair that does
+     NOT turn the element into a scroll container, so vertical flow and the
+     scroll-sync fraction are untouched). */
+  overflow-x: clip;
+}
+
+/* Wide tables: the table keeps its natural width and the WRAPPER scrolls, so
+   the page's vertical reading scroll stays the only page-level scroll (the
+   wrapper is rendered by the preview's table renderer). */
+.markdown-body .table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  /* Reaching the table's right edge must not fling the page itself. */
+  overscroll-behavior-x: contain;
+}
+
+.markdown-body h1 {
+  font-size: var(--font-size-h1);
+  font-weight: 800;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+  color: var(--syntax-h1);
+  margin-bottom: 1rem;
+}
+
+.markdown-body h2 {
+  font-size: var(--font-size-h2);
+  font-weight: 700;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+  color: var(--syntax-h2);
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+}
+
+.markdown-body h3 {
+  font-size: var(--font-size-h3);
+  font-weight: 600;
+  color: var(--syntax-h3);
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-body p {
+  margin-bottom: 1rem;
+}
+
+.markdown-body a {
+  color: var(--syntax-link);
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body code {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.3em;
+  font-size: 0.875em;
+  color: var(--code-text);
+}
+
+/* Code is always left-to-right, even inside a right-to-left document or
+   block; inline code is isolated so it can't reorder the Arabic/Hebrew
+   around it. BIDI-03 (#216). */
+.markdown-body pre,
+.markdown-body code,
+.markdown-body kbd {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.markdown-body pre {
+  text-align: left;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.markdown-body pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+}
+
+/* Mermaid caps its SVG at natural size via an INLINE max-width, which left
+   small diagrams (and their text) tiny in the 800px column; only !important
+   can beat an inline style. Scaling to the column keeps text vector-crisp.
+   Wide diagrams already rendered at column width and are unaffected. The
+   child combinator keeps nested icon <svg>s (architecture/icon shapes) out
+   of reach. */
+.mermaid-rendered > svg {
+  width: 100%;
+  height: auto;
+  max-width: none !important;
+}
+
+/* Diagram viewer (MermaidBlock): the sizer pins the diagram to its
+   fit-to-natural width (zoom 1) or the zoomed width; the svg fills it.
+   Without the sizer cap, every diagram stretched to the full column
+   width, so small flowcharts rendered comically oversized. MMV-01. */
+.mermaid-sizer {
+  max-width: 100%;
+}
+
+/* Tailwind v4 Preflight resets `ul, ol { list-style: none }`, so the markers
+   must be re-declared here or every bullet/number in the preview disappears. */
+.markdown-body ul {
+  list-style-type: disc;
+  padding-inline-start: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.markdown-body ol {
+  list-style-type: decimal;
+  padding-inline-start: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.markdown-body ul ul {
+  list-style-type: circle;
+}
+
+.markdown-body ul ul ul {
+  list-style-type: square;
+}
+
+.markdown-body li {
+  margin-bottom: 0.25rem;
+}
+
+.markdown-body li::marker {
+  color: var(--syntax-list);
+}
+
+/* GFM task lists ([ ] / [x]). remark-gfm marks the whole <ul> as
+   contains-task-list as soon as ONE item is a task, so hiding markers on the
+   list made every plain bullet beside a task vanish (PREV-01). Only task
+   items lose their marker; the checkbox hangs in the marker gutter
+   (GitHub-style) so plain and task items line up. A list made only of tasks
+   sits flush with the text column. */
+.markdown-body li.task-list-item {
+  list-style-type: none;
+}
+
+.markdown-body li.task-list-item > input[type="checkbox"] {
+  margin-inline-start: -1.4rem;
+  margin-inline-end: 0.45rem;
+}
+
+.markdown-body ul.contains-task-list:not(:has(> li:not(.task-list-item))) {
+  padding-inline-start: 1.4rem;
+}
+
+/* Done tasks read as done (Obsidian/Things style): dimmed, and struck
+   through when they have no sub-list (a line-through set on an <li> can't be
+   switched off for its nested items, so those only dim). */
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked) {
+  color: var(--text-muted);
+}
+
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked):not(:has(> ul, > ol)) {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked) li {
+  color: var(--text-primary);
+}
+
+/* Block-by-block preview rendering (PERF-02): each block's wrapper has no box
+   of its own, so layout, margins and selection behave exactly as if the
+   blocks were direct children of .markdown-body. */
+.markdown-body .md-block {
+  display: contents;
+}
+
+/* Logical sides (padding-inline-start, border-inline-start, …) so lists,
+   quotes, callouts and tables mirror in a right-to-left block and render
+   exactly as before in a left-to-right one. BIDI-03 (#216). */
+.markdown-body blockquote {
+  border-inline-start: 4px solid var(--accent);
+  background: var(--blockquote-bg);
+  padding: 0.5rem 1rem;
+  margin: 1rem 0;
+  font-style: italic;
+  color: var(--text-secondary);
+  border-start-end-radius: 0.25rem;
+  border-end-end-radius: 0.25rem;
+}
+
+/* Callouts (remarkNoteSyntax, SYNTAX-02): `> [!TYPE] Title`. Each
+   type sets --callout; the tint is mixed from it so every theme gets a
+   readable box without per-theme overrides. Foldable callouts are
+   <details>/<summary>. */
+.markdown-body .callout {
+  --callout: #4a8fe7;
+  border-inline-start: 4px solid var(--callout);
+  background: color-mix(in srgb, var(--callout) 10%, transparent);
+  border-start-end-radius: 0.375rem;
+  border-end-end-radius: 0.375rem;
+  padding: 0.6rem 1rem;
+  margin: 1rem 0;
+}
+.markdown-body [data-callout="note"], .markdown-body [data-callout="info"], .markdown-body [data-callout="todo"] { --callout: #4a8fe7; }
+.markdown-body [data-callout="abstract"], .markdown-body [data-callout="summary"], .markdown-body [data-callout="tldr"] { --callout: #2ab3c4; }
+.markdown-body [data-callout="tip"], .markdown-body [data-callout="hint"], .markdown-body [data-callout="important"] { --callout: #1fb89a; }
+.markdown-body [data-callout="success"], .markdown-body [data-callout="check"], .markdown-body [data-callout="done"] { --callout: #3fb950; }
+.markdown-body [data-callout="question"], .markdown-body [data-callout="help"], .markdown-body [data-callout="faq"] { --callout: #d99a1e; }
+.markdown-body [data-callout="warning"], .markdown-body [data-callout="caution"], .markdown-body [data-callout="attention"] { --callout: #e8792b; }
+.markdown-body [data-callout="failure"], .markdown-body [data-callout="fail"], .markdown-body [data-callout="missing"], .markdown-body [data-callout="danger"], .markdown-body [data-callout="error"], .markdown-body [data-callout="bug"] { --callout: #e5534b; }
+.markdown-body [data-callout="example"] { --callout: #9b72e8; }
+.markdown-body [data-callout="quote"], .markdown-body [data-callout="cite"] { --callout: #8b949e; }
+.markdown-body .callout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--callout);
+}
+.markdown-body summary.callout-title {
+  cursor: pointer;
+  list-style: none;
+}
+.markdown-body summary.callout-title::-webkit-details-marker { display: none; }
+.markdown-body summary.callout-title::after {
+  content: "expand_more";
+  font-family: "Material Symbols Outlined";
+  margin-inline-start: auto;
+  transition: transform 0.15s ease;
+}
+.markdown-body details.callout:not([open]) > summary.callout-title::after { transform: rotate(-90deg); }
+.markdown-body .callout-title::before {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-size: 1.15em;
+  content: "info";
+}
+.markdown-body [data-callout="abstract"] > .callout-title::before, .markdown-body [data-callout="summary"] > .callout-title::before, .markdown-body [data-callout="tldr"] > .callout-title::before { content: "summarize"; }
+.markdown-body [data-callout="todo"] > .callout-title::before { content: "check_circle"; }
+.markdown-body [data-callout="tip"] > .callout-title::before, .markdown-body [data-callout="hint"] > .callout-title::before, .markdown-body [data-callout="important"] > .callout-title::before { content: "local_fire_department"; }
+.markdown-body [data-callout="success"] > .callout-title::before, .markdown-body [data-callout="check"] > .callout-title::before, .markdown-body [data-callout="done"] > .callout-title::before { content: "check"; }
+.markdown-body [data-callout="question"] > .callout-title::before, .markdown-body [data-callout="help"] > .callout-title::before, .markdown-body [data-callout="faq"] > .callout-title::before { content: "help"; }
+.markdown-body [data-callout="warning"] > .callout-title::before, .markdown-body [data-callout="caution"] > .callout-title::before, .markdown-body [data-callout="attention"] > .callout-title::before { content: "warning"; }
+.markdown-body [data-callout="failure"] > .callout-title::before, .markdown-body [data-callout="fail"] > .callout-title::before, .markdown-body [data-callout="missing"] > .callout-title::before { content: "close"; }
+.markdown-body [data-callout="danger"] > .callout-title::before, .markdown-body [data-callout="error"] > .callout-title::before { content: "bolt"; }
+.markdown-body [data-callout="bug"] > .callout-title::before { content: "bug_report"; }
+.markdown-body [data-callout="example"] > .callout-title::before { content: "list"; }
+.markdown-body [data-callout="quote"] > .callout-title::before, .markdown-body [data-callout="cite"] > .callout-title::before { content: "format_quote"; }
+.markdown-body .callout-content { margin-top: 0.35rem; }
+.markdown-body .callout-content > :last-child { margin-bottom: 0; }
+
+/* #tags (remarkNoteSyntax): clickable pills that search the folder. */
+.markdown-body .md-tag {
+  display: inline-block;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.markdown-body .md-tag:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+/* Readable line length in the editor (Settings → Readable line length):
+   the text column is centred and capped like the preview's, while the
+   gutter stays at the left edge. Only applied with word wrap on. */
+.readable-editor .cm-content {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.markdown-body strong {
+  font-weight: 600;
+  color: var(--syntax-bold);
+}
+
+/* ==highlight== (remark-flexible-markers). Same translucent amber family as
+   the find-in-preview highlights above (::highlight(paperling-find)) so
+   "highlighted" reads as one concept; the alpha fill composites legibly over
+   every theme's background, and --text-primary keeps the text readable in
+   all four themes. */
+.markdown-body mark {
+  background: rgba(255, 196, 0, 0.35);
+  color: var(--text-primary);
+  padding: 0.05em 0.15em;
+  border-radius: 0.2em;
+}
+
+/* Definition lists (remark-definition-list): bold terms, indented
+   definitions — the classic dictionary layout. */
+.markdown-body dl {
+  margin: 0 0 1rem;
+}
+
+.markdown-body dt {
+  font-weight: 600;
+  color: var(--syntax-bold);
+  margin-top: 0.5rem;
+}
+
+.markdown-body dd {
+  margin: 0 0 0.25rem 1.5rem;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--border);
+  padding: 0.5rem;
+  text-align: start;
+}
+
+.markdown-body th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+
+/* ===== Math (KaTeX) — book-style typography =====
+   KaTeX ships its own font stack, so we don't override font-family.
+   We DO style the surrounding block math: center it, give it breathing
+   room above/below the paragraph, and let long equations scroll on
+   narrow viewports instead of overflowing the column. */
+.markdown-body .katex {
+  font-size: 1.05em;
+  color: var(--text-primary);
+}
+
+.markdown-body .katex-display {
+  margin: 1.25rem 0;
+  padding: 0.25rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Prefer centered display equations like a printed textbook */
+  text-align: center;
+}
+
+/* Inline math should sit on the prose baseline without inheriting
+   border/background from the global `code` styles. rehype-katex emits
+   <span class="katex"> only, but mhchem can briefly produce nested
+   <code> nodes during parsing — strip the outline so chemistry blocks
+   render cleanly. */
+.markdown-body .katex,
+.markdown-body .katex * {
+  background: transparent;
+  border: 0;
+}
+
+/* Equation numbering (\tag{}) and small labels: keep the muted tone
+   consistent with the rest of the doc rather than KaTeX's default black. */
+.markdown-body .katex .tag {
+  color: var(--text-secondary);
+}
+
+/* On narrow screens, equations may exceed column width. KaTeX wraps the
+   math in <span class="katex-display"><span class="katex">...</span></span>;
+   the inner element controls width, so we constrain the outer scroller. */
+.markdown-body .katex-display > .katex {
+  display: inline-block;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* ===== Syntax Highlighting (code blocks) ===== */
+.hljs {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.hljs-keyword {
+  color: var(--syntax-h2);
+}
+
+.hljs-string {
+  color: var(--syntax-bold);
+}
+
+.hljs-number {
+  color: var(--syntax-h1);
+}
+
+.hljs-function {
+  color: var(--status-saved);
+}
+
+.hljs-comment {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.hljs-title {
+  color: var(--status-saved);
+}
+
+.hljs-params {
+  color: var(--syntax-number);
+}
+
+.hljs-built_in {
+  color: var(--syntax-link);
+}
+
+.hljs-attr {
+  color: var(--status-saved);
+}
+
+.hljs-literal {
+  color: var(--syntax-h1);
+}
+
+/* ===== AI composer (panel input) =====
+   A modern focus state: when the textarea inside is focused, the whole composer
+   lifts with an accent border + soft accent glow. We suppress the textarea's own
+   focus-visible outline (the stray "blue box") since the wrapper owns the ring.
+   color-mix gives a theme-tinted glow from the single --accent variable; on the
+   rare webview that lacks it, the property is ignored and the border still
+   highlights — no broken state. */
+.ai-composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.ai-composer textarea:focus,
+.ai-composer textarea:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+}
+
+/* ===== AI inline diff review (@codemirror/merge unified view) =====
+   The merge package injects a base theme whose diff tints are ~8% opacity —
+   essentially invisible on the near-black editor background, which made it look
+   like "nothing changed until you Accept all". We override with clearly visible,
+   theme-agnostic green (added) / red (removed) so the proposed edits read at a
+   glance. Selectors carry a `.cm-editor` ancestor + !important so they win over
+   the runtime-injected base theme regardless of stylesheet insertion order. */
+:root {
+  --diff-add-bg: rgba(46, 160, 67, 0.20);
+  --diff-add-border: #2ea043;
+  --diff-del-bg: rgba(248, 81, 73, 0.18);
+  --diff-del-border: #f85149;
+  --diff-del-text: #ff7b72;
+}
+
+[data-theme="light"],
+[data-theme="paper"] {
+  --diff-add-bg: rgba(46, 160, 67, 0.16);
+  --diff-add-border: #2da44e;
+  --diff-del-bg: rgba(207, 34, 46, 0.12);
+  --diff-del-border: #cf222e;
+  --diff-del-text: #cf222e;
+}
+
+/* Inserted / changed lines in the proposed document */
+.cm-editor .cm-changedLine,
+.cm-editor .cm-inlineChangedLine,
+.cm-editor .cm-insertedLine {
+  background-color: var(--diff-add-bg) !important;
+  box-shadow: inset 2px 0 0 var(--diff-add-border);
+}
+
+/* Inline changed text — make the highlight solid, not a thin underline */
+.cm-editor .cm-changedText {
+  background: var(--diff-add-bg) !important;
+  border-radius: 2px;
+}
+
+/* Removed text shown as a block widget above the change */
+.cm-editor .cm-deletedChunk {
+  background-color: var(--diff-del-bg) !important;
+  box-shadow: inset 2px 0 0 var(--diff-del-border);
+  padding: 1px 6px;
+}
+
+.cm-editor .cm-deletedChunk .cm-deletedText,
+.cm-editor .cm-deletedLine {
+  background: transparent !important;
+  color: var(--diff-del-text) !important;
+  text-decoration: line-through;
+  text-decoration-color: var(--diff-del-border);
+}
+
+/* Per-change accept / reject controls inside a deleted chunk */
+.cm-editor .cm-deletedChunk .cm-chunkButtons {
+  gap: 4px;
+}
+
+.cm-editor .cm-deletedChunk .cm-chunkButtons button {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  opacity: 0.92;
+  transition: opacity 0.12s ease, transform 0.1s ease;
+}
+
+.cm-editor .cm-deletedChunk .cm-chunkButtons button:hover {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.cm-editor .cm-deletedChunk .cm-chunkButtons button[name="accept"] {
+  background: var(--diff-add-border) !important;
+}
+
+.cm-editor .cm-deletedChunk .cm-chunkButtons button[name="reject"] {
+  background: var(--diff-del-border) !important;
+}
+
+/* Diff gutter markers pick up the accent so they're visible on every theme */
+.cm-editor .cm-changedLineGutter,
+.cm-editor .cm-inlineChangedLineGutter {
+  background-color: var(--diff-add-border);
+}
+
+.cm-editor .cm-deletedLineGutter {
+  background-color: var(--diff-del-border);
+}
+
+/* The tab strip scrolls with the wheel and keeps the active tab in view
+   (TABS-13); a native horizontal scrollbar only ate into the 36px row and
+   covered the bottom of the tab labels. RLL-03. */
+.tab-strip {
+  scrollbar-width: none;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+/* Ctrl+S confirmation on the status bar's "Saved" (SAVE-07): a short
+   accent flash instead of a toast over the text. */
+@keyframes save-pulse {
+  0% { color: var(--accent); transform: scale(1.08); }
+  100% { color: inherit; transform: scale(1); }
+}
+
+.save-pulse {
+  animation: save-pulse 0.9s ease-out;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-pulse { animation: none; }
+}

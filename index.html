@@ -1,0 +1,98 @@
+<!doctype html>
+<!-- The inline style is a dark default so the very first bytes never paint
+     white; the script below refines it to the user's saved theme before the
+     body renders. Both defend against the Tauri startup white flash (#98). -->
+<html lang="en" style="background-color: #0a0a0a">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <!-- viewport-fit=cover lets the app draw behind status/gesture insets;
+         env(safe-area-inset-*) padding is applied in index.css. No
+         user-scalable=no: blocking zoom is an accessibility failure, and the
+         input-focus auto-zoom it usually works around is prevented instead by
+         keeping every field >= 16px under html.mobile. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Paperling</title>
+    <!-- Render-blocking: paint the correct theme background BEFORE first paint.
+         The window is created hidden and revealed once React mounts, but this
+         still matters as a safety net (and for any early reload) so the webview
+         never flashes white. Must mirror ThemeContext: same 'paperling-theme'
+         key, same valid themes, same Paper first-run default. Colors are the
+         --bg-primary values from index.css. -->
+    <script>
+      (function () {
+        try {
+          var THEME_BG = {
+            dark: "#0a0a0a",
+            light: "#ffffff",
+            paper: "#f5f0e6",
+            dracula: "#282a36",
+            graphite: "#1c1917",
+            nord: "#2e3440",
+            midnight: "#0f172a",
+          };
+          var ACCENTS = {
+            blue: "#3b82f6",
+            violet: "#8b5cf6",
+            magenta: "#ec4899",
+            green: "#22c55e",
+            amber: "#f59e0b",
+            orange: "#f97316",
+            cyan: "#06b6d4",
+          };
+          var stored = localStorage.getItem("paperling-theme");
+          // Paper is the brand default for first runs; a saved choice always
+          // wins. (Must mirror ThemeContext's getInitialTheme.)
+          var theme = THEME_BG[stored] ? stored : "paper";
+          var el = document.documentElement;
+          // Set data-theme so index.css variables resolve correctly the instant
+          // the stylesheet loads, and set the color inline for the pre-CSS frame.
+          el.setAttribute("data-theme", theme);
+          el.style.backgroundColor = THEME_BG[theme];
+          // A saved custom accent is applied pre-paint too, so the titlebar
+          // doesn't flash the theme's default accent. Must mirror
+          // ThemeContext's ACCENT_COLORS and applyAccentVars.
+          var accent = localStorage.getItem("paperling-accent");
+          var hex = ACCENTS[accent];
+          if (hex) {
+            var r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+            var lum = 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b);
+            el.style.setProperty("--accent", hex);
+            el.style.setProperty("--accent-hover", "rgba(" + r + ", " + g + ", " + b + ", 0.85)");
+            el.style.setProperty("--accent-text", lum > 0.35 ? "#0a0a0a" : "#ffffff");
+          }
+        } catch (e) {
+          /* localStorage blocked or corrupt: keep the paper default */
+        }
+        function chan(v) {
+          v /= 255;
+          return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+        }
+      })();
+    </script>
+    <!-- Android "Open with Paperling" bridge. The patched MainActivity copies
+         the picked file into app-private storage and calls this with the real
+         path (std::fs cannot read content:// URIs). Defined inline so it
+         exists the moment the webview is up — the native side retries until
+         it sees it, then fires once. If React isn't mounted yet the payload
+         waits in __paperlingPendingOpen and App picks it up on mount. -->
+    <script>
+      window.__paperlingOpenFile = function (path, name) {
+        var payload = { path: path, name: name };
+        if (window.__paperlingOnOpenFile) {
+          try { window.__paperlingOnOpenFile(payload); } catch (e) { /* app not ready to open */ }
+        } else {
+          window.__paperlingPendingOpen = payload;
+        }
+      };
+    </script>
+    <!-- Fonts and Material Symbols are bundled locally via src/fonts.ts so the
+         app renders identically with or without an internet connection. -->
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

@@ -1,0 +1,54 @@
+---
+import { url, SITE } from "../lib/site";
+const { path = "" } = Astro.props;
+const links = [
+  ["features/", "Features"],
+  ["compare/", "Compare"],
+  ["guide/", "Guide"],
+];
+---
+
+<header class="site-header">
+  <div class="wrap nav-inner">
+    <a class="brand" href={url()} aria-label="Paperling home">
+      <img src={url("icon.svg")} alt="" width="29" height="29" />
+      Paperling<span class="brand-dot">✳</span>
+    </a>
+    <nav class="desktop-nav" aria-label="Main navigation">
+      {links.map(([p, l]) => (
+        <a href={url(p)} aria-current={path.startsWith(p) ? "page" : undefined}>
+          {l}
+        </a>
+      ))}
+      <a href={SITE.repo}>GitHub ↗</a>
+    </nav>
+    <a class="button small" href={url("download/")}>
+      Get Paperling <span aria-hidden="true">↓</span>
+    </a>
+    <details class="mobile-menu">
+      <summary aria-label="Navigation menu">
+        <span class="menu-lines" aria-hidden="true"></span>
+      </summary>
+      <nav aria-label="Mobile navigation">
+        {links.map(([p, l]) => (
+          <a href={url(p)}>{l}</a>
+        ))}
+        <a href={url("download/")}>Download</a>
+        <a href={SITE.repo}>GitHub ↗</a>
+      </nav>
+    </details>
+  </div>
+</header>
+<script>
+  const menu = document.querySelector<HTMLDetailsElement>(".mobile-menu");
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && menu?.open) {
+      menu.open = false;
+      menu.querySelector("summary")?.focus();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (menu?.open && e.target instanceof Node && !menu.contains(e.target))
+      menu.open = false;
+  });
+</script>

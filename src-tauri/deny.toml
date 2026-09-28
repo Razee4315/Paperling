@@ -1,0 +1,54 @@
+# cargo-deny — supply-chain gate for the Rust side of the app.
+#
+# Run locally with:
+#   cargo deny --manifest-path src-tauri/Cargo.toml check advisories bans sources
+#
+# CI runs the three security-relevant checks below. Licenses are intentionally
+# left off for now (see the commented block at the bottom) so this stays a
+# security gate, not a license-compliance gate that red-fails on a new crate.
+#
+# With no `targets` set, cargo-deny inspects the dependency graph for every
+# platform — so a Windows- or macOS-only crate can't hide from the Linux runner.
+
+[advisories]
+# Format v2: any crate with a known security *vulnerability* fails the build.
+version = 2
+# "Unmaintained" advisories are only enforced for crates WE depend on directly.
+# Transitive ones we can't control — e.g. the GTK3 bindings Tauri pulls in on
+# Linux (RUSTSEC-2024-0411..0420) — would otherwise fail every build for no
+# actionable reason. Real vulnerabilities still fail regardless of this setting.
+unmaintained = "workspace"
+# To accept a specific advisory temporarily, add its ID here with a reason.
+ignore = [
+  # DoS-class (memory / CPU exhaustion) advisories in quick-xml 0.39, pulled in
+  # transitively via plist <- Tauri. Can't be fixed from here: plist 1.9 pins
+  # quick-xml "^0.39", so the patched >=0.41 needs a new plist/Tauri release.
+  # Low practical risk (build-time / plist parsing, not untrusted network input).
+  # Remove these once Tauri ships a plist that uses quick-xml >=0.41.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+]
+
+[bans]
+# A crate appearing at several versions is usually just bloat, but a surprise
+# second copy can also be how something sketchy slips in — surface it as a warning.
+multiple-versions = "warn"
+# `*` version requirements let any future release in silently — flag them.
+wildcards = "warn"
+# Add crates here to hard-block them, e.g. { name = "openssl", version = "*" }.
+deny = []
+
+[sources]
+# Only crates.io is trusted. A PR pulling a crate from a random git repo or an
+# alternate registry — a classic way malicious Rust code gets in — fails here.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# ── Optional: turn on license compliance later ──────────────────────────────
+# Add `licenses` to the CI check list and fill `allow` with the licenses your
+# dependency tree actually uses (run the check once to see what it flags).
+# [licenses]
+# version = 2
+# allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "MPL-2.0"]
+# confidence-threshold = 0.9

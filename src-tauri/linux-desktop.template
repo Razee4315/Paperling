@@ -1,0 +1,10 @@
+[Desktop Entry]
+Categories=Utility;TextEditor;
+Comment={{comment}}
+Exec={{exec}} %f
+StartupWMClass=paperling
+Icon={{icon}}
+Name={{name}}
+Terminal=false
+Type=Application
+MimeType=text/markdown;

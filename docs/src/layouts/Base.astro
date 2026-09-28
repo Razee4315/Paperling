@@ -1,0 +1,132 @@
+---
+import "@fontsource-variable/inter";
+import "@fontsource-variable/manrope";
+import "@fontsource/jetbrains-mono/400.css";
+import "../styles/global.css";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import { SITE, url, absolute } from "../lib/site";
+interface Props {
+  title?: string;
+  description?: string;
+  path?: string;
+  crumbs?: { label: string; path: string }[];
+  noindex?: boolean;
+  schema?: Record<string, unknown>[];
+}
+const {
+  title = "Paperling: Free Markdown Editor with Live Preview & Optional AI",
+  description = "Open a Markdown file and make yourself at home. Paperling is a free, open-source editor with live preview, math, diagrams, and optional AI for desktop and Android.",
+  path = "",
+  crumbs = [],
+  noindex = false,
+  schema = [],
+} = Astro.props;
+const canonical = absolute(path),
+  ogImage = absolute("og.png");
+const graph = [
+  {
+    "@type": "WebSite",
+    "@id": absolute() + "#website",
+    name: SITE.name,
+    url: absolute(),
+    inLanguage: "en",
+  },
+  ...(crumbs.length
+    ? [
+        {
+          "@type": "BreadcrumbList",
+          itemListElement: [{ label: "Home", path: "" }, ...crumbs].map(
+            (c, i) => ({
+              "@type": "ListItem",
+              position: i + 1,
+              name: c.label,
+              item: absolute(c.path),
+            }),
+          ),
+        },
+      ]
+    : []),
+  ...schema,
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta
+      name="robots"
+      content={
+        noindex ? "noindex, follow" : "index, follow, max-image-preview:large"
+      }
+    />
+    <meta name="author" content="Saqlain Abbas" />
+    <meta name="theme-color" content="#f5f2e9" />
+    <meta name="color-scheme" content="light" />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href={url("icon.svg")} />
+    <link rel="sitemap" href={url("sitemap.xml")} />
+    <link
+      rel="alternate"
+      type="application/atom+xml"
+      title="Paperling releases"
+      href={SITE.repo + "/releases.atom"}
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Paperling" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Paperling. A little space for your next big idea. Free, open-source Markdown editor."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+    <script
+      type="application/ld+json"
+      set:html={JSON.stringify({
+        "@context": "https://schema.org",
+        "@graph": graph,
+      }).replace(/</g, "\\u003c")}
+    />
+  </head>
+  <body>
+    <a class="skip-link" href="#content">
+      Skip to content
+    </a>
+    <Nav path={path} />
+    <main id="content" tabindex="-1">
+      {crumbs.length > 0 && (
+        <nav class="wrap breadcrumbs" aria-label="Breadcrumb">
+          <a href={url()}>Home</a>
+          {crumbs.map((c, i) => (
+            <>
+              <span aria-hidden="true">/</span>
+              {i === crumbs.length - 1 ? (
+                <span aria-current="page">{c.label}</span>
+              ) : (
+                <a href={url(c.path)}>{c.label}</a>
+              )}
+            </>
+          ))}
+        </nav>
+      )}
+      <slot />
+    </main>
+    <Footer />
+    <script>
+      import { initMotion } from "../scripts/motion";
+      initMotion();
+    </script>
+  </body>
+</html>
