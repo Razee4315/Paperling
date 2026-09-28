@@ -400,6 +400,40 @@ function isUnsafeRelativePath(p: string): boolean {
     return segments.some((seg) => seg === "..");
 }
 
+/**
+ * Turn a markdown-derived URL back into a filesystem path.
+ *
+ * Every destination that goes through the parser is URI-normalized by
+ * `mdast-util-to-hast` (the same normalization GitHub applies), so
+ * `![图](第01章_assets/solid.png)` reaches the `img` component as
+ * `%E7%AC%AC01%E7%AB%A0_.../solid.png`. The filesystem wants the decoded name,
+ * so each consumer of a markdown path has to decode it: text links already do
+ * (`resolveRelativePath`), images did not — every reference containing a CJK
+ * character, a space or `#` asked Rust for a file whose name really has
+ * `%E7%AC%AC` in it and got ENOENT, which surfaced as "Failed to load image".
+ * IMG-04.
+ *
+ * Decode BEFORE the `isUnsafeRelativePath` guard, never after: `%2e%2e%2f`
+ * must not smuggle a `..` segment past it.
+ *
+ * - A name with a literal `%` that is not valid escape syntax (`100%.png`)
+ *   cannot be decoded; keep it as written instead of throwing.
+ * - `+` is left alone: `decodeURIComponent`, unlike form-encoded parsing,
+ *   treats it as a literal plus — which is what a file name means.
+ * - A file that is literally NAMED `note%20one.png` (escapes that are meant
+ *   literally) can't be told apart from an encoded name, so it loses: every
+ *   mainstream markdown exporter writes encoded URLs, and a literal `%NN` on
+ *   disk is vanishingly rare next to 474 broken CJK references.
+ */
+export function decodeMarkdownPath(path: string): string {
+    if (!path.includes("%")) return path;
+    try {
+        return decodeURIComponent(path);
+    } catch {
+        return path;
+    }
+}
+
 // Component to handle local image loading
 function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string; baseDir: string | null } & React.ImgHTMLAttributes<HTMLImageElement>) {
     const [imageSrc, setImageSrc] = useState<string>('');
@@ -410,9 +444,10 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
 
         // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
         // resolve them as plain paths next to the document, like a text
-        // wikilink would be. IMG-EMBED-01.
+        // wikilink would be. IMG-EMBED-01. decodeMarkdownPath (not a bare
+        // decodeURIComponent) so a literal `%` in the name can't throw.
         const effective = src.startsWith("wikilink:")
-            ? decodeURIComponent(src.slice("wikilink:".length))
+            ? decodeMarkdownPath(src.slice("wikilink:".length))
             : src;
 
         // External URLs and data: URIs go straight to the <img>. They don't
@@ -431,10 +466,13 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             return;
         }
 
-        // Strip a leading `./` then validate. Anything with a `..` segment, an
-        // absolute prefix, or a drive letter is rejected — see
-        // isUnsafeRelativePath above.
-        const cleanPath = effective.startsWith('./') ? effective.slice(2) : effective;
+        // Strip a leading `./`, percent-decode (a parsed markdown destination
+        // arrives URI-normalized — see decodeMarkdownPath) and only THEN
+        // validate. Anything with a `..` segment, an absolute prefix, or a
+        // drive letter is rejected — see isUnsafeRelativePath above.
+        const cleanPath = decodeMarkdownPath(
+            effective.startsWith('./') ? effective.slice(2) : effective,
+        );
         if (isUnsafeRelativePath(cleanPath)) {
             setError(true);
             return;

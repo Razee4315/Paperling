@@ -1,3 +1,17 @@
+# ✅ Images with non-ASCII paths (branch `fix/img-04-relative-image-paths`)
+
+*A markdown image whose path contains a Chinese character, a space or `#` never loaded — the parser hands the preview an encoded URL (`%E7%AC%AC01...`) and it was passed to the file reader verbatim, so the file it asked for did not exist. Now decoded first. 612 passing tests. Details: IMG-04.*
+
+- [ ] Open `data/chem_doc/第01章_化学计量_融合版.md` in **Reader**. Every diagram shows — including the ones inside table rows and mid-sentence, and the 图2-1 flask near the end. Before this fix each one read "Failed to load image".
+- [ ] Open any other chapter (05, 12 and 17 have the most images). Same result: pictures, not error boxes.
+- [ ] Click an image: the zoom lightbox opens on it.
+- [ ] **Export → HTML** and **PDF** on a chapter with images: the pictures are in the export too (they are embedded from what the preview loaded).
+- [ ] Files that were fine before are still fine: an English-path image, a `https://…` image, and an image pasted from the clipboard still render.
+- [ ] `data/chem_doc/第04章_非金属及其化合物_融合版.md` still shows 3 error boxes ("…image-2026060821…png"). That is expected — those 3 files are genuinely absent from the folder (they point at a `…第1节_氯及其化合物.assets/` folder that isn't there).
+- [ ] Sanity: a note containing `![x](../../../etc/passwd)` still refuses to load it.
+
+---
+
 # ✅ Community issues (branch `feat/community-issues-2026-09-26`)
 
 *Fixes for issues reported by users: #216 (RTL), #206 (window controls in Zen), #212 (package managers). 609 passing tests.*
