@@ -5,8 +5,9 @@
 // invariant asserted here — every in-page link's href resolves to a real id in
 // the rendered document — is what keeps clicks working in the app and links
 // working in exported HTML, regardless of prefix policy.
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, waitFor } from "@testing-library/react";
+import { invoke } from "@tauri-apps/api/core";
 import { MarkdownPreview, sourceLineOf } from "./MarkdownPreview";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -180,6 +181,100 @@ describe("relative markdown links", () => {
         expect(onNavigateRelative).toHaveBeenCalledWith("notes/other.md");
         // preventDefault must fire or the webview would navigate to the .md URL.
         expect(click.defaultPrevented).toBe(true);
+    });
+});
+
+// IMG-04: a parsed markdown destination is URI-normalized before it reaches the
+// `img` component, so `![图](第01章_assets/solid.png)` arrives as
+// `%E7%AC%AC01%E7%AB%A0_...`. Passing that to read_image_file asked the
+// filesystem for a file literally named `%E7%AC%AC01...` — every image whose
+// path contains a CJK character, a space or `#` came back ENOENT and rendered
+// as "Failed to load image" (a 477-image corpus: 474 refs broken, 3 missing).
+// The path must be decoded before it reaches Rust, and — critically — before
+// the traversal guard, or `%2e%2e%2f` walks straight through it.
+describe("local images (IMG-04)", () => {
+    const originalCreateObjectURL = URL.createObjectURL;
+
+    // The component turns the returned bytes into an object URL; jsdom has no
+    // createObjectURL, so without this stub every image would take the error
+    // path and the happy case would be untestable.
+    beforeEach(() => {
+        URL.createObjectURL = (() => "blob:test") as typeof URL.createObjectURL;
+    });
+    afterEach(() => {
+        URL.createObjectURL = originalCreateObjectURL;
+    });
+
+    function imageRequests() {
+        const invokeMock = vi.mocked(invoke);
+        return invokeMock.mock.calls.filter(([cmd]) => cmd === "read_image_file").map(([, args]) => args);
+    }
+
+    async function renderAndSettle(container: HTMLElement) {
+        // The request is fired from an effect, so wait for the call itself.
+        await waitFor(() => expect(imageRequests().length).toBeGreaterThan(0));
+        await waitFor(() => expect(container.querySelector("img")).toBeTruthy());
+    }
+
+    it("asks for the DECODED path when the file name is Chinese", async () => {
+        const { container } = renderPreview("![图示](第01章_化学计量_assets/solid.png)", {
+            filePath: "D:\\notes\\chem\\chapter1.md",
+        });
+        await renderAndSettle(container);
+
+        expect(imageRequests()).toEqual([
+            {
+                baseDir: "D:\\notes\\chem",
+                relPath: "第01章_化学计量_assets/solid.png",
+            },
+        ]);
+        expect(container.querySelector("img")!.getAttribute("src")).toBe("blob:test");
+    });
+
+    it("decodes escapes for spaces, `#` and `+` in the file name", async () => {
+        const { container } = renderPreview(
+            "![a](assets/my%20image.png)\n\n![b](assets/a%23b.png)\n\n![c](assets/1%2B1.png)",
+            { filePath: "D:\\notes\\chem\\chapter1.md" },
+        );
+        await renderAndSettle(container);
+
+        expect(imageRequests()).toEqual([
+            { baseDir: "D:\\notes\\chem", relPath: "assets/my image.png" },
+            { baseDir: "D:\\notes\\chem", relPath: "assets/a#b.png" },
+            { baseDir: "D:\\notes\\chem", relPath: "assets/1+1.png" },
+        ]);
+    });
+
+    it("still rejects a percent-encoded traversal attempt", async () => {
+        const { container } = renderPreview("![pwn](%2e%2e%2f%2e%2e%2fetc%2fpasswd)", {
+            filePath: "D:\\notes\\chem\\chapter1.md",
+        });
+        await waitFor(() =>
+            expect(container.textContent).toContain("Failed to load image"),
+        );
+        // Not one IPC call: the decoded `../../` must hit the guard, not Rust.
+        expect(imageRequests()).toEqual([]);
+    });
+
+    it("leaves a literal `%` that is not valid escape syntax alone instead of throwing", async () => {
+        const { container } = renderPreview("![odd](assets/100%.png)", {
+            filePath: "D:\\notes\\chem\\chapter1.md",
+        });
+        await renderAndSettle(container);
+
+        expect(imageRequests()).toEqual([{ baseDir: "D:\\notes\\chem", relPath: "assets/100%.png" }]);
+    });
+
+    it("still sends remote and data: images straight to the <img>, with no file read", async () => {
+        const { container } = renderPreview(
+            "![remote](https://example.com/a.png)\n\n![inline](data:image/png;base64,iVBORw0KGgo=)",
+            { filePath: "D:\\notes\\chem\\chapter1.md" },
+        );
+        await waitFor(() => expect(container.querySelectorAll("img").length).toBe(2));
+
+        expect(imageRequests()).toEqual([]);
+        const srcs = Array.from(container.querySelectorAll("img")).map((i) => i.getAttribute("src"));
+        expect(srcs).toEqual(["https://example.com/a.png", "data:image/png;base64,iVBORw0KGgo="]);
     });
 });
 
