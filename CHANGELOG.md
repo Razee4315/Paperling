@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Chinese interface (简体中文) with a language setting (I18N-01).** Settings →
+  Appearance → **语言** offers *Follow system* (the default: a Chinese Windows
+  shows a Chinese UI with no setup), English, and 简体中文; the switch is
+  immediate, no restart. The window chrome, menus, formatting toolbar, tabs,
+  status bar, file explorer, outline, backlinks, cross-file search, statistics,
+  command palette, dialogs and all notifications are translated. Your notes are
+  never translated. Word counts and reading time use each language's own
+  phrasing ("3 words" / "3 词").
+  Still English-only: the keyboard cheatsheet, the AI panel, the Mermaid and
+  find-bar controls, and the export/PDF labels — see the i18n follow-up in
+  `TEST-CHECKLIST.md`.
+
 ## [1.0.51] - 2026-09-26
 
 ### Android: one-time reinstall (please read before updating)

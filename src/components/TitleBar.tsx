@@ -6,6 +6,7 @@ import { ExportMenu } from "./ExportMenu";
 import { EditMenu } from "./EditMenu";
 import { formatShortcut } from "../config/keybindings";
 import { getAIIconAnimation } from "../utils/persistence";
+import { useI18n } from "../i18n";
 
 interface TitleBarProps {
     fileName?: string;
@@ -27,6 +28,7 @@ interface TitleBarProps {
 }
 
 function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles }: TitleBarProps) {
+    const { t } = useI18n();
     // Whether the AI button's icon shimmers. Some users prefer it plain (#111).
     // Held locally and refreshed from the Settings event rather than threaded
     // down from App, since nothing else on the way needs to know about it.
@@ -136,7 +138,7 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                             {fileName || "Paperling"}
                         </span>
                         {!fileName && (
-                            <span className="text-[var(--text-muted)] text-xs ml-1 hidden sm:inline">— drop a .md file or {formatShortcut("openFile")}</span>
+                            <span className="text-[var(--text-muted)] text-xs ml-1 hidden sm:inline">{t("titleBar.dropHint")}{formatShortcut("openFile")}</span>
                         )}
                         {/* Always laid out, only shown when dirty: appearing
                             and disappearing it pushed the whole toolbar
@@ -147,7 +149,7 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                                 aria-hidden={!isDirty}
                                 className={`text-[var(--status-unsaved)] ml-1 italic text-xs whitespace-nowrap ${isDirty ? "" : "invisible"}`}
                             >
-                                — Edited
+                                {t("titleBar.edited")}
                             </span>
                         )}
                     </div>
@@ -159,22 +161,22 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                             {onNewFile && (
                                 <button
                                     onClick={onNewFile}
-                                    aria-label="New file"
+                                    aria-label={t("titleBar.newFile")}
                                     className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-xs"
-                                    title={`New File (${formatShortcut("newFile")})`}
+                                    title={t("titleBar.newFileTitle", { shortcut: formatShortcut("newFile") })}
                                 >
                                     <span className="material-symbols-outlined text-[16px]">edit_note</span>
-                                    <span className="hidden sm:inline">New</span>
+                                    <span className="hidden sm:inline">{t("titleBar.newLabel")}</span>
                                 </button>
                             )}
                             <button
                                 onClick={onOpenFile}
-                                aria-label="Open file"
+                                aria-label={t("titleBar.openFile")}
                                 className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-xs"
-                                title={`Open File (${formatShortcut("openFile")})`}
+                                title={t("titleBar.openFileTitle", { shortcut: formatShortcut("openFile") })}
                             >
                                 <span className="material-symbols-outlined text-[16px]">folder_open</span>
-                                <span className="hidden sm:inline">Open</span>
+                                <span className="hidden sm:inline">{t("titleBar.openLabel")}</span>
                             </button>
                             {onFind && onReplace && onFindInFiles && (
                                 <EditMenu onFind={onFind} onReplace={onReplace} onFindInFiles={onFindInFiles} />
@@ -188,9 +190,9 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                             {onToggleAI && (
                                 <button
                                     onClick={onToggleAI}
-                                    aria-label="AI assistant"
+                                    aria-label={t("titleBar.aiAssistant")}
                                     aria-pressed={aiActive}
-                                    title="AI assistant"
+                                    title={t("titleBar.aiAssistant")}
                                     className={`flex items-center gap-1 px-2.5 py-1 rounded-[var(--radius-md)] transition-colors text-xs font-semibold tracking-wide ${aiActive
                                         ? "bg-[var(--bg-hover)] text-[var(--accent)]"
                                         : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
@@ -210,22 +212,22 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                     <div className="w-[1px] h-4 bg-[var(--border)] mx-1"></div>
                     <button
                         onClick={handleMinimize}
-                        aria-label="Minimize"
+                        aria-label={t("titleBar.minimize")}
                         className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                     >
                         <span className="material-symbols-outlined text-[18px]">remove</span>
                     </button>
                     <button
                         onClick={handleMaximize}
-                        aria-label={isFullscreen ? "Exit fullscreen" : "Maximize"}
-                        title={isFullscreen ? "Exit fullscreen (F11)" : "Maximize"}
+                        aria-label={isFullscreen ? t("titleBar.exitFullscreen") : t("titleBar.maximize")}
+                        title={isFullscreen ? t("titleBar.exitFullscreenTitle") : t("titleBar.maximize")}
                         className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                     >
                         <span className="material-symbols-outlined text-[16px]">{isFullscreen ? "fullscreen_exit" : "crop_square"}</span>
                     </button>
                     <button
                         onClick={handleCloseClick}
-                        aria-label="Close"
+                        aria-label={t("titleBar.close")}
                         className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--danger)] text-[var(--text-secondary)] hover:text-[var(--accent-text)] transition-colors"
                     >
                         <span className="material-symbols-outlined text-[18px]">close</span>

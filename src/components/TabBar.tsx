@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { IS_TOUCH } from "../utils/platform";
+import { useI18n } from "../i18n";
 
 export interface TabBarItem {
     id: string;
@@ -30,6 +31,7 @@ const LONG_PRESS_MS = 500;
 const LONG_PRESS_MOVE_PX = 10;
 
 function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, onContextMenu }: TabBarProps) {
+    const { t } = useI18n();
     const listRef = useRef<HTMLDivElement>(null);
     const tabRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -118,7 +120,7 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
         <div
             ref={listRef}
             role="tablist"
-            aria-label="Open files"
+            aria-label={t("tabBar.openFiles")}
             onWheel={onWheel}
             // Double-click the empty strip for a new tab, as in browsers and
             // VS Code. TABS-21.
@@ -139,7 +141,7 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                         aria-selected={isActive}
                         tabIndex={isActive ? 0 : -1}
                         title={tab.name}
-                        aria-label={tab.dirty ? `${tab.name} (unsaved changes)` : tab.name}
+                        aria-label={tab.dirty ? t("tabBar.unsavedName", { name: tab.name }) : tab.name}
                         // HTML5 drag-and-drop does not fire on touch at all —
                         // not degraded, absent. Reordering on a phone goes
                         // through the long-press menu instead, so the
@@ -227,8 +229,8 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                             onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
                             tabIndex={-1}
-                            aria-label={`Close ${tab.name}`}
-                            title={tab.dirty ? "Unsaved changes — click to close" : "Close"}
+                            aria-label={t("tabBar.closeNamed", { name: tab.name })}
+                            title={tab.dirty ? t("tabBar.closeDirty") : t("tabBar.close")}
                             className={`shrink-0 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] ${
                                 IS_TOUCH ? "w-7 h-7" : "w-4 h-4"
                             }`}
@@ -255,8 +257,8 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                 opened in tabs. */}
             <button
                 onClick={onNewTab}
-                aria-label="New tab"
-                title="New tab (Ctrl+N)"
+                aria-label={t("tabBar.newTab")}
+                title={t("tabBar.newTabTitle")}
                 className={`shrink-0 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors ${
                     IS_TOUCH ? "w-11" : "w-9"
                 }`}
