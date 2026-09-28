@@ -144,12 +144,16 @@ function SegmentedRow<T extends string>({ id, labelKey, hint, value, options, on
 }) {
     const { t } = useI18n();
     return (
-        <div className="w-full flex items-center justify-between gap-4 px-3.5 py-3">
+        // Wraps: with a long option label ("跟随系统（简体中文）") the segmented
+        // group used to be pushed past the row and clipped by the container's
+        // overflow-hidden, hiding the other languages. Row wraps first, then the
+        // group wraps its own buttons. I18N-01.
+        <div className="w-full flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3.5 py-3">
             <div className="flex flex-col items-start min-w-0">
                 <span id={id} className="text-sm font-medium text-[var(--text-primary)]">{t(labelKey)}</span>
                 <span className="text-[11px] text-[var(--text-muted)] mt-0.5">{hint}</span>
             </div>
-            <div role="radiogroup" aria-labelledby={id} className="flex flex-wrap justify-end shrink-0 rounded-[var(--radius-md)] border border-[var(--border)] overflow-hidden">
+            <div role="radiogroup" aria-labelledby={id} className="flex flex-wrap min-w-0 rounded-[var(--radius-md)] border border-[var(--border)] overflow-hidden">
                 {options.map((o) => {
                     const active = value === o.id;
                     return (

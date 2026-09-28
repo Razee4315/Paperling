@@ -1,3 +1,30 @@
+# ✅ Chinese interface + language setting (branch `fix/img-04-relative-image-paths`)
+
+*New: the app speaks Chinese, and Settings → Appearance → 语言 switches language live. 637 passing tests. Details: I18N-01.*
+
+## 🌏 Language (try this first)
+- [ ] Open **Settings (Ctrl+,)**. The first row of **外观** is **语言**, with the hint "界面按钮、菜单和提示所使用的语言。你的笔记内容不会被翻译。"
+- [ ] Three options fit on the row and all are clickable: **跟随系统（简体中文）** (highlighted, because this PC is Chinese), **English**, **简体中文**. If a label is cut off, that's a bug — tell me.
+- [ ] Click **English**: the whole panel, the sidebar (Appearance / Editor / Shortcuts / AI / About) and the window behind it become English **immediately** — no restart, no flash of the old language.
+- [ ] Click **简体中文**: everything goes back to Chinese.
+- [ ] Close and reopen the app: the language you picked is still in effect. (The choice is per-user, stored with the other settings.)
+- [ ] Pick **跟随系统** and restart: the app follows Windows' own language again.
+- [ ] **Search in settings** works in both languages: type `主题` or `theme` — both find the theme row; `拼写` or `vim` both find the editor rows.
+- [ ] A **toast** is translated: press Ctrl+S (or open a missing file) and read the notification in the bottom corner.
+- [ ] The **file explorer** (Ctrl+Shift+E) and the **outline** (Ctrl+Shift+O) are Chinese, including the right-click menu (打开 / 重命名 / 移到回收站) and the empty states.
+
+## 🔍 What is still English (known, tracked — not a bug)
+- [ ] The keyboard cheatsheet remains English — that's the one remaining screenful.
+- [ ] The AI panel, the Mermaid diagram controls, the find/replace bar and the export/PDF labels are still English.
+- [ ] Anything else you spot: note the exact wording and where it was; the dictionary makes each one a small local fix.
+
+## 🔎 Sanity (nothing else broke)
+- [ ] A note with a **Chinese image path** still renders its images.
+- [ ] **Export → HTML/PDF** still works.
+- [ ] Switch language with unsaved edits in a tab: nothing is lost, the tab keeps its dirty dot.
+
+---
+
 # ✅ Images with non-ASCII paths (branch `fix/img-04-relative-image-paths`)
 
 *A markdown image whose path contains a Chinese character, a space or `#` never loaded — the parser hands the preview an encoded URL (`%E7%AC%AC01...`) and it was passed to the file reader verbatim, so the file it asked for did not exist. Now decoded first. 612 passing tests. Details: IMG-04.*
