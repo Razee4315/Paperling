@@ -1,3 +1,18 @@
+# ✅ Touchscreen PCs get the desktop app (branch `fix/desktop-phone-shell-206`)
+
+*#206 for real this time: on some touchscreen Windows PCs (2-in-1s, Surface-type devices) Paperling opened its **phone** layout, which has no window buttons. 615 passing tests.*
+
+## 🪟 Try these first (best on a touchscreen Windows laptop / 2-in-1)
+- [ ] Launch Paperling. You see the normal **desktop** title bar with **minimize / maximize / close** at the top right, not a ☰ menu and a Files / Outline / Read bar at the bottom.
+- [ ] Drag the title bar: the window moves. Double-click it: it maximizes.
+- [ ] **Open** (Ctrl+O) shows the normal Windows file dialog; **Save As** on a new note shows the normal Windows save dialog.
+- [ ] **Settings** shows all sections, including **AI** and **Shortcuts**.
+- [ ] Press **F9** (Zen) on the touchscreen PC: the Zen bar stays visible with minimize / maximize / close, and dragging it moves the window.
+- [ ] On a normal (non-touch) PC nothing looks different.
+- [ ] On an Android phone the app still opens in the phone layout.
+
+---
+
 # ✅ Community issues (branch `feat/community-issues-2026-09-26`)
 
 *Fixes for issues reported by users: #216 (RTL), #206 (window controls in Zen), #212 (package managers). 609 passing tests.*
