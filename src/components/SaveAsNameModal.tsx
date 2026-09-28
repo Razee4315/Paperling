@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { normalizeMarkdownFileName } from "../utils/mobileFiles";
 import { downloadsSaveAvailable } from "../utils/nativePicker";
+import { useI18n } from "../i18n";
 
 export interface SaveAsChoice {
     /** notes = the app-private notes folder; downloads = the shared Downloads folder. */
@@ -33,6 +34,7 @@ interface SaveAsNameModalProps {
  * number-one confusion in on-device testing.
  */
 export function SaveAsNameModal({ isOpen, defaultName, notesPath, onConfirm }: SaveAsNameModalProps) {
+    const { t } = useI18n();
     const [value, setValue] = useState("");
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -61,10 +63,10 @@ export function SaveAsNameModal({ isOpen, defaultName, notesPath, onConfirm }: S
         >
             <div className="px-5 pt-5 pb-4">
                 <h2 id="saveas-title" className="text-base font-semibold text-[var(--text-primary)]">
-                    Save note
+                    {t("dialog.saveNoteTitle")}
                 </h2>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">
-                    Pick a name and where it should live.
+                    {t("dialog.saveNoteBody")}
                 </p>
                 <input
                     ref={inputRef}
@@ -75,17 +77,17 @@ export function SaveAsNameModal({ isOpen, defaultName, notesPath, onConfirm }: S
                         if (e.key === "Enter" && valid) onConfirm({ destination: "notes", name: normalized });
                         if (e.key === "Escape") onConfirm(null);
                     }}
-                    placeholder="Note name"
-                    aria-label="Note name"
+                    placeholder={t("dialog.noteName")}
+                    aria-label={t("dialog.noteName")}
                     enterKeyHint="done"
                     className="mt-3 w-full px-3 py-2 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                 />
                 {valid && normalized !== value && (
-                    <p className="text-xs text-[var(--text-muted)] mt-1.5">Will save as “{normalized}”</p>
+                    <p className="text-xs text-[var(--text-muted)] mt-1.5">{t("dialog.willSaveAs", { name: normalized })}</p>
                 )}
                 {notesPath && (
                     <div className="mt-3 text-xs text-[var(--text-muted)]">
-                        <span className="font-medium text-[var(--text-secondary)]">Notes folder:</span>
+                        <span className="font-medium text-[var(--text-secondary)]">{t("dialog.notesFolder")}</span>
                         <code className="block mt-1 px-2 py-1.5 rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-subtle)] font-mono text-[11px] break-all select-text">
                             {notesPath}
                         </code>
@@ -93,7 +95,7 @@ export function SaveAsNameModal({ isOpen, defaultName, notesPath, onConfirm }: S
                 )}
                 {downloadsSaveAvailable() && (
                     <p className="text-xs text-[var(--text-muted)] mt-2">
-                        Or put a copy into this device’s <span className="font-medium text-[var(--text-secondary)]">Downloads</span> folder, where any file manager can see it.
+                        {t("dialog.downloadsHintBefore")}<span className="font-medium text-[var(--text-secondary)]">{t("dialog.downloads")}</span>{t("dialog.downloadsHintAfter")}
                     </p>
                 )}
             </div>
@@ -110,7 +112,7 @@ export function SaveAsNameModal({ isOpen, defaultName, notesPath, onConfirm }: S
                         disabled={!valid}
                         className="px-4 py-2 text-sm font-medium text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                        Save to Downloads
+                        {t("dialog.saveToDownloads")}
                     </button>
                 )}
                 <button
@@ -118,7 +120,7 @@ export function SaveAsNameModal({ isOpen, defaultName, notesPath, onConfirm }: S
                     disabled={!valid}
                     className="px-4 py-2 text-sm font-medium text-[var(--accent-text)] bg-[var(--accent)] hover:bg-[var(--accent-hover)] rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                    Save to Notes
+                    {t("dialog.saveToNotes")}
                 </button>
             </div>
         </Modal>

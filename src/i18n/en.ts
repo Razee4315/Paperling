@@ -33,6 +33,210 @@ const en = {
     },
 
     // The language switcher itself lives in Settings → Appearance.
+    // Confirmation/explanatory dialogs and the crash screen.
+    dialog: {
+        unsavedTitle: "Unsaved Changes",
+        filesUnsaved: "{count} files have unsaved changes",
+        changesLost: "Your changes will be lost",
+        saveThem: "These files have unsaved changes. Do you want to save them before closing?",
+        saveOneBefore: "Do you want to save the changes you made to ",
+        saveOneAfter: "?",
+        saveThemOne: "You have unsaved changes. Do you want to save them before closing?",
+        discardAll: "Discard all",
+        dontSave: "Don't Save",
+        saveAll: "Save all",
+        saveNoteTitle: "Save note",
+        saveNoteBody: "Pick a name and where it should live.",
+        noteName: "Note name",
+        willSaveAs: "Will save as “{name}”",
+        notesFolder: "Notes folder:",
+        downloadsHintBefore: "Or put a copy into this device's ",
+        downloads: "Downloads",
+        downloadsHintAfter: " folder, where any file manager can see it.",
+        saveToDownloads: "Save to Downloads",
+        saveToNotes: "Save to Notes",
+        updateTitle: "Update available",
+        updateBodyBefore: "Paperling ",
+        updateBodyMid: " is ready (you're on v",
+        updateBodyEnd: ").",
+        whatsNew: "What's new",
+        installedRestarting: "Installed, restarting…",
+        downloadingPercent: "Downloading… {percent}%",
+        downloading: "Downloading…",
+        updateFailed: "Update failed: {message}",
+        skipVersion: "Skip this version",
+        later: "Later",
+        updateNow: "Update now",
+        errorTitle: "Something went wrong",
+        errorBody: "Paperling encountered an unexpected error. Your file data should be safe.",
+        tryAgain: "Try Again",
+        welcomeTour: "Welcome tour",
+    },
+
+    // The floating toolbar over a markdown table.
+    tableToolbar: {
+        ariaLabel: "Table editing",
+        row: "Row",
+        col: "Col",
+        rowAbove: "Insert row above",
+        rowBelow: "Insert row below",
+        rowDelete: "Delete row",
+        colLeft: "Insert column left",
+        colRight: "Insert column right",
+        colDelete: "Delete column",
+        alignLeft: "Align column left",
+        alignCenter: "Align column center",
+        alignRight: "Align column right",
+        tidy: "Tidy table (align columns)",
+    },
+
+    // The footer: save state, Ln/Col, word and character counts, reading time.
+    // The counts and the reading time are functions because they inflect
+    // (English "1 word" / "3 words"); Chinese does not.
+    statusBar: {
+        bar: "Status bar",
+        filesTitle: "Files (Ctrl+Shift+E)",
+        openExplorer: "Open file explorer",
+        closeExplorer: "Close file explorer",
+        tocTitle: "Table of Contents (Ctrl+Shift+O)",
+        openToc: "Open table of contents",
+        closeToc: "Close table of contents",
+        backlinksTitle: "Backlinks",
+        openBacklinks: "Open backlinks",
+        closeBacklinks: "Close backlinks",
+        fileSaved: "File saved",
+        fileUnsaved: "File has unsaved changes",
+        saved: "Saved",
+        unsaved: "Unsaved",
+        lineCol: "Ln {line}, Col {column}",
+        wordCount: (p: Record<string, string | number>) =>
+            `${Number(p.count).toLocaleString()} ${Number(p.count) === 1 ? "word" : "words"}`,
+        selectedWords: (p: Record<string, string | number>) =>
+            `${Number(p.selected).toLocaleString()} / ${Number(p.total).toLocaleString()} ${Number(p.total) === 1 ? "word" : "words"}`,
+        selectedWordsAria: (p: Record<string, string | number>) =>
+            `Selected ${Number(p.selected).toLocaleString()} of ${Number(p.total).toLocaleString()} words`,
+        wordsAria: (p: Record<string, string | number>) => `${Number(p.count).toLocaleString()} words`,
+        selectionTitle: (p: Record<string, string | number>) =>
+            `Selection: ${Number(p.words).toLocaleString()} words, ${Number(p.chars).toLocaleString()} characters`,
+        charsTitle: (p: Record<string, string | number>) => `${Number(p.count).toLocaleString()} characters`,
+        readingTimeTitle: "Estimated reading time at 200 wpm",
+        readingTime: (p: Record<string, string | number>) => {
+            const min = Number(p.min);
+            if (min < 1) return "< 1 min read";
+            if (min < 60) return `${Math.round(min)} min read`;
+            const hours = Math.floor(min / 60);
+            const rem = Math.round(min % 60);
+            return rem === 0 ? `${hours}h read` : `${hours}h ${rem}m read`;
+        },
+    },
+
+    // The phone app bar and its ☰ sheet.
+    mobileBar: {
+        menu: "Menu",
+        appMenu: "App menu",
+        unsavedChanges: "Unsaved changes",
+        paletteAria: "Search commands and notes",
+    },
+
+    // The formatting toolbar above the editor. *Title keys carry the shortcut.
+    formatToolbar: {
+        heading1: "Heading 1",
+        heading2: "Heading 2",
+        heading3: "Heading 3",
+        boldTitle: "Bold ({shortcut})",
+        italicTitle: "Italic ({shortcut})",
+        strikethrough: "Strikethrough",
+        inlineCode: "Inline code",
+        bulletList: "Bullet list",
+        numberedList: "Numbered list",
+        taskList: "Task list",
+        blockquoteTitle: "Blockquote ({shortcut})",
+        linkTitle: "Link ({shortcut})",
+        codeBlock: "Code block",
+        insertTable: "Insert table",
+        horizontalRule: "Horizontal rule",
+        aiAssistTitle: "AI assist ({shortcut})",
+    },
+
+    // The open-file tab strip.
+    tabBar: {
+        openFiles: "Open files",
+        unsavedName: "{name} (unsaved changes)",
+        closeNamed: "Close {name}",
+        closeDirty: "Unsaved changes — click to close",
+        close: "Close",
+        newTab: "New tab",
+        newTabTitle: "New tab (Ctrl+N)",
+    },
+
+    // The Edit dropdown (Find / Find and Replace / Find in Files).
+    editMenu: {
+        ariaLabel: "Edit menu",
+        label: "Edit",
+        find: "Find",
+        replace: "Find and Replace",
+        findInFiles: "Find in Files…",
+    },
+
+    // The floating Reader / Split / Code pill.
+    modeToggle: {
+        group: "View mode toggle",
+        reader: "Reader",
+        readerAria: "Reader mode",
+        readerTitle: "Reader (Ctrl+E)",
+        split: "Split",
+        splitAria: "Split view",
+        splitTitle: "Split view (Ctrl+\\)",
+        code: "Code",
+        codeAria: "Code editor",
+        codeTitle: "Code (Ctrl+E)",
+    },
+
+    exportMenu: {
+        ariaLabel: "Export document",
+        label: "Export",
+        exporting: "Exporting...",
+        formats: "Export formats",
+        word: "Word (.docx)",
+        nothing: "Nothing to export yet",
+    },
+
+    // The hover-reveal bar in Zen mode.
+    zen: {
+        bar: "Zen mode top bar",
+        exitZen: "Exit Zen mode",
+        normal: "Normal",
+        normalTitle: "Back to normal view (F9)",
+        outlineOpen: "Open outline",
+        outlineClose: "Close outline",
+        outlineTitle: "Outline (Ctrl+Shift+O)",
+    },
+
+    // Window chrome, the New/Open/Edit/Export row and the window buttons.
+    titleBar: {
+        dropHint: "— drop a .md file or ",
+        edited: "— Edited",
+        newFile: "New file",
+        newFileTitle: "New File ({shortcut})",
+        newLabel: "New",
+        openFile: "Open file",
+        openFileTitle: "Open File ({shortcut})",
+        openLabel: "Open",
+        aiAssistant: "AI assistant",
+        minimize: "Minimize",
+        maximize: "Maximize",
+        exitFullscreen: "Exit fullscreen",
+        exitFullscreenTitle: "Exit fullscreen (F11)",
+        close: "Close",
+    },
+
+    // The quick theme/font dropdown in the title bar (the full settings modal
+    // keeps its own strings under `settings`).
+    settingsMenu: {
+        customSystemFont: "Custom system font",
+        more: "More settings…",
+    },
+
     settings: {
         title: "Settings",
         close: "Close settings",

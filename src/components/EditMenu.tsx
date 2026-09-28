@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
 import { formatShortcut } from '../config/keybindings';
+import { useI18n, type TKey } from '../i18n';
 
 interface EditMenuProps {
     /** Open the find bar in the current view (editor or reader). */
@@ -12,7 +13,7 @@ interface EditMenuProps {
 }
 
 interface EditMenuItem {
-    label: string;
+    labelKey: TKey;
     icon: string;
     shortcut: string;
     action: () => void;
@@ -26,6 +27,7 @@ interface EditMenuItem {
  * on macOS and Ctrl+F/Ctrl+H elsewhere, matching what actually fires.
  */
 export function EditMenu({ onFind, onReplace, onFindInFiles }: EditMenuProps) {
+    const { t } = useI18n();
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
@@ -56,23 +58,23 @@ export function EditMenu({ onFind, onReplace, onFindInFiles }: EditMenuProps) {
     };
 
     const items: EditMenuItem[] = [
-        { label: 'Find', icon: 'search', shortcut: formatShortcut('find'), action: onFind },
-        { label: 'Find and Replace', icon: 'find_replace', shortcut: formatShortcut('replace'), action: onReplace },
-        { label: 'Find in Files…', icon: 'manage_search', shortcut: formatShortcut('searchInFolder'), action: onFindInFiles },
+        { labelKey: 'editMenu.find', icon: 'search', shortcut: formatShortcut('find'), action: onFind },
+        { labelKey: 'editMenu.replace', icon: 'find_replace', shortcut: formatShortcut('replace'), action: onReplace },
+        { labelKey: 'editMenu.findInFiles', icon: 'manage_search', shortcut: formatShortcut('searchInFolder'), action: onFindInFiles },
     ];
 
     return (
         <div ref={menuRef} className="relative no-drag">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                aria-label="Edit menu"
+                aria-label={t("editMenu.ariaLabel")}
                 aria-expanded={isOpen}
                 aria-haspopup="true"
                 className="btn-press flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                title="Edit"
+                title={t("editMenu.label")}
             >
                 <span className="material-symbols-outlined text-[16px]">edit</span>
-                <span className="hidden sm:inline">Edit</span>
+                <span className="hidden sm:inline">{t("editMenu.label")}</span>
             </button>
 
             {isOpen && (
@@ -80,18 +82,18 @@ export function EditMenu({ onFind, onReplace, onFindInFiles }: EditMenuProps) {
                     ref={panelRef}
                     onKeyDown={onMenuKeyDown}
                     role="menu"
-                    aria-label="Edit"
+                    aria-label={t("editMenu.label")}
                     className="absolute left-0 top-full mt-1 w-56 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-[70] animate-fade-in-down"
                 >
                     {items.map((it) => (
                         <button
-                            key={it.label}
+                            key={it.labelKey}
                             role="menuitem"
                             onClick={() => run(it.action)}
                             className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--bg-hover)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[18px] w-5 text-center text-[var(--text-secondary)]" aria-hidden="true">{it.icon}</span>
-                            <span className="flex-1">{it.label}</span>
+                            <span className="flex-1">{t(it.labelKey)}</span>
                             <kbd className="text-[11px] font-mono text-[var(--text-muted)] tabular-nums">{it.shortcut}</kbd>
                         </button>
                     ))}

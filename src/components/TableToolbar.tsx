@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Align, TableOp } from "../utils/tableModel";
+import { useI18n, type TKey } from "../i18n";
 
 interface TableToolbarProps {
     /** Anchor pixel position: top-left of the table's first line. Null hides it. */
@@ -13,26 +14,27 @@ interface TableToolbarProps {
 interface Btn {
     op: TableOp;
     icon: string;
-    title: string;
+    titleKey: TKey;
 }
 
 const ROW_BTNS: Btn[] = [
-    { op: { kind: "row-above" }, icon: "arrow_upward", title: "Insert row above" },
-    { op: { kind: "row-below" }, icon: "arrow_downward", title: "Insert row below" },
-    { op: { kind: "row-delete" }, icon: "delete", title: "Delete row" },
+    { op: { kind: "row-above" }, icon: "arrow_upward", titleKey: "tableToolbar.rowAbove" },
+    { op: { kind: "row-below" }, icon: "arrow_downward", titleKey: "tableToolbar.rowBelow" },
+    { op: { kind: "row-delete" }, icon: "delete", titleKey: "tableToolbar.rowDelete" },
 ];
 const COL_BTNS: Btn[] = [
-    { op: { kind: "col-left" }, icon: "arrow_back", title: "Insert column left" },
-    { op: { kind: "col-right" }, icon: "arrow_forward", title: "Insert column right" },
-    { op: { kind: "col-delete" }, icon: "delete", title: "Delete column" },
+    { op: { kind: "col-left" }, icon: "arrow_back", titleKey: "tableToolbar.colLeft" },
+    { op: { kind: "col-right" }, icon: "arrow_forward", titleKey: "tableToolbar.colRight" },
+    { op: { kind: "col-delete" }, icon: "delete", titleKey: "tableToolbar.colDelete" },
 ];
 const ALIGN_BTNS: Array<Btn & { align: Align }> = [
-    { op: { kind: "align", align: "left" }, align: "left", icon: "format_align_left", title: "Align column left" },
-    { op: { kind: "align", align: "center" }, align: "center", icon: "format_align_center", title: "Align column center" },
-    { op: { kind: "align", align: "right" }, align: "right", icon: "format_align_right", title: "Align column right" },
+    { op: { kind: "align", align: "left" }, align: "left", icon: "format_align_left", titleKey: "tableToolbar.alignLeft" },
+    { op: { kind: "align", align: "center" }, align: "center", icon: "format_align_center", titleKey: "tableToolbar.alignCenter" },
+    { op: { kind: "align", align: "right" }, align: "right", icon: "format_align_right", titleKey: "tableToolbar.alignRight" },
 ];
 
 export function TableToolbar({ anchor, activeAlign, onOp }: TableToolbarProps) {
+    const { t } = useI18n();
     const ref = useRef<HTMLDivElement>(null);
     const [adjusted, setAdjusted] = useState<{ left: number; top: number } | null>(null);
 
@@ -60,10 +62,10 @@ export function TableToolbar({ anchor, activeAlign, onOp }: TableToolbarProps) {
 
     const button = (b: Btn, active = false) => (
         <button
-            key={b.title}
+            key={b.titleKey}
             type="button"
-            title={b.title}
-            aria-label={b.title}
+            title={t(b.titleKey)}
+            aria-label={t(b.titleKey)}
             onMouseDown={hold}
             onClick={() => onOp(b.op)}
             className={`w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] ${
@@ -83,7 +85,7 @@ export function TableToolbar({ anchor, activeAlign, onOp }: TableToolbarProps) {
         <div
             ref={ref}
             role="toolbar"
-            aria-label="Table editing"
+            aria-label={t("tableToolbar.ariaLabel")}
             className="fixed z-[85] flex items-center gap-0.5 px-1.5 py-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[var(--radius-md)] shadow-2xl animate-fade-in"
             style={{
                 left: adjusted?.left ?? anchor.x,
@@ -91,15 +93,15 @@ export function TableToolbar({ anchor, activeAlign, onOp }: TableToolbarProps) {
                 visibility: adjusted ? "visible" : "hidden",
             }}
         >
-            <GroupLabel>Row</GroupLabel>
+            <GroupLabel>{t("tableToolbar.row")}</GroupLabel>
             {ROW_BTNS.map((b) => button(b))}
             <Divider />
-            <GroupLabel>Col</GroupLabel>
+            <GroupLabel>{t("tableToolbar.col")}</GroupLabel>
             {COL_BTNS.map((b) => button(b))}
             <Divider />
             {ALIGN_BTNS.map((b) => button(b, activeAlign === b.align))}
             <Divider />
-            {button({ op: { kind: "format" }, icon: "grid_on", title: "Tidy table (align columns)" })}
+            {button({ op: { kind: "format" }, icon: "grid_on", titleKey: "tableToolbar.tidy" })}
         </div>
     );
 }

@@ -3,6 +3,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
 import iconExportPdf from '../assets/mascot/icon-export-pdf.png';
 import iconPaperPlane from '../assets/mascot/icon-paper-plane.png';
+import { useI18n } from '../i18n';
 
 // The export module isn't needed for first paint, so we import it on demand to
 // keep it out of the main chunk. Caching the promise means a second click — or
@@ -26,6 +27,7 @@ interface ExportMenuProps {
 type ExportFormat = 'html' | 'pdf' | 'docx';
 
 export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: ExportMenuProps) {
+    const { t } = useI18n();
     const [isOpen, setIsOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const { theme, font, customFont, fontSize } = useTheme();
@@ -64,7 +66,7 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: Expo
         // the preview debounce and waits a frame, so it's async (EXPORT-03).
         const htmlContent = await getExportHtml();
         if (!htmlContent) {
-            onError?.("Nothing to export yet");
+            onError?.(t("exportMenu.nothing"));
             return;
         }
 
@@ -105,7 +107,7 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: Expo
             <button
                 onClick={() => !disabled && setIsOpen(!isOpen)}
                 disabled={disabled || isExporting}
-                aria-label="Export document"
+                aria-label={t("exportMenu.ariaLabel")}
                 aria-expanded={isOpen}
                 aria-haspopup="true"
                 className={`btn-press flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-xs ${
@@ -115,24 +117,24 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: Expo
                         ? 'cursor-not-allowed text-[var(--text-muted)]'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
-                title="Export document"
+                title={t("exportMenu.ariaLabel")}
             >
                 {isExporting ? (
                     <>
                         <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
-                        <span className="hidden sm:inline">Exporting...</span>
+                        <span className="hidden sm:inline">{t("exportMenu.exporting")}</span>
                     </>
                 ) : (
                     <>
                         <span className="material-symbols-outlined text-[16px]">ios_share</span>
-                        <span className="hidden sm:inline">Export</span>
+                        <span className="hidden sm:inline">{t("exportMenu.label")}</span>
                     </>
                 )}
             </button>
 
             {/* Simple Dropdown Menu */}
             {isOpen && !disabled && (
-                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label="Export formats" className="absolute left-0 top-full mt-1 w-40 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-[70] animate-fade-in-down">
+                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label={t("exportMenu.formats")} className="absolute left-0 top-full mt-1 w-40 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-[70] animate-fade-in-down">
                     <button
                         role="menuitem"
                         onClick={() => handleExport('html')}
@@ -155,7 +157,7 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: Expo
                         className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--bg-hover)] transition-colors"
                     >
                         <span className="material-symbols-outlined text-[22px] w-6 text-center text-[var(--accent)]" aria-hidden="true">description</span>
-                        <span>Word (.docx)</span>
+                        <span>{t("exportMenu.word")}</span>
                     </button>
                 </div>
             )}

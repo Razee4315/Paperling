@@ -6,6 +6,8 @@ import { Window } from "@tauri-apps/api/window";
 // the system status bar). Desktop keeps the hover-reveal overlay with the
 // window controls and the frameless-window drag handle. ZEN-02 / MOBILE-ZEN.
 import { IS_MOBILE, IS_TOUCH } from "../utils/platform";
+import { formatShortcut } from "../config/keybindings";
+import { useI18n } from "../i18n";
 
 interface ZenTopBarProps {
     isFullscreen?: boolean;
@@ -25,6 +27,7 @@ interface ZenTopBarProps {
 export const ZEN_PEEK_MS = 4000;
 
 function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpen, onToggleOutline, onNewFile, onOpenFile }: ZenTopBarProps) {
+    const { t } = useI18n();
     // ZEN-04 (#206): the bar used to appear only while the mouse touched a
     // 12px strip at the top edge. Zen persists across restarts, so a user who
     // once pressed F9 relaunched into a frameless window with no visible way
@@ -110,7 +113,7 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                 safe-area inset is honoured like the mobile top bar's. */}
             <div
                 role="toolbar"
-                aria-label="Zen mode top bar"
+                aria-label={t("zen.bar")}
                 style={{ paddingTop: "var(--safe-area-top, 0px)" }}
                 className={IS_TOUCH
                     ? "relative min-h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)] border-b border-[var(--border)]"
@@ -119,12 +122,12 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                 <div className="flex items-center gap-1">
                     <button
                         onClick={onExitZen}
-                        aria-label="Exit Zen mode"
-                        title="Back to normal view (F9)"
+                        aria-label={t("zen.exitZen")}
+                        title={t("zen.normalTitle")}
                         className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-xs"
                     >
                         <span className="material-symbols-outlined text-[16px]">web_asset</span>
-                        <span>Normal</span>
+                        <span>{t("zen.normal")}</span>
                     </button>
                     {/* Zen still needs the everyday file actions: jump around the
                         document via the outline, and start/open a file — without
@@ -132,9 +135,9 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                     {onToggleOutline && (
                         <button
                             onClick={onToggleOutline}
-                            aria-label={outlineOpen ? "Close outline" : "Open outline"}
+                            aria-label={outlineOpen ? t("zen.outlineClose") : t("zen.outlineOpen")}
                             aria-pressed={outlineOpen}
-                            title="Outline (Ctrl+Shift+O)"
+                            title={t("zen.outlineTitle")}
                             className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${outlineOpen
                                 ? "bg-[var(--accent)] text-[var(--accent-text)]"
                                 : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
@@ -145,8 +148,8 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                     {onNewFile && (
                         <button
                             onClick={onNewFile}
-                            aria-label="New file"
-                            title="New file (Ctrl+N)"
+                            aria-label={t("titleBar.newFile")}
+                            title={t("titleBar.newFileTitle", { shortcut: formatShortcut("newFile") })}
                             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[18px]">edit_note</span>
@@ -155,8 +158,8 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                     {onOpenFile && (
                         <button
                             onClick={onOpenFile}
-                            aria-label="Open file"
-                            title="Open file (Ctrl+O)"
+                            aria-label={t("titleBar.openFile")}
+                            title={t("titleBar.openFileTitle", { shortcut: formatShortcut("openFile") })}
                             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[18px]">folder_open</span>
@@ -167,22 +170,22 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                     <div className="flex items-center gap-1">
                         <button
                             onClick={handleMinimize}
-                            aria-label="Minimize"
+                            aria-label={t("titleBar.minimize")}
                             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[18px]">remove</span>
                         </button>
                         <button
                             onClick={handleMaximize}
-                            aria-label={isFullscreen ? "Exit fullscreen" : "Maximize"}
-                            title={isFullscreen ? "Exit fullscreen (F11)" : "Maximize"}
+                            aria-label={isFullscreen ? t("titleBar.exitFullscreen") : t("titleBar.maximize")}
+                            title={isFullscreen ? t("titleBar.exitFullscreenTitle") : t("titleBar.maximize")}
                             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[16px]">{isFullscreen ? "fullscreen_exit" : "crop_square"}</span>
                         </button>
                         <button
                             onClick={handleClose}
-                            aria-label="Close"
+                            aria-label={t("titleBar.close")}
                             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--danger)] text-[var(--text-secondary)] hover:text-[var(--accent-text)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[18px]">close</span>

@@ -2,15 +2,18 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { getInstalledFontFamilies } from '../utils/fontDiscovery';
 import { useTheme, Theme, FontFamily, FontSize } from '../context/ThemeContext';
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
+import { useI18n, type TKey } from '../i18n';
 
-const themes: { id: Theme; name: string; colors: [string, string] }[] = [
-    { id: 'dark', name: 'Dark', colors: ['#0a0a0a', '#141414'] },
-    { id: 'graphite', name: 'Graphite', colors: ['#1c1917', '#262220'] },
-    { id: 'nord', name: 'Nord', colors: ['#2e3440', '#3b4252'] },
-    { id: 'midnight', name: 'Midnight', colors: ['#0f172a', '#1e293b'] },
-    { id: 'light', name: 'Light', colors: ['#ffffff', '#f4f2ee'] },
-    { id: 'paper', name: 'Paper', colors: ['#f5f0e6', '#ebe5d8'] },
-    { id: 'dracula', name: 'Dracula', colors: ['#282a36', '#44475a'] },
+// Same labels as the full settings modal: one dictionary entry per theme and
+// per size, so the two surfaces can never disagree.
+const themes: { id: Theme; nameKey: TKey; colors: [string, string] }[] = [
+    { id: 'dark', nameKey: 'settings.themeDark', colors: ['#0a0a0a', '#141414'] },
+    { id: 'graphite', nameKey: 'settings.themeGraphite', colors: ['#1c1917', '#262220'] },
+    { id: 'nord', nameKey: 'settings.themeNord', colors: ['#2e3440', '#3b4252'] },
+    { id: 'midnight', nameKey: 'settings.themeMidnight', colors: ['#0f172a', '#1e293b'] },
+    { id: 'light', nameKey: 'settings.themeLight', colors: ['#ffffff', '#f4f2ee'] },
+    { id: 'paper', nameKey: 'settings.themePaper', colors: ['#f5f0e6', '#ebe5d8'] },
+    { id: 'dracula', nameKey: 'settings.themeDracula', colors: ['#282a36', '#44475a'] },
 ];
 
 const fonts: { id: FontFamily; name: string; family: string }[] = [
@@ -21,14 +24,15 @@ const fonts: { id: FontFamily; name: string; family: string }[] = [
     { id: 'fira-sans', name: 'Fira Sans', family: "'Fira Sans', sans-serif" },
 ];
 
-const fontSizes: { id: FontSize; name: string; size: string }[] = [
-    { id: 'small', name: 'Small', size: '14px' },
-    { id: 'medium', name: 'Medium', size: '16px' },
-    { id: 'large', name: 'Large', size: '18px' },
-    { id: 'xlarge', name: 'XL', size: '20px' },
+const fontSizes: { id: FontSize; nameKey: TKey; size: string }[] = [
+    { id: 'small', nameKey: 'settings.fontSizeSmall', size: '14px' },
+    { id: 'medium', nameKey: 'settings.fontSizeMedium', size: '16px' },
+    { id: 'large', nameKey: 'settings.fontSizeLarge', size: '18px' },
+    { id: 'xlarge', nameKey: 'settings.fontSizeXlarge', size: '20px' },
 ];
 
 export function SettingsMenu() {
+    const { t } = useI18n();
     const [isOpen, setIsOpen] = useState(false);
     const { theme, setTheme, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
     // Lazily-discovered installed font families for the custom-font input
@@ -69,11 +73,11 @@ export function SettingsMenu() {
             {/* Settings Button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                aria-label="Settings"
+                aria-label={t("settings.title")}
                 aria-expanded={isOpen}
                 aria-haspopup="true"
                 className="btn-press flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                title="Settings"
+                title={t("settings.title")}
             >
                 <span className="material-symbols-outlined text-[18px]">settings</span>
             </button>
@@ -83,37 +87,37 @@ export function SettingsMenu() {
                 ties); the max-height lets the menu scroll on short screens
                 instead of running underneath it. */}
             {isOpen && (
-                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label="Settings" className="absolute right-0 top-full mt-2 w-80 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-2xl overflow-y-auto max-h-[calc(100vh-5rem)] z-[70] animate-fade-in-down">
+                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label={t("settings.title")} className="absolute right-0 top-full mt-2 w-80 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-2xl overflow-y-auto max-h-[calc(100vh-5rem)] z-[70] animate-fade-in-down">
                     {/* Theme Section */}
                     <div className="p-4 border-b border-[var(--border)]">
                         <div className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-3">
-                            Theme
+                            {t("settings.theme")}
                         </div>
                         <div className="grid grid-cols-4 gap-2">
-                            {themes.map((t) => (
+                            {themes.map((th) => (
                                 <button
-                                    key={t.id}
-                                    onClick={() => setTheme(t.id)}
-                                    aria-pressed={theme === t.id}
-                                    className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg transition-all ${theme === t.id
+                                    key={th.id}
+                                    onClick={() => setTheme(th.id)}
+                                    aria-pressed={theme === th.id}
+                                    className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg transition-all ${theme === th.id
                                         ? 'ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]'
                                         : 'hover:bg-[var(--bg-hover)]'
                                         }`}
-                                    title={t.name}
+                                    title={t(th.nameKey)}
                                 >
                                     {/* Theme Preview */}
                                     <div
                                         className="w-10 h-10 rounded-lg overflow-hidden border border-[var(--border)] flex items-center justify-center shadow-sm"
-                                        style={{ backgroundColor: t.colors[0] }}
+                                        style={{ backgroundColor: th.colors[0] }}
                                     >
-                                        <div className="w-1/2 h-full" style={{ backgroundColor: t.colors[0] }}></div>
-                                        <div className="w-1/2 h-full" style={{ backgroundColor: t.colors[1] }}></div>
+                                        <div className="w-1/2 h-full" style={{ backgroundColor: th.colors[0] }}></div>
+                                        <div className="w-1/2 h-full" style={{ backgroundColor: th.colors[1] }}></div>
                                     </div>
                                     <span
                                         className="text-[11px] font-medium"
                                         style={{ color: 'var(--text-primary)' }}
                                     >
-                                        {t.name}
+                                        {t(th.nameKey)}
                                     </span>
                                 </button>
                             ))}
@@ -123,7 +127,7 @@ export function SettingsMenu() {
                     {/* Font Section */}
                     <div className="p-4 border-b border-[var(--border)]">
                         <div className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-3">
-                            Font
+                            {t("settings.font")}
                         </div>
                         <div className="flex flex-col gap-1">
                             {fonts.map((f) => (
@@ -147,7 +151,7 @@ export function SettingsMenu() {
                                     : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
                                     }`}
                             >
-                                Custom system font
+                                {t("settingsMenu.customSystemFont")}
                             </button>
                             <input
                                 type="text"
@@ -157,8 +161,8 @@ export function SettingsMenu() {
                                 onFocus={() => { setFont('custom'); hydrateFontSuggestions(); }}
                                 onChange={(e) => setCustomFont(e.target.value)}
                                 onBlur={() => setCustomFont(customFont.trim())}
-                                placeholder="e.g. Atkinson Hyperlegible"
-                                aria-label="Custom system font family"
+                                placeholder={t("settings.fontCustomPlaceholder")}
+                                aria-label={t("settings.fontCustomAria")}
                                 className="w-full mt-1 px-3 py-2 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                             />
                             <datalist id="paperling-installed-fonts-menu">
@@ -170,7 +174,7 @@ export function SettingsMenu() {
                     {/* Font Size Section */}
                     <div className="p-4">
                         <div className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-3">
-                            Font Size
+                            {t("settings.fontSize")}
                         </div>
                         <div className="flex gap-2">
                             {fontSizes.map((s) => (
@@ -182,7 +186,7 @@ export function SettingsMenu() {
                                         : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
                                         }`}
                                 >
-                                    {s.name}
+                                    {t(s.nameKey)}
                                 </button>
                             ))}
                         </div>
@@ -195,7 +199,7 @@ export function SettingsMenu() {
                             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[18px]">tune</span>
-                            More settings…
+                            {t("settingsMenu.more")}
                         </button>
                     </div>
                 </div>
