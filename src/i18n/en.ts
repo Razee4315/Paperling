@@ -90,6 +90,103 @@ const en = {
         tidy: "Tidy table (align columns)",
     },
 
+    // The file panel (explorer) in the left sidebar.
+    explorer: {
+        ariaLabel: "File explorer",
+        up: "Go up one folder",
+        upTitle: "Go up",
+        newNote: "New note in this folder",
+        newNoteTitle: "New note",
+        newFolder: "New folder",
+        refresh: "Refresh file list",
+        close: "Close file explorer",
+        folderName: "Folder name",
+        noteName: "Note name",
+        newName: "New name",
+        empty: "Folder is empty",
+        loadFailed: "Failed to load files",
+        actionFailed: "That didn't work",
+        deleteFailed: "Could not delete",
+        pickerUnavailable: "System file picker isn't available in this build",
+        moveToTrash: "Move to trash",
+    },
+
+    // The outline (table of contents) overlay.
+    toc: {
+        ariaLabel: "Table of contents",
+        title: "Outline",
+        close: "Close outline",
+        filterPlaceholder: "Filter headings…",
+        filterAria: "Filter headings",
+        empty: "No headings yet.",
+        noMatches: "No matches",
+    },
+
+    backlinks: {
+        title: "Backlinks",
+        refresh: "Refresh backlinks",
+        close: "Close backlinks",
+        empty: "No notes link here yet.",
+    },
+
+    // Cross-file search and replace.
+    search: {
+        ariaLabel: "Search in files",
+        placeholderFolder: "Search across files in this folder…",
+        placeholderNoFolder: "Open a file first to search its folder",
+        matchCase: "Match case",
+        matchWholeWord: "Match whole word",
+        replacePlaceholder: "Replace with… (leave empty to delete)",
+        replaceAria: "Replace across files",
+        rewrite: (p: Record<string, string | number>) => `Rewrite ${p.count} file${Number(p.count) === 1 ? "" : "s"}?`,
+        deleteMatches: (p: Record<string, string | number>) => `Delete matches in ${p.count} file${Number(p.count) === 1 ? "" : "s"}?`,
+        replacing: "Replacing…",
+        confirm: "Confirm",
+        replacementEquals: "Replacement equals the search",
+        undoReplace: "Undo replace",
+        searchFailed: "Search failed",
+        replaceFailed: "Replace failed",
+        undoFailed: "Undo failed",
+        close: "Close search",
+        replaceAll: "Replace all in files…",
+        capped: "Showing the first {max} files — results are capped, so a replace won't reach every file. Narrow the search to be sure.",
+        replacedIn: (p: Record<string, string | number>) => `Replaced in ${p.count} file${Number(p.count) === 1 ? "" : "s"}.`,
+        undoneIn: (p: Record<string, string | number>) => `Undid the replace in ${p.count} file${Number(p.count) === 1 ? "" : "s"}`,
+        undoneSkipped: (p: Record<string, string | number>) => ` — ${p.count} changed since and ${Number(p.count) === 1 ? "was" : "were"} left as is`,
+        hint: "Type to search every note (.md, .txt) in this folder and its subfolders.",
+        searching: "Searching…",
+        noMatches: "No matches.",
+        matchesIn: (p: Record<string, string | number>) => `${p.matches} match${Number(p.matches) === 1 ? "" : "es"} in ${p.files} file${Number(p.files) === 1 ? "" : "s"}`,
+    },
+
+    // The Ctrl+P palette.
+    palette: {
+        placeholder: "Type a command, file, or heading…",
+        ariaLabel: "Search commands",
+        goToLine: "Go to line",
+        gotoLine: "Go to line {line}",
+        typeLine: "Type a line number",
+        typeLineRange: "Type a line number (1–{max})",
+    },
+
+    // Document statistics dialog.
+    stats: {
+        title: "Document statistics",
+        close: "Close statistics",
+        words: "Words",
+        characters: "Characters",
+        charactersNoSpaces: "Characters (no spaces)",
+        sentences: "Sentences",
+        paragraphs: "Paragraphs",
+        lines: "Lines",
+        headings: "Headings",
+        links: "Links",
+        images: "Images",
+        codeBlocks: "Code blocks",
+        readingTime: "Reading time",
+        footnote: "Reading time assumes ~200 words per minute. Word and sentence counts exclude code blocks, frontmatter, and Markdown syntax.",
+    },
+
     // The footer: save state, Ln/Col, word and character counts, reading time.
     // The counts and the reading time are functions because they inflect
     // (English "1 word" / "3 words"); Chinese does not.

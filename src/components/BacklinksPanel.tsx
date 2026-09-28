@@ -4,6 +4,7 @@ import mascotMagnify from "../assets/mascot/mascot-magnify.png";
 import mascotReading from "../assets/mascot/mascot-reading.png";
 import { useSidePanel } from "../hooks/useSidePanel";
 import { IS_MOBILE } from "../utils/platform";
+import { useI18n } from "../i18n";
 
 interface BacklinkMatch {
     line: number;
@@ -31,6 +32,7 @@ export function BacklinksPanel({
     onFileSelect,
     onClose,
 }: BacklinksPanelProps) {
+    const { t } = useI18n();
     const [results, setResults] = useState<BacklinkResult[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -99,7 +101,7 @@ export function BacklinksPanel({
             <div className="h-10 shrink-0 px-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-titlebar)]">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)] no-select">
                     <span className="material-symbols-outlined text-[18px]">link</span>
-                    <span>Backlinks</span>
+                    <span>{t("backlinks.title")}</span>
                     {!isLoading && !error && (
                         <span className="text-[10px] text-[var(--text-muted)]">{matchCount}</span>
                     )}
@@ -107,14 +109,14 @@ export function BacklinksPanel({
                 <div className="flex items-center gap-1">
                     <button
                         onClick={() => void loadBacklinks()}
-                        aria-label="Refresh backlinks"
+                        aria-label={t("backlinks.refresh")}
                         className="btn-press flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                     >
                         <span className="material-symbols-outlined text-[18px]">refresh</span>
                     </button>
                     <button
                         onClick={onClose}
-                        aria-label="Close backlinks"
+                        aria-label={t("backlinks.close")}
                         className="btn-press flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                     >
                         <span className="material-symbols-outlined text-[18px]">close</span>
@@ -133,7 +135,7 @@ export function BacklinksPanel({
                 ) : results.length === 0 ? (
                     <div className="flex flex-col items-center justify-center gap-3 py-8 px-4 text-center text-sm text-[var(--text-secondary)]">
                         <img src={mascotReading} alt="" aria-hidden="true" draggable={false} className="w-20 h-20 object-contain select-none opacity-90" />
-                        <span>No notes link here yet.</span>
+                        <span>{t("backlinks.empty")}</span>
                     </div>
                 ) : (
                     <ul className="py-2" aria-label="Notes linking to this file">
