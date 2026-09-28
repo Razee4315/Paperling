@@ -571,7 +571,19 @@ main:focus {
   margin: 10px 0;
   font-size: 12px;
 }
+.footer-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 55px;
+  font: 10px/1.7 var(--mono);
+  color: var(--muted);
+}
+.footer-more + .footer-base {
+  margin-top: 16px;
+}
 .footer-columns a:hover,
+.footer-more a:hover,
 .footer-base a:hover {
   text-decoration: underline;
   text-underline-offset: 4px;
@@ -1056,6 +1068,11 @@ html.lenis {
   .footer-base {
     flex-wrap: wrap;
     gap: 15px;
+    font-size: 8px;
+    margin-top: 35px;
+  }
+  .footer-more {
+    gap: 6px 15px;
     font-size: 8px;
     margin-top: 35px;
   }

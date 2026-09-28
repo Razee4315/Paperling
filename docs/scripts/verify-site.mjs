@@ -3,6 +3,7 @@ import { readFile, access } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { parseHTML } from "linkedom";
 import { paths, absolute, SITE } from "../src/lib/site.ts";
+import { moreProjects } from "../src/lib/projects.ts";
 
 // WEB-03: exercise the rendered output, not copies of template logic. This runs
 // against Astro dev locally and the exact production artifact before deployment.
@@ -111,6 +112,8 @@ for (const [path, document] of docs) {
     const href = anchor.getAttribute("href");
     const link = new URL(href, absolute(path));
     if (link.origin !== SITE.origin) continue;
+    // WEB-17: sibling projects on the same github.io origin, exact casing only.
+    if (moreProjects.some(([project]) => project === href)) continue;
     assert.ok(
       link.pathname.startsWith(SITE.base),
       `Base path retained: ${path} → ${href}`,
@@ -136,6 +139,25 @@ assert.deepEqual(
   paths.map(absolute).sort(),
   "Sitemap matches every indexable page",
 );
+const lastmods = [...sitemap.matchAll(/<url>(.*?)<\/url>/g)].map(
+  (m) => /<lastmod>(\d{4}-\d{2}-\d{2})<\/lastmod>/.exec(m[1])?.[1],
+);
+assert.equal(lastmods.length, paths.length, "WEB-18: one <url> per page");
+for (const date of lastmods)
+  assert.ok(
+    date && date <= new Date().toISOString().slice(0, 10),
+    `WEB-18: every sitemap entry has a real lastmod (${date})`,
+  );
+for (const document of docs.values()) {
+  const more = [...document.querySelectorAll(".footer-more a")].map((a) =>
+    a.getAttribute("href"),
+  );
+  assert.deepEqual(
+    more,
+    moreProjects.map(([href]) => href),
+    "WEB-17: footer links to the other projects",
+  );
+}
 const home = docs.get("");
 if (!remote) {
   const card = await readFile(resolve(dist, "og.png"));
