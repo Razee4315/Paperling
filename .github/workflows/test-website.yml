@@ -14,6 +14,8 @@ jobs:
         working-directory: docs
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # WEB-18: sitemap lastmod comes from git history
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
