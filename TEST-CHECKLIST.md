@@ -1,3 +1,15 @@
+# ✅ Local build without the updater key (branch `chore/local-build-script`)
+
+*`bun run tauri build` wrote both installers and then failed anyway — "A public key has been found, but no private key" — with exit code 1, on every machine that has the updater public key but not the private one. New `bun run build:local` merges `src-tauri/tauri.local.conf.json` (`createUpdaterArtifacts: false`) so a local or scripted build finishes cleanly. Releases are untouched and still sign. Details: BLD-01.*
+
+- [ ] In PowerShell, from the repo root: `bun run build:local`. It ends with `Finished 2 bundles` and prints **no** "no private key" line.
+- [ ] `$LASTEXITCODE` right after it is **0**. Before this change the same build exited **1** even though the installers existed, so any script or CI step keyed on the exit code looked like it had failed.
+- [ ] Both installers are freshly written: `src-tauri\target\release\bundle\msi\Paperling_1.0.51_x64_en-US.msi` (~15.5 MB) and `...\bundle\nsis\Paperling_1.0.51_x64-setup.exe` (~13.7 MB). Install the `.exe` over your current copy and open a note to confirm the bundle is a normal working build.
+- [ ] **Regression check:** plain `bun run tauri build` must behave exactly as before — both installers, then the "no private key" error and exit 1, and **no** `.sig` files next to them. If it ever starts succeeding without a key, that means release signing got disabled — tell me.
+- [ ] Nothing else moved: `git status` in the working copy shows only your own uncommitted files, and `bun run test` is green.
+
+---
+
 # ✅ Chinese interface + language setting (branch `fix/img-04-relative-image-paths`)
 
 *New: the app speaks Chinese, and Settings → Appearance → 语言 switches language live. 637 passing tests. Details: I18N-01.*

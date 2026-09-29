@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   find-bar controls, and the export/PDF labels — see the i18n follow-up in
   `TEST-CHECKLIST.md`.
 
+### Fixed
+
+- **A local build no longer ends in a red error.** Building on a machine that
+  has the updater public key but not its private key wrote both installers and
+  *then* failed with "A public key has been found, but no private key" and exit
+  code 1, so the build looked broken even though it had succeeded.
+  `bun run build:local` now produces the same `.msi` and setup `.exe` without
+  updater signing and finishes with exit code 0; released builds are untouched
+  and still signed. (BLD-01)
+
 ## [1.0.51] - 2026-09-26
 
 ### Android: one-time reinstall (please read before updating)
