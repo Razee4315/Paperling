@@ -108,8 +108,12 @@ jobs:
             echo ""
             printf '%s\n' "$CHANGES"
             echo ""
+            # INST-01: name the exact Windows file. GitHub lists the arm64
+            # assets first, so "the .exe" sent Intel/AMD users to the ARM64
+            # build ("This app can't run on your PC").
             echo "### Installation"
-            echo "- **Windows:** \`.msi\` (recommended) or \`.exe\` (NSIS installer)"
+            echo "- **Windows (almost every PC — Intel or AMD):** \`Paperling_${VERSION}_x64-setup.exe\` (or \`Paperling_${VERSION}_x64_en-US.msi\`)"
+            echo "- **Windows on ARM only (e.g. Snapdragon laptops):** \`Paperling_${VERSION}_arm64-setup.exe\` — not sure? Settings → System → About → System type: \"x64-based\" means use x64"
             echo "- **Linux:** \`.deb\` or \`.AppImage\`"
             echo "- **macOS:** \`.dmg\` (Apple Silicon + Intel, universal)"
             echo "- **Android:** \`Paperling_${VERSION}_aarch64.apk\` attached below (arm64-v8a; allow \"install unknown apps\" once)"

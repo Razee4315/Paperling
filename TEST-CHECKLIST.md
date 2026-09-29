@@ -1,3 +1,18 @@
+# ✅ Wrong-PC installer guard (branch `fix/windows-installer-arch-guard`)
+
+*From your brother's report after 1.0.51: the ARM64 `setup.exe` installed on an Intel/AMD PC, then every .md showed "This app can't run on your PC". 615 passing tests.*
+
+## 🛑 Installer refuses the wrong PC (try these first)
+- [ ] From the Test Build run, download **paperling-windows-arm64-test** and run the `arm64-setup.exe` on your (Intel/AMD) PC. Before any page appears, a message says it's the ARM installer, names the `x64-setup.exe` file, and offers **Yes** (opens the releases page) / **No**. Either way the installer closes and **nothing is installed** (no new entry in Settings → Apps).
+- [ ] From **paperling-windows-x64-test**, run the `x64-setup.exe`: it opens the normal Setup window with no warning and installs as before. Double-click a .md afterwards: it opens in Paperling.
+- [ ] (Optional, terminal) `Paperling_…_arm64-setup.exe /S` then `echo $LASTEXITCODE` prints **2** and nothing is installed.
+
+## 📝 Clearer downloads
+- [ ] On the next release, the notes' **Installation** section names `Paperling_<ver>_x64-setup.exe` for "almost every PC" and arm64 for "Windows on ARM only".
+- [ ] README **Available Formats** and the website **Download** page say the same, plus what to do if "This app can't run on your PC" already happened.
+
+---
+
 # ✅ Community issues (branch `feat/community-issues-2026-09-26`)
 
 *Fixes for issues reported by users: #216 (RTL), #206 (window controls in Zen), #212 (package managers). 609 passing tests.*

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **No more "This app can't run on your PC" on Windows.** The installer for
+  ARM laptops (`arm64-setup.exe`) used to install without complaint on
+  ordinary Intel/AMD PCs, and afterwards every Markdown file you opened
+  showed that error. Each Windows installer now checks the PC first and, if
+  it's the wrong one, says which file to download instead and offers to open
+  the download page. The release notes and download page also name the exact
+  file for most PCs. Already hit this? Uninstall every Paperling entry in
+  Settings → Apps and install the `x64` file.
+
 ## [1.0.51] - 2026-09-26
 
 ### Android: one-time reinstall (please read before updating)

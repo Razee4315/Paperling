@@ -152,13 +152,18 @@ Download the latest release from the [Releases](https://github.com/Razee4315/Pap
 
 | Platform    | Formats                                    |
 | ----------- | ------------------------------------------ |
-| **Windows** | `.msi` installer · `.exe` (NSIS) installer |
+| **Windows** | Most PCs (Intel/AMD): `…_x64-setup.exe` or `…_x64_en-US.msi` · Windows on ARM only (e.g. Snapdragon): `…_arm64-setup.exe` |
 | **macOS**   | `.dmg` (Apple Silicon + Intel, universal)  |
 | **Linux**   | `.AppImage` · `.deb` · `.rpm`              |
 | **Android** | `.apk` (arm64-v8a; allow "install unknown apps" once when installing) |
 
 > **Note:** builds aren't code-signed yet, so Windows SmartScreen or macOS
 > Gatekeeper may warn on first launch. On Windows choose _More info → Run anyway_.
+>
+> **Windows: "This app can't run on your PC"** means the ARM64 build was
+> installed on an Intel/AMD PC. Uninstall every Paperling entry in _Settings →
+> Apps_, then install the `x64` file. (Installers from 1.0.52 on refuse the
+> wrong PC up front.)
 >
 > **macOS:** recent macOS versions report an unsigned app as _"damaged and
 > can't be opened"_ — right-click → _Open_ does **not** clear that message.

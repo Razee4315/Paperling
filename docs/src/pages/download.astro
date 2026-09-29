@@ -6,10 +6,10 @@ import { mascotJuggle } from "../lib/art";
 const platforms = [
   {
     name: "Windows",
-    note: "Windows 10 and 11. Choose x64 for most PCs, or ARM64 for a Windows on ARM device.",
-    formats: ".exe · .msi · x64 portable .zip",
+    note: "Windows 10 and 11. Almost every PC needs the file ending in x64-setup.exe. Pick arm64 only on a Windows on ARM laptop (such as Snapdragon).",
+    formats: "x64-setup.exe · x64 .msi · x64 portable .zip · arm64",
     steps:
-      "Use an .exe or .msi installer, or extract the x64 portable archive into a folder you control. The release asset name identifies the architecture.",
+      "Not sure which? Open Settings → System → About: \"x64-based processor\" means x64, \"ARM-based processor\" means arm64. GitHub lists the arm64 files first, so check the name before downloading. If Windows says \"This app can't run on your PC\", the arm64 build was installed on an Intel/AMD PC: uninstall Paperling from Settings → Apps and install the x64 file.",
   },
   {
     name: "macOS",
