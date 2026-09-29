@@ -1,3 +1,25 @@
+# ✅ Shortcuts settings + the "?" cheatsheet speak Chinese (branch `fix/i18n-shortcuts-2026-09-29`)
+
+*The dictionary already had every `shortcuts.*` string — the hint, 全部恢复默认, every row name and group heading — but `ShortcutSettings.tsx` and `ShortcutCheatsheet.tsx` still hard-coded English, so those translations were dead and both screens stayed English while the rest of the app followed the language setting. Both now read the dictionary (same entries as each other, so a command can never be named two different things). 648 passing tests. Details: I18N-01.*
+
+## ⌨️ Settings → Shortcuts
+- [ ] Set the language to **简体中文** (Settings → 外观 → 语言), open **快捷键**. The hint reads **点一下某个快捷键，然后按下新的组合键。按 Esc 取消。**, the button is **全部恢复默认**, and the headers are **文件与标签页 / 视图与导航 / 编辑**.
+- [ ] Every row is Chinese: **新建文件, 打开文件, 保存, 另存为, 关闭标签页, 重新打开已关闭的标签页, 下一个标签页, 上一个标签页, 命令面板, 跳转到行, 切换阅读／代码, 切换分栏视图, 禅模式, 全屏, 文件面板, 大纲, 在文件中搜索, 设置, 加粗, 斜体, 插入链接, 切换引用, 查找, 查找和替换, 选中下一个匹配项, 切换任务复选框, 返回（跟随链接后）, 前进**. The shortcut chips (Ctrl+N, …) stay as keys.
+- [ ] Click a shortcut (it shows **请按按键…**) and press a combo another command owns, e.g. **Ctrl+S** on 新建文件: the error names the owner in Chinese (**Ctrl+S 已被"保存"占用**). Press a bare letter instead: **请使用修饰键（Ctrl、Alt、⌘…）或功能键**.
+- [ ] With the panel open, switch the language back to **English**: every string above flips back live, and an on-screen error flips with it (no stale language).
+- [ ] **Settings search** still works in both languages: typing `bold` and typing `加粗` both leave only the 加粗 row.
+
+## ⌨️ The "?" cheatsheet (its own screen — previously always English)
+- [ ] Press **?** in 简体中文. The dialog title is **快捷键**, the filter box says **筛选快捷键…**, the sections are **文件 / 标签页 / 视图 / AI / 编辑器：格式 / 编辑器：导航 / 编辑器：自动配对 / 斜杠与智能粘贴**, and the footer reads **按 Esc 关闭**.
+- [ ] Filter with Chinese (e.g. `加粗`) and with an English word (e.g. `bold`): both narrow the list. A search that matches nothing shows **没有匹配"zzz"的快捷键**.
+- [ ] Switch the language while the dialog is open: labels follow.
+- [ ] Back in **English**, the cheatsheet reads exactly as before (Keyboard Shortcuts, File & tabs wording is unchanged there).
+
+## 🔍 Still English (known, tracked — not part of this fix)
+- [ ] The **AI panel / AI bubble, Mermaid diagram controls, the in-document find/replace bar (Ctrl+F), the welcome screen, the tour, the slash menu and the conflict dialog** are still English. They have **no entries in the dictionary yet**, so translating them is a copy-writing task (new source strings), not a wiring bug like this one was.
+
+---
+
 # ✅ Local build without the updater key (branch `chore/local-build-script`)
 
 *`bun run tauri build` wrote both installers and then failed anyway — "A public key has been found, but no private key" — with exit code 1, on every machine that has the updater public key but not the private one. New `bun run build:local` merges `src-tauri/tauri.local.conf.json` (`createUpdaterArtifacts: false`) so a local or scripted build finishes cleanly. Releases are untouched and still sign. Details: BLD-01.*

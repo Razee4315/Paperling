@@ -15,6 +15,7 @@ import {
     getLocale,
     getLocalePreference,
     t,
+    tEn,
     useI18n,
     type TKey,
 } from "./index";
@@ -117,6 +118,16 @@ describe("t()", () => {
         } finally {
             zh.settings.sectionAbout = saved;
         }
+    });
+});
+
+describe("tEn()", () => {
+    it("returns the English string whatever the active locale is", () => {
+        changeLocale("zh-CN");
+        expect(t("shortcuts.item.bold")).toBe("加粗");
+        expect(tEn("shortcuts.item.bold")).toBe("Bold");
+        // Interpolated entries work the same way.
+        expect(tEn("settings.noResults", { query: "xyz" })).toBe("No settings match “xyz”.");
     });
 });
 
