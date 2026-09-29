@@ -58,6 +58,21 @@ export function t(key: TKey, params?: TParams): string {
 }
 
 /**
+ * English regardless of the active locale (I18N-01).
+ *
+ * The settings search matches a query against BOTH the English keyword list and
+ * the translated row label, so "bold" finds 加粗 and vice versa. Rows whose
+ * label is a dictionary entry (the shortcut list) need the English side of that
+ * pair too; this is the lookup for it.
+ */
+export function tEn(key: TKey, params?: TParams): string {
+    const entry = lookup(en, key);
+    if (typeof entry === "function") return entry(params ?? {});
+    if (typeof entry === "string") return interpolate(entry, params);
+    return key;
+}
+
+/**
  * Component binding. Returns `t` (stable, reads the current locale at call
  * time) plus the locale itself, and subscribes the calling component so a
  * language switch re-renders its text.
