@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Double-clicking a Markdown file on macOS opens it.** Paperling used to
+  launch (or come to the front) and show the last session instead of the
+  file you clicked, because macOS hands the file over as an open-documents
+  event rather than a command-line argument.
+
 ## [1.0.51] - 2026-09-26
 
 ### Android: one-time reinstall (please read before updating)
