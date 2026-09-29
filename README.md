@@ -194,8 +194,13 @@ bun install
 # Run in development mode
 bun run tauri dev
 
-# Build for production
+# Build for production (installers + signed updater package; needs
+# TAURI_SIGNING_PRIVATE_KEY — CI sets it from the repo secret)
 bun run tauri build
+
+# Build locally without the updater signing key: same .msi + setup.exe,
+# no .sig, and exit code 0 instead of 1
+bun run build:local
 ```
 
 ## <img src="images/art/icon-keyboard.png" width="30" alt=""> Keyboard Shortcuts
