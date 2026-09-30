@@ -12,6 +12,7 @@ interface TitleBarProps {
     isDirty?: boolean;
     filePath?: string;
     onOpenFile?: () => void;
+    onOpenFolder?: () => void;
     onNewFile?: () => void;
     getExportHtml?: () => Promise<string>;
     onExportSuccess?: (format: string) => void;
@@ -26,7 +27,7 @@ interface TitleBarProps {
     onFindInFiles?: () => void;
 }
 
-function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles }: TitleBarProps) {
+function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles }: TitleBarProps) {
     // Whether the AI button's icon shimmers. Some users prefer it plain (#111).
     // Held locally and refreshed from the Settings event rather than threaded
     // down from App, since nothing else on the way needs to know about it.
@@ -153,6 +154,11 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                     </div>
 
                     {/* Open File / New Button - shown when a file is already open */}
+                    {onOpenFolder && (
+                        <button onClick={onOpenFolder} aria-label="Open folder" title="Open folder…" className="shrink-0 w-7 h-7 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
+                            <span className="material-symbols-outlined text-[16px]">folder</span>
+                        </button>
+                    )}
                     {hasFile && onOpenFile && (
                         <>
                             <div className="w-[1px] h-4 bg-[var(--border)] ml-2"></div>

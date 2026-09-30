@@ -3,11 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, TauriEvent } from "@tauri-apps/api/event";
 import { clearRecentFiles, getRecentFiles, pinRecentFile, removeRecentFile, unpinRecentFile, type RecentFile } from "../utils/persistence";
 import { IS_MOBILE } from "../utils/platform";
+import { isDocumentPath } from "../utils/documentPaths";
 import { MascotIdle } from "./MascotIdle";
 import { TabContextMenu } from "./TabContextMenu";
 
 interface WelcomeScreenProps {
     onOpenFile: () => void;
+    onOpenFolder?: () => void;
     onNewFile?: () => void;
     onOpenSettings?: () => void;
     onFileDrop: (path: string) => void;
@@ -30,7 +32,7 @@ const parentFolderOf = (path: string): string => {
     return segs.slice(-2).join("/") || segs.join("/");
 };
 
-export function WelcomeScreen({ onOpenFile, onNewFile, onOpenSettings, onFileDrop, onOpenRecent }: WelcomeScreenProps) {
+export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSettings, onFileDrop, onOpenRecent }: WelcomeScreenProps) {
     const [recents, setRecents] = useState<RecentFile[]>([]);
     const [missing, setMissing] = useState<Set<string>>(new Set());
     // Highlight while a markdown file is dragged over the welcome screen so
@@ -147,11 +149,10 @@ export function WelcomeScreen({ onOpenFile, onNewFile, onOpenSettings, onFileDro
         setIsDragging(false);
 
         const files = e.dataTransfer.files;
-        if (files.length > 0) {
-            const file = files[0];
+        for (const file of Array.from(files)) {
             // @ts-expect-error - Tauri adds path to File objects
             const path = file.path || file.name;
-            if (path.endsWith('.md') || path.endsWith('.markdown')) {
+            if (isDocumentPath(path)) {
                 onFileDrop(path);
             }
         }
@@ -216,6 +217,7 @@ export function WelcomeScreen({ onOpenFile, onNewFile, onOpenSettings, onFileDro
                                 <span>{IS_MOBILE ? "New" : "New File"}</span>
                             </button>
                         )}
+                        {onOpenFolder && !IS_MOBILE && <button onClick={onOpenFolder} className="btn-press whitespace-nowrap px-3 py-2.5 rounded-[var(--radius-md)] bg-[var(--bg-secondary)] border border-[var(--border)] text-sm">Open folder…</button>}
                         {onOpenSettings && (
                             <button
                                 onClick={onOpenSettings}

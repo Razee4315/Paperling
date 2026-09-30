@@ -23,6 +23,7 @@ import { IS_MOBILE } from "../utils/platform";
 import mascotWizard from "../assets/mascot/mascot-wizard.png";
 
 interface AIPanelProps {
+    maxWidth?: string;
     isOpen: boolean;
     onClose: () => void;
     /** Current document text. */
@@ -48,7 +49,7 @@ interface UIMessage {
 // (Settings → AI, default 8), read live per send — the document itself is
 // attached only to the latest turn inside buildAskMessages.
 
-export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConfig, onProposeEdit, width, onWidthChange }: AIPanelProps) {
+export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConfig, onProposeEdit, width, onWidthChange, maxWidth }: AIPanelProps) {
     // Stored chats (#111). Closing the panel unmounts it, so message state used
     // to die with it. Read the saved history once, then resume the most recent
     // chat, which makes close/reopen and app restarts non-destructive.
@@ -277,7 +278,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
             // max-w keeps it on screen if the window is narrower than the stored px.
             // On mobile the shell CSS overrides this to a full-screen sheet
             // (100% width, no resize handle).
-            style={{ width: `${width}px` }}
+            style={{ width: `${width}px`, maxWidth }}
             className="fixed right-0 top-12 bottom-7 max-w-[90vw] z-50 flex flex-col bg-[var(--bg-secondary)] border-l border-[var(--border)] shadow-2xl"
         >
             {!IS_MOBILE && (

@@ -47,3 +47,17 @@ describe("opening from the Files panel (#225)", () => {
         expect(onClose).toHaveBeenCalledTimes(mobile ? 1 : 0);
     });
 });
+
+it("keeps an explicit folder rooted when the active tab changes elsewhere (#227)", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => cmd === "list_directory_files" ? listings[(args as { directory: string }).directory] ?? [] : null);
+    const props = { isOpen: true, rootDirectory: "C:/notes", onClose: vi.fn(), onFileSelect: vi.fn() };
+    const { rerender } = render(<FileExplorer {...props} currentFilePath="C:/elsewhere/a.md" />);
+    expect(await screen.findByRole("option", { name: /a.md/ })).toBeDefined();
+    fireEvent.click(screen.getByRole("option", { name: /sub/ }));
+    expect(await screen.findByRole("option", { name: /b.md/ })).toBeDefined();
+    rerender(<FileExplorer {...props} currentFilePath="C:/elsewhere/b.md" />);
+    expect(screen.getByRole("option", { name: /b.md/ })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: /Go up/ }));
+    await screen.findByRole("option", { name: /a.md/ });
+    expect(screen.getByRole("button", { name: /Go up/ }).hasAttribute("disabled")).toBe(true);
+});

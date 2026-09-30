@@ -7,16 +7,17 @@ interface ModeToggleProps {
     aiPanelOpen?: boolean;
     /** The panel's current width in px; it is user-resizable (#111). */
     aiPanelWidth?: number;
+    rightPanelWidth?: string;
 }
 
 const buttonBase =
     "btn-press flex items-center gap-2 px-3 py-2 rounded-full transition-all duration-200";
 
-export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400 }: ModeToggleProps) {
+export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400, rightPanelWidth }: ModeToggleProps) {
     return (
         <div
             className="fixed bottom-8 z-50"
-            style={{ right: aiPanelOpen ? `calc(min(${aiPanelWidth}px, 90vw) + 2rem)` : "2rem", transition: "right 0.15s ease" }}
+            style={{ right: rightPanelWidth ? `calc(${rightPanelWidth} + 2rem)` : aiPanelOpen ? `calc(min(${aiPanelWidth}px, 90vw) + 2rem)` : "2rem", transition: "right 0.15s ease" }}
             role="group"
             aria-label="View mode toggle"
         >

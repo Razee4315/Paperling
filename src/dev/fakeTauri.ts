@@ -162,10 +162,10 @@ async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
         case "get_file_info": {
             const k = find(a.path);
             if (!k) {
-                if (dirs().has(norm(a.path))) return { path: norm(a.path), name: baseName(a.path), size: 0, modified: 0 };
+                if (dirs().has(norm(a.path))) return { path: norm(a.path), name: baseName(a.path), size: 0, modified: 0, is_dir: true };
                 err(`File not found: ${a.path}`);
             }
-            return { path: k, name: baseName(k), size: disk[k].content.length, modified: disk[k].modified };
+            return { path: k, name: baseName(k), size: disk[k].content.length, modified: disk[k].modified, is_dir: false };
         }
         case "list_directory_files": {
             const d = norm(a.directory);
@@ -204,6 +204,7 @@ async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
             return searchIn(`[[${stem}`, false, false, a.directory).filter((r) => norm(r.path) !== norm(a.targetFile));
         }
         case "get_cli_file":
+            return new URLSearchParams(location.search).get("cli");
         case "get_incoming_file":
             return null;
         case "get_ai_key":
@@ -299,6 +300,19 @@ export function installFakeTauri(): void {
         window.cancelAnimationFrame = (id: number) => window.clearTimeout(id);
     }
     w.__fakefs = hooks;
+    // Optional visible fixture controls avoid prompt() (unsupported in the
+    // in-app browser). They only affect this virtual disk, never native files.
+    if (new URLSearchParams(location.search).get("fixtures") === "1") {
+        const panel = document.createElement("details");
+        panel.style.cssText = "position:fixed;bottom:35px;left:8px;z-index:150;background:#222;color:white;padding:8px;font:12px sans-serif;max-width:320px";
+        panel.innerHTML = '<summary>Browser test fixtures</summary><label>Next dialog path <input aria-label="Fixture dialog path"></label><button>Use path</button><button>Drop folder</button>';
+        const input = panel.querySelector("input")!;
+        input.value = `${ROOT}\\Welcome.md`;
+        const [use, drop] = panel.querySelectorAll("button");
+        use.onclick = () => { hooks.nextOpen = input.value; hooks.nextSave = input.value; };
+        drop.onclick = () => hooks.emit("tauri://drag-drop", { paths: [input.value] });
+        document.body.append(panel);
+    }
     w.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
         unregisterListener(event: string, id: number) { listeners.get(event)?.delete(id); },
     };

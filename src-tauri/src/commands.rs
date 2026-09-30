@@ -457,6 +457,7 @@ pub async fn get_file_info(app: tauri::AppHandle, path: String) -> Result<FileIn
         name,
         size: metadata.len(),
         modified: mtime_ms(&metadata),
+        is_dir: metadata.is_dir(),
     })
 }
 
@@ -467,6 +468,7 @@ pub struct FileInfo {
     pub size: u64,
     /// Last-modified time, ms since the Unix epoch.
     pub modified: u64,
+    pub is_dir: bool,
 }
 
 /// File entry for directory listing
