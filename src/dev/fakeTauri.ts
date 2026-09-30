@@ -172,6 +172,9 @@ async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
                 return null;
             } finally { aiRequests.delete(a.id); }
         }
+        // The mobile shell asks native storage for its notes root. Mirror it
+        // here so responsive verification uses the same seeded disk as desktop.
+        case "get_notes_dir": return { path: ROOT };
         case "read_file": {
             const k = find(a.path) ?? err(`File not found: ${a.path}`);
             const f = disk[k];
