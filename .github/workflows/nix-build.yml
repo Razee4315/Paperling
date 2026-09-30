@@ -24,6 +24,10 @@ on:
       - "src-tauri/Cargo.lock"
       - ".github/workflows/nix-build.yml"
 
+concurrency:
+  group: nix-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   nix-build:
     runs-on: ubuntu-24.04
