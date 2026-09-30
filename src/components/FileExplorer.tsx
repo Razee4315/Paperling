@@ -7,7 +7,7 @@ import { errMessage } from "../utils/errors";
 import { saveTextFile } from "../utils/fileIO";
 import { TabContextMenu } from "./TabContextMenu";
 import { samePath } from "../utils/tabsModel";
-import { isPathWithin } from "../utils/documentPaths";
+import { isPathWithin, parentDirectory } from "../utils/documentPaths";
 import mascotCarry from "../assets/mascot/mascot-carry.png";
 import mascotShrug from "../assets/mascot/mascot-shrug.png";
 
@@ -64,12 +64,7 @@ export function FileExplorer({
     const [menu, setMenu] = useState<{ entry: FileEntry; x: number; y: number } | null>(null);
 
     // Get directory from current file path
-    const getDirectory = (filePath: string | null): string | null => {
-        if (!filePath) return null;
-        const normalized = filePath.replace(/\\/g, "/");
-        const lastSlash = normalized.lastIndexOf("/");
-        return lastSlash > 0 ? filePath.substring(0, lastSlash) : null;
-    };
+    const getDirectory = parentDirectory;
 
     // Initialize the view directory when opening the panel, and FOLLOW the
     // active note: switching tabs (or opening a note elsewhere) moves the
