@@ -97,6 +97,76 @@ it("keeps the previous transcript when regeneration fails before producing a tok
     await waitFor(() => expect(getChatSessions()[0].messages.at(-1)?.content).toBe("saved answer"));
 });
 
+it("keeps the saved answer when regeneration fails after streaming a partial replacement", async () => {
+    vi.mocked(streamChat).mockImplementationOnce(async (_messages, _cfg, opts) => { opts?.onToken?.("saved answer"); return "saved answer"; });
+    render(<AIPanel {...props} />);
+    await send("question");
+    vi.mocked(streamChat).mockImplementationOnce(async (_messages, _cfg, opts) => {
+        opts?.onToken?.("unfinished replacement");
+        throw new Error("Connection interrupted");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate reply" }));
+    await screen.findByText("Connection interrupted");
+    expect(screen.getByText("saved answer")).toBeInTheDocument();
+    expect(screen.queryByText("unfinished replacement")).toBeNull();
+    await waitFor(() => expect(getChatSessions()[0].messages.map((message) => message.content)).toEqual(["question", "saved answer"]));
+});
+
+it("restores later turns and the edited composer after an edited prompt fails mid-stream", async () => {
+    vi.mocked(streamChat).mockImplementation(async (_messages, _cfg, opts) => { opts?.onToken?.("saved answer"); return "saved answer"; });
+    render(<AIPanel {...props} />);
+    await send("first question");
+    await send("second question");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "next draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Edit message 1" }));
+    vi.mocked(streamChat).mockImplementationOnce(async (_messages, _cfg, opts) => {
+        opts?.onToken?.("unfinished replacement");
+        throw new Error("Connection interrupted");
+    });
+    await send("corrected first question");
+    expect(screen.getByText("first question")).toBeInTheDocument();
+    expect(screen.getByText("second question")).toBeInTheDocument();
+    expect(screen.queryByText("unfinished replacement")).toBeNull();
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("corrected first question");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("next draft");
+    await waitFor(() => expect(getChatSessions()[0].messages.map((message) => message.content)).toEqual(["first question", "saved answer", "second question", "saved answer"]));
+});
+
+it("restores a regenerated answer when Stop races with transport completion", async () => {
+    vi.mocked(streamChat).mockImplementationOnce(async (_messages, _cfg, opts) => { opts?.onToken?.("saved answer"); return "saved answer"; });
+    render(<AIPanel {...props} />);
+    await send("question");
+    let finish!: (reply: string) => void;
+    vi.mocked(streamChat).mockImplementationOnce((_messages, _cfg, opts) => {
+        opts?.onToken?.("unfinished replacement");
+        return new Promise((resolve) => { finish = resolve; });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate reply" }));
+    expect(screen.getByText("unfinished replacement")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Stop generating" }));
+    await act(async () => finish("unfinished replacement"));
+    expect(screen.getByText("saved answer")).toBeInTheDocument();
+    expect(screen.queryByText("unfinished replacement")).toBeNull();
+    await waitFor(() => expect(getChatSessions()[0].messages.at(-1)?.content).toBe("saved answer"));
+});
+
+it("preserves the original chat in history when starting a new chat during regeneration", async () => {
+    vi.mocked(streamChat).mockImplementationOnce(async (_messages, _cfg, opts) => { opts?.onToken?.("saved answer"); return "saved answer"; });
+    render(<AIPanel {...props} />);
+    await send("question");
+    let finish!: (reply: string) => void;
+    vi.mocked(streamChat).mockImplementationOnce((_messages, _cfg, opts) => {
+        opts?.onToken?.("unfinished replacement");
+        return new Promise((resolve) => { finish = resolve; });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate reply" }));
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    await act(async () => finish("unfinished replacement"));
+    expect(getChatSessions()[0].messages.map((message) => message.content)).toEqual(["question", "saved answer"]);
+    expect(screen.queryByText("unfinished replacement")).toBeNull();
+});
+
 it("does not leave an empty reply showing Thinking after the request completed", async () => {
     vi.mocked(streamChat).mockResolvedValue("");
     render(<AIPanel {...props} />);

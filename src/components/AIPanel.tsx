@@ -73,6 +73,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
+    const replacementTranscriptRef = useRef<UIMessage[] | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -124,6 +125,20 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
             setInput("");
         }
         const prior = retry?.history ?? (editingIndex == null ? messages : messages.slice(0, editingIndex));
+        const replacingTranscript = !!retry || editingIndex != null;
+        // AI-09 (#230): replacing an existing conversation is transactional.
+        // A partial stream is useful for a new question, but must never erase a
+        // completed answer/later turns when a retry fails or is cancelled.
+        replacementTranscriptRef.current = replacingTranscript ? messages : null;
+        const restoreTranscript = () => {
+            setMessages(messages);
+            if (editingIndex != null) {
+                setEditingIndex(editingIndex);
+                setInput(text);
+                inputDraftRef.current = text;
+                if (inputRef.current) inputRef.current.value = text;
+            }
+        };
         setEditingIndex(null);
         setReplyReview(null);
         onDiscardEdit?.();
@@ -191,28 +206,32 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
         } catch (e) {
             if (abortRef.current !== ctrl) return;
             if ((e as Error).name !== "AbortError") setError((e as Error).message);
-            // Drop the empty assistant bubble if nothing streamed in.
-            setMessages((prev) => (prev[assistantIdx]?.content ? prev : retry || editingIndex != null ? messages : prev.slice(0, assistantIdx)));
-            if (editingIndex != null) {
-                setEditingIndex(editingIndex);
-                setInput(text);
-                inputDraftRef.current = text;
-                if (inputRef.current) inputRef.current.value = text;
-            }
+            if (replacingTranscript) restoreTranscript();
+            // New questions keep any useful partial answer; empty bubbles go.
+            else setMessages((prev) => (prev[assistantIdx]?.content ? prev : prev.slice(0, assistantIdx)));
         } finally {
-            if (abortRef.current === ctrl) { setBusy(false); abortRef.current = null; }
+            if (abortRef.current === ctrl) {
+                // A late Stop may race with a successful transport completion.
+                if (ctrl.signal.aborted && replacingTranscript) restoreTranscript();
+                replacementTranscriptRef.current = null;
+                setBusy(false);
+                abortRef.current = null;
+            }
         }
     }, [input, busy, configured, messages, editingIndex, note, docKey, selectionText, aiConfig, mode, onProposeEdit, onDiscardEdit]);
 
     const stop = useCallback(() => abortRef.current?.abort(), []);
 
     const resetRequest = useCallback(() => {
+        const originalTranscript = replacementTranscriptRef.current;
+        replacementTranscriptRef.current = null;
         abortRef.current?.abort();
         abortRef.current = null;
         setBusy(false);
         setEditingIndex(null);
         setReplyReview(null);
         onDiscardEdit?.();
+        return originalTranscript;
     }, [onDiscardEdit]);
     const editMessage = (index: number) => {
         if (busy) return;
@@ -255,8 +274,8 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
     // Start a fresh chat, keeping the current one in history. This is the button
     // that used to be "clear", which discarded the conversation outright (#111).
     const newChat = useCallback(() => {
-        resetRequest();
-        commitSession(sessionId, messages);
+        const originalTranscript = resetRequest();
+        commitSession(sessionId, originalTranscript ?? messages);
         setSessionId(makeSessionId());
         setMessages([]);
         setError(null);
@@ -266,10 +285,10 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
     const selectSession = useCallback((id: string) => {
         setHistoryOpen(false);
         if (id === sessionId) return;
-        resetRequest();
+        const originalTranscript = resetRequest();
         // Save where we are before moving, so switching away mid-conversation
         // (or mid-stream) doesn't lose it.
-        commitSession(sessionId, messages);
+        commitSession(sessionId, originalTranscript ?? messages);
         const target = sessionsRef.current.find((s) => s.id === id);
         if (!target) return;
         setSessionId(id);
