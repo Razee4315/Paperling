@@ -27,7 +27,7 @@ export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400 }:
                     aria-pressed={mode === "preview"}
                     title="Reader (Ctrl+E)"
                     className={`${buttonBase} ${mode === "preview"
-                        ? "bg-[var(--accent)] text-[var(--accent-text)] shadow-md"
+                        ? "bg-[var(--bg-hover)] text-[var(--text-primary)] ring-1 ring-[var(--accent)]"
                         : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         }`}
                 >
@@ -41,7 +41,7 @@ export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400 }:
                     aria-pressed={mode === "split"}
                     title="Split view (Ctrl+\\)"
                     className={`${buttonBase} ${mode === "split"
-                        ? "bg-[var(--accent)] text-[var(--accent-text)] shadow-md"
+                        ? "bg-[var(--bg-hover)] text-[var(--text-primary)] ring-1 ring-[var(--accent)]"
                         : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         }`}
                 >
@@ -55,7 +55,7 @@ export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400 }:
                     aria-pressed={mode === "code"}
                     title="Code (Ctrl+E)"
                     className={`${buttonBase} ${mode === "code"
-                        ? "bg-[var(--accent)] text-[var(--accent-text)] shadow-md"
+                        ? "bg-[var(--bg-hover)] text-[var(--text-primary)] ring-1 ring-[var(--accent)]"
                         : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         }`}
                 >

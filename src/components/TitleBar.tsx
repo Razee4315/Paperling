@@ -122,11 +122,11 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                 className="h-12 shrink-0 flex items-center justify-between px-4 bg-[var(--bg-titlebar)] border-b border-[var(--border)] no-select drag-region transition-colors"
             >
                 {/* Left: Icon & Title */}
-                <div className="flex items-center gap-3 no-drag">
-                    <div className="flex items-center justify-center w-5 h-5">
+                <div className="flex flex-1 min-w-0 items-center gap-1 sm:gap-3 no-drag">
+                    <div className="flex shrink-0 items-center justify-center w-5 h-5">
                         <img src="/icon.svg" alt="Paperling" className="w-full h-full" />
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)] min-w-0">
+                    <div className="flex flex-1 items-center gap-2 text-sm text-[var(--text-secondary)] min-w-0">
                         {parentFolder && (
                             <>
                                 <span className="opacity-60 hidden md:inline">{parentFolder} /</span>
@@ -205,7 +205,9 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                 </div>
 
                 {/* Right: Settings & Window Controls */}
-                <div className="flex items-center gap-1 no-drag">
+                {/* RLL-09 (#241): chrome always owns its width; the note name
+                    yields first so a narrow desktop never loses Close. */}
+                <div className="flex shrink-0 items-center gap-1 no-drag">
                     <SettingsMenu />
                     <div className="w-[1px] h-4 bg-[var(--border)] mx-1"></div>
                     <button
