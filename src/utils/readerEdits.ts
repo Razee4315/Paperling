@@ -1,9 +1,28 @@
 import TurndownService from "turndown";
+import { markdownLanguage } from "@codemirror/lang-markdown";
 
 const converter = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-", emDelimiter: "*" });
 converter.addRule("strike", { filter: ["del", "s"], replacement: (text) => `~~${text}~~` });
 
 export interface ReaderEditRange { start: number; end: number; source: string }
+
+/** READ-03: punctuation inside code spans/escapes is literal, not an extension.
+ * Use the existing Markdown parser so multi-backtick spans are handled too. */
+function unprotectedSyntax(source: string): string {
+    const literal: { from: number; to: number }[] = [];
+    markdownLanguage.parser.parse(source).iterate({ enter(node) {
+        if (node.name === "InlineCode" || node.name === "Escape") {
+            literal.push({ from: node.from, to: node.to });
+            return false;
+        }
+    } });
+    let out = "", end = 0;
+    for (const span of literal) {
+        out += source.slice(end, span.from) + source.slice(span.from, span.to).replace(/[^\r\n]/g, " ");
+        end = span.to;
+    }
+    return out + source.slice(end);
+}
 
 /** READ-02 (#213): edit one source-addressed text block. Extended syntax and
  * embedded media remain read-only rather than being flattened by HTML export.
@@ -18,7 +37,8 @@ export function readerEditRange(document: string, startLine: number, endLine: nu
     const source = document.slice(start, end);
     // These constructs require a richer Markdown model; keep them available in
     // Code. The reader must never silently erase comments, refs, math or ids.
-    if (/%%|<|\[\[|!\[|\[\^|\]\s*\[|\{#|==|`{3,}|~{3,}|(?:^|\s)#[\p{L}\p{N}_-]+|\$|\^|(?<!~)~(?!~)|^\s*[-*+]\s+\[[ xX]\]|^\s*>\s*\[!|^\s*\[[^\]]+\]:|^[ \t>]*\|?[ \t]*:?-{3,}:?[ \t]*(?:\||$)/mu.test(source)) return null;
+    const syntax = unprotectedSyntax(source);
+    if (/%%|<\/?[a-zA-Z!\?]|\[\[|!\[|\[\^|\]\s*\[|\{#|==|`{3,}|~{3,}|(?:^|\s)#[\p{L}\p{N}_-]+|\$\$|\$(?:[^\s$]|[^\s$][^\n$]*?[^\s$])\$|\^([^\s^]+)\^|(?<!~)~([^\s~]+)~(?!~)|^\s*[-*+]\s+\[[ xX]\]|^\s*>\s*\[!|^\s*\[[^\]]+\]:|^[ \t>]*\|?[ \t]*:?-{3,}:?[ \t]*(?:\||$)/mu.test(syntax)) return null;
     return { start, end, source };
 }
 
@@ -31,4 +51,20 @@ export function readerHtmlToMarkdown(html: string, crlf: boolean): string {
 export function applyReaderEdit(document: string, range: ReaderEditRange, replacement: string): string | null {
     if (document.slice(range.start, range.end) !== range.source) return null;
     return document.slice(0, range.start) + replacement + document.slice(range.end);
+}
+
+export interface ReaderChange { from: number; before: string; after: string }
+
+/** Store only a changed span in undo history, not a full large note per key. */
+export function readerChange(before: string, after: string): ReaderChange | null {
+    if (before === after) return null;
+    let from = 0, oldEnd = before.length, newEnd = after.length;
+    while (from < oldEnd && from < newEnd && before[from] === after[from]) from++;
+    while (oldEnd > from && newEnd > from && before[oldEnd - 1] === after[newEnd - 1]) { oldEnd--; newEnd--; }
+    return { from, before: before.slice(from, oldEnd), after: after.slice(from, newEnd) };
+}
+
+export function applyReaderChange(document: string, change: ReaderChange, undo = false): string | null {
+    const source = undo ? change.after : change.before;
+    return applyReaderEdit(document, { start: change.from, end: change.from + source.length, source }, undo ? change.before : change.after);
 }

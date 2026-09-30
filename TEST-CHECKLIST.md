@@ -1,6 +1,6 @@
 # GitHub issues — branch `fix/github-issues-2026-09-30`
 
-Use the final Test Build artifacts linked in `GITHUB-ISSUES-REPORT.md`. Local checks used selected tests with one worker; the full suite and native builds run in CI. These boxes are intentionally unchecked for the owner's native/device verification.
+The GitHub issue fixes have Test Build artifacts linked in `GITHUB-ISSUES-REPORT.md`. The later READ-03 Reader editing changes are local only and are not included in those artifacts. This follow-up used TypeScript checking and the browser on port 5279; no test suite, build, push or GitHub Action ran. These boxes are intentionally unchecked for the owner's native/device verification.
 
 ## Window controls and reading
 
@@ -23,10 +23,16 @@ Use the final Test Build artifacts linked in `GITHUB-ISSUES-REPORT.md`. Local ch
 
 ## Optional editing in Reader
 
-- [ ] In Reader choose **Edit Reader**. Double-click a normal paragraph, heading, list or quote and type directly without Split. Bold/Italic/Strike work on selected text (#213).
-- [ ] Try native Undo/Redo, **Undo block changes**, Done and Escape. Changes reach the Markdown source; the block rollback keeps neighboring content (#213).
+- [ ] In Reader choose **Edit Reader**. Single-click a normal paragraph, heading, list or quote and type directly. Click another block and continue without pressing Done (READ-03, #213).
+- [ ] At the end of a heading, type a suffix, press Enter, and write a new paragraph. Done keeps both, without duplicated paragraphs or missing text.
+- [ ] Use **Add paragraph** in an empty note and below an existing block. Change the text style to a heading, bullets, numbers or quote. Enter on a trailing empty list item or quote paragraph leaves it.
+- [ ] Select text and use Bold/Italic/Strike/Code/Link. Apply a normal URL; an unsafe `javascript:` URL is refused. The text selection survives clicking the toolbar.
+- [ ] Use arrow keys at a block boundary to reach its neighbor. Backspace at the start of a paragraph joins it to the preceding text block. Undo restores both blocks.
+- [ ] Try Undo/Redo before and after Done, Escape and a mode switch. Change tabs: undo affects only that tab. Editing in Code clears stale Reader undo instead of overwriting the Code edit.
+- [ ] **Undo block changes** restores the current block while keeping neighboring content.
 - [ ] Type, then switch modes/tabs or restart. The typed changes remain in the note/recovery buffer (#213).
 - [ ] Include frontmatter, math, comments, a table, an image and a Mermaid diagram around the edited paragraph. Their source remains unchanged. Specialized blocks explain that Code is their editing path (#213).
+- [ ] A paragraph with ordinary inline code such as `x < y` or `$literal` remains editable. After Done, its code text is intact.
 - [ ] Turn off **Settings → Editor → Edit text in Reader**. Reader is read-only again. Keyboard users can focus a text block and press Enter while editing is enabled (#213).
 
 ## AI actions and conversations

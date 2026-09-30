@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyReaderEdit, readerEditRange, readerHtmlToMarkdown } from "./readerEdits";
+import { applyReaderChange, applyReaderEdit, readerChange, readerEditRange, readerHtmlToMarkdown } from "./readerEdits";
 
 describe("Reader block edits (READ-02)", () => {
     it("changes only the selected duplicate paragraph, preserving CRLF, frontmatter and diagrams", () => {
@@ -27,5 +27,23 @@ describe("Reader block edits (READ-02)", () => {
         const range = readerEditRange("before\n\ntext\n\nafter", 3, 3, "P")!;
         expect(applyReaderEdit("a different document", range, "new")).toBeNull();
         expect(applyReaderEdit("before\n\ntext\n\nafter", range, "")).toBe("before\n\n\n\nafter");
+    });
+    it("allows literal punctuation in real code spans and escapes, retaining extension protection", () => {
+        for (const source of ["Compare `x < y` and `$literal`.", "Use ``a ` < b`` here.", "A price of $5.", "A plain x < y comparison.", "Escaped \\<b> text."]) {
+            expect(readerEditRange(source, 1, 1, "P")?.source).toBe(source);
+        }
+        for (const source of ["Real <b>HTML</b>", "Real $x^2$ math.", "Single $x$ math.", "[[Note]] next to `safe`", "%%hidden%% next to `<code>`"]) {
+            expect(readerEditRange(source, 1, 1, "P")).toBeNull();
+        }
+    });
+    it("stores a small guarded undo diff and restores CRLF without touching neighboring blocks", () => {
+        const before = "---\r\ntitle: Keep\r\n---\r\n\r\n# Heading\r\n\r\nSame text\r\n\r\n```mermaid\r\ngraph TD; A-->B\r\n```";
+        const after = before.replace("Same text", "Same changed text");
+        const change = readerChange(before, after)!;
+        expect(change.before.length + change.after.length).toBeLessThan(20);
+        expect(applyReaderChange(before, change)).toBe(after);
+        expect(applyReaderChange(after, change, true)).toBe(before);
+        expect(applyReaderChange(after.replace("changed", "external"), change, true)).toBeNull();
+        expect(readerChange(before, before)).toBeNull();
     });
 });

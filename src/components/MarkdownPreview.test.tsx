@@ -96,6 +96,56 @@ describe("optional Reader editing (#213)", () => {
         expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull();
         expect(onChange).not.toHaveBeenCalled();
     });
+    it("keeps heading controls outside editable text and preserves a typed suffix", async () => {
+        render(<EditablePreview />);
+        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        const heading = await screen.findByRole("heading", { name: /Heading Copy link/ });
+        fireEvent.pointerDown(heading);
+        const block = await screen.findByRole("textbox", { name: "Reader text block" });
+        expect(block.tagName).toBe("H1");
+        expect(block.querySelector("button")).toBeNull();
+        block.textContent = "Heading suffix that must survive";
+        fireEvent.input(block);
+        fireEvent.click(screen.getByRole("button", { name: "Done", exact: true }));
+        expect(screen.getByLabelText("Source Markdown").textContent).toBe(original.replace("# Heading", "# Heading suffix that must survive"));
+        await screen.findByRole("heading", { name: /Heading suffix that must survive Copy link/ });
+    });
+    it("switches blocks without Done and undoes across finishing", async () => {
+        render(<EditablePreview />);
+        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        fireEvent.pointerDown(await screen.findByRole("heading", { name: /Heading Copy link/ }));
+        let block = await screen.findByRole("textbox", { name: "Reader text block" });
+        block.textContent = "Changed heading";
+        fireEvent.input(block);
+        fireEvent.pointerDown(screen.getByText("Plain", { exact: false, selector: "p" }));
+        block = await screen.findByRole("textbox", { name: "Reader text block" });
+        expect(block.tagName).toBe("P");
+        block.innerHTML = "Updated <strong>text</strong>.";
+        fireEvent.input(block);
+        fireEvent.click(screen.getByRole("button", { name: "Done", exact: true }));
+        fireEvent.click(screen.getByRole("button", { name: "Reader undo" }));
+        expect(screen.getByLabelText("Source Markdown").textContent).toBe(original.replace("# Heading", "# Changed heading"));
+        fireEvent.click(screen.getByRole("button", { name: "Reader undo" }));
+        expect(screen.getByLabelText("Source Markdown").textContent).toBe(original);
+        fireEvent.click(screen.getByRole("button", { name: "Reader redo" }));
+        expect(screen.getByLabelText("Source Markdown").textContent).toBe(original.replace("# Heading", "# Changed heading"));
+    });
+    it("splits a heading with Enter without losing its text or the remainder", async () => {
+        render(<EditablePreview />);
+        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        fireEvent.pointerDown(await screen.findByRole("heading", { name: /Heading Copy link/ }));
+        const heading = await screen.findByRole("textbox", { name: "Reader text block" });
+        const node = heading.firstChild!;
+        window.getSelection()!.setBaseAndExtent(node, node.textContent!.length, node, node.textContent!.length);
+        fireEvent.keyDown(heading, { key: "Enter" });
+        const paragraph = screen.getByRole("textbox", { name: "Reader text block" });
+        expect(paragraph.tagName).toBe("P");
+        paragraph.textContent = "A new paragraph";
+        fireEvent.input(paragraph);
+        fireEvent.click(screen.getByRole("button", { name: "Done", exact: true }));
+        expect(screen.getByLabelText("Source Markdown").textContent).toBe(original.replace("# Heading", "# Heading\n\nA new paragraph"));
+        await waitFor(() => expect(screen.getAllByText("A new paragraph", { exact: true, selector: "p" })).toHaveLength(1));
+    });
 });
 
 describe("footnote links", () => {
@@ -320,7 +370,7 @@ describe("block-by-block rendering (PERF-02)", () => {
             return el;
         });
         const clone = body.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll(".md-block").forEach((w) => w.replaceWith(...Array.from(w.childNodes)));
+        clone.querySelectorAll(".md-block,.md-whole").forEach((w) => w.replaceWith(...Array.from(w.childNodes)));
         clone.querySelectorAll("[data-source-line]").forEach((el) => { el.removeAttribute("data-source-line"); el.removeAttribute("data-source-end-line"); });
         // react-markdown separates top-level elements with newline text
         // nodes; they don't render, and block boundaries naturally drop some.

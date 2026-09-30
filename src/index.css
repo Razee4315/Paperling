@@ -1,9 +1,41 @@
 @import "tailwindcss";
 
 .reader-editing-block {
-  outline: 1px solid var(--accent);
-  outline-offset: 6px;
+  outline: 1px solid var(--border-subtle);
+  outline-offset: 4px;
   border-radius: 2px;
+  min-height: 1.5em;
+  cursor: text;
+}
+
+.reader-editing-block:empty::before {
+  content: "Type here…";
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.reader-edit-toolbar button,
+.reader-edit-toolbar select {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  color: var(--text-primary);
+}
+
+.reader-edit-toolbar button:hover:not(:disabled),
+.reader-edit-toolbar select {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.reader-edit-toolbar button:focus-visible,
+.reader-edit-toolbar select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.reader-edit-toolbar button:disabled {
+  opacity: .35;
 }
 
 :root {
@@ -1282,7 +1314,8 @@ html.touch ::-webkit-scrollbar {
 /* Block-by-block preview rendering (PERF-02): each block's wrapper has no box
    of its own, so layout, margins and selection behave exactly as if the
    blocks were direct children of .markdown-body. */
-.markdown-body .md-block {
+.markdown-body .md-block,
+.markdown-body .md-whole {
   display: contents;
 }
 

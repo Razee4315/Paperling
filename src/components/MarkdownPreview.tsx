@@ -19,7 +19,8 @@ import { wikilinkLabel } from "../utils/wikilinkAnchor";
 import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
 import { splitMarkdownBlocks } from "../utils/markdownBlocks";
 import { getRemoteImages, getReaderEditing, setReaderEditing } from "../utils/persistence";
-import { applyReaderEdit, readerEditRange, readerHtmlToMarkdown, type ReaderEditRange } from "../utils/readerEdits";
+import { useReaderEditor } from "../hooks/useReaderEditor";
+import { matchesBinding } from "../config/keybindings";
 
 // Detect KaTeX-style math so we only load the heavy katex bundle when needed.
 // $$...$$ for block math, $...$ for inline math (not preceded/followed by digit
@@ -873,10 +874,8 @@ function MarkdownPreviewImpl({
     const restoredScrollRef = useRef(false);
     const [zoomImage, setZoomImage] = useState<{ src: string; alt: string } | null>(null);
     const [readerEditing, setReaderEditingLocal] = useState(getReaderEditing);
-    const [editingBlock, setEditingBlock] = useState(false);
-    const [readerNotice, setReaderNotice] = useState("");
-    const [readerRevision, setReaderRevision] = useState(0);
-    const readerEditRef = useRef<{ element: HTMLElement; range: ReaderEditRange; original: string; lastDocument: string; docKey: string | null; lastHtml: string } | null>(null);
+    const [readerLink, setReaderLink] = useState<string | null>(null);
+    const [readerLinkError, setReaderLinkError] = useState("");
 
     // lineCount is derived here (instead of being passed as a prop) so the
     // preview's split happens once, against the same `content` we render.
@@ -892,73 +891,24 @@ function MarkdownPreviewImpl({
     const contentRef = useRef(liveContent ?? content);
     contentRef.current = liveContent ?? content;
 
-    const endReaderEdit = useCallback(() => {
-        const edit = readerEditRef.current;
-        if (edit) {
-            edit.element.removeAttribute("contenteditable");
-            edit.element.removeAttribute("role");
-            edit.element.removeAttribute("aria-label");
-            edit.element.removeAttribute("aria-multiline");
-            edit.element.classList.remove("reader-editing-block");
-        }
-        readerEditRef.current = null;
-        setEditingBlock(false);
-        setReaderRevision((revision) => revision + 1);
-    }, []);
+    const renderedContentRef = useRef(content);
+    const reader = useReaderEditor({
+        enabled: readerEditing && !!allowReaderEditing && !!onContentChange,
+        docKey, content: liveContent ?? content, contentRef, renderedContentRef, mainRef,
+        onChange: onContentChange, onRendered,
+    });
+    const editingBlock = !!reader.active;
+    const readerRevision = reader.revision;
+    const previewContent = reader.snapshot ?? content;
+    const openReaderLink = () => { setReaderLink(reader.linkHref()); setReaderLinkError(""); };
+    useEffect(() => { setReaderLink(null); setReaderLinkError(""); }, [docKey, reader.active?.element]);
+    const readerFrozenRef = useRef(false);
+    readerFrozenRef.current = reader.frozen;
     useEffect(() => {
-        const refresh = () => { setReaderEditingLocal(getReaderEditing()); endReaderEdit(); };
+        const refresh = () => setReaderEditingLocal(getReaderEditing());
         window.addEventListener("paperling:reader-editing-toggle", refresh);
         return () => window.removeEventListener("paperling:reader-editing-toggle", refresh);
-    }, [endReaderEdit]);
-    useLayoutEffect(() => {
-        const edit = readerEditRef.current;
-        if (edit && (edit.docKey !== docKey || !allowReaderEditing || edit.lastDocument !== contentRef.current)) {
-            endReaderEdit();
-            setReaderNotice("Reader editing ended because the document changed. Your typed changes were saved to the note as you entered them.");
-        }
-    }, [liveContent, content, docKey, allowReaderEditing, endReaderEdit]);
-
-    const writeReaderEdit = useCallback(() => {
-        const edit = readerEditRef.current;
-        if (!edit || !onContentChange) return;
-        if (edit.docKey !== docKey || edit.lastDocument !== contentRef.current) { endReaderEdit(); return; }
-        const clone = edit.element.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll("button").forEach((button) => button.remove());
-        const html = clone.outerHTML;
-        if (html === edit.lastHtml) return;
-        const replacement = readerHtmlToMarkdown(html, edit.lastDocument.includes("\r\n"));
-        const next = applyReaderEdit(edit.lastDocument, edit.range, replacement);
-        if (next == null) { endReaderEdit(); setReaderNotice("The text changed elsewhere. Reopen this block to edit it safely."); return; }
-        edit.range = { start: edit.range.start, end: edit.range.start + replacement.length, source: replacement };
-        edit.lastDocument = next;
-        edit.lastHtml = html;
-        contentRef.current = next;
-        onContentChange(next);
-        onRendered?.(next);
-    }, [onContentChange, onRendered, docKey, endReaderEdit]);
-
-    const beginReaderEdit = (target: HTMLElement) => {
-        if (!readerEditing || !allowReaderEditing || !onContentChange || readerEditRef.current) return;
-        const element = target.closest<HTMLElement>("[data-source-line]");
-        if (!element) return;
-        if (contentRef.current !== rendered.content) { setReaderNotice("Wait for the preview to catch up, then double-click again."); return; }
-        const offset = Number(element.closest("[data-line-offset]")?.getAttribute("data-line-offset") ?? 0);
-        const startLine = Number(element.dataset.sourceLine) + offset + fmOffsetRef.current;
-        const endLine = Number(element.dataset.sourceEndLine) + offset + fmOffsetRef.current;
-        const range = readerEditRange(contentRef.current, startLine, endLine, element.tagName);
-        if (!range) { setReaderNotice("Use Code to edit this block's specialized Markdown. Plain paragraphs, headings, lists and quotes can be edited here."); return; }
-        const clone = element.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll("button").forEach((button) => button.remove());
-        readerEditRef.current = { element, range, original: range.source, lastDocument: contentRef.current, docKey, lastHtml: clone.outerHTML };
-        element.setAttribute("contenteditable", "true");
-        element.setAttribute("role", "textbox");
-        element.setAttribute("aria-label", "Reader text block");
-        element.setAttribute("aria-multiline", "true");
-        element.classList.add("reader-editing-block");
-        element.focus();
-        setEditingBlock(true);
-        setReaderNotice("");
-    };
+    }, []);
 
     // Listen for zoom requests from LocalImage clicks
     useEffect(() => {
@@ -995,7 +945,7 @@ function MarkdownPreviewImpl({
     // toggled task N+1). A line number identifies the task regardless of how
     // many times anything rendered.
     const handleTaskToggle = useCallback((bodyLine: number, checked: boolean) => {
-        if (!onContentChange || readerEditRef.current) return;
+        if (!onContentChange || readerFrozenRef.current) return;
         const lines = contentRef.current.split("\n");
         // node positions are body-relative (frontmatter is stripped before
         // react-markdown sees the text) and 1-based.
@@ -1169,11 +1119,11 @@ function MarkdownPreviewImpl({
     const fmOffsetRef = useRef(0);
 
     const { body: parsedBody, data: frontmatter, hasFrontmatter } = useMemo(
-        () => parseFrontmatter(content),
-        [content]
+        () => parseFrontmatter(previewContent),
+        [previewContent]
     );
     fmOffsetRef.current = hasFrontmatter
-        ? Math.max(0, content.split("\n").length - parsedBody.split("\n").length)
+        ? Math.max(0, previewContent.split("\n").length - parsedBody.split("\n").length)
         : 0;
 
     // Pre-process wikilinks: [[Foo]] and [[Foo|alias]] → [alias](wikilink:Foo).
@@ -1239,9 +1189,17 @@ function MarkdownPreviewImpl({
         setRendered({ body: renderBody, content });
     }
     const renderedBody = rendered.body;
+    renderedContentRef.current = rendered.content;
+    const [shownReaderRevision, setShownReaderRevision] = useState(readerRevision);
+    if (!reader.frozen && shownReaderRevision !== readerRevision) {
+        // Finishing/undoing replaces a DOM editing session in one commit. A
+        // deferred rebuild would briefly show the old source or an empty note.
+        setShownReaderRevision(readerRevision);
+        setRendered({ body: renderBody, content });
+    }
     const [, startBodyTransition] = useTransition();
     useEffect(() => {
-        if (readerEditRef.current) return;
+        if (reader.frozen) return;
         startBodyTransition(() => setRendered({ body: renderBody, content }));
         // `content` rides along only to report what was rendered.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1529,33 +1487,48 @@ function MarkdownPreviewImpl({
                 // Focusable (not in the Tab order) so Space / PageDown /
                 // arrows scroll the reader after a tab switch. FOCUS-01.
                 tabIndex={-1}
+                onKeyDown={(event) => {
+                    if (reader.active && !(event.target as HTMLElement).closest("input,textarea,select") && matchesBinding(event.nativeEvent, "link")) {
+                        event.preventDefault(); openReaderLink();
+                    } else reader.keyDown(event);
+                }}
                 className="flex-1 overflow-y-auto bg-[var(--bg-primary)] transition-colors outline-none"
             >
-                {allowReaderEditing && onContentChange && <div className="sticky top-0 z-10 px-4 py-2 bg-[var(--bg-primary)] border-b border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] flex flex-wrap gap-3 items-center">
+                {allowReaderEditing && onContentChange && <div className="reader-edit-toolbar sticky top-0 z-10 px-4 py-2 bg-[var(--bg-primary)] border-b border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] flex flex-wrap gap-2 items-center">
                     <button aria-pressed={readerEditing} onClick={() => {
                         const enabled = !readerEditing;
                         setReaderEditing(enabled);
                         window.dispatchEvent(new CustomEvent("paperling:reader-editing-toggle", { detail: { enabled } }));
                     }}>{readerEditing ? "Stop editing Reader" : "Edit Reader"}</button>
-                    {readerEditing && !editingBlock && <span>Double-click a text block to edit.</span>}
-                    {editingBlock && <>
-                        {["bold", "italic", "strikeThrough", "undo", "redo"].map((command) => <button key={command} onMouseDown={(event) => event.preventDefault()} aria-label={`Reader ${command}`} onClick={() => {
-                            readerEditRef.current?.element.focus();
-                            // Browser commands retain native undo history (READ-02).
-                            document.execCommand(command);
-                            writeReaderEdit();
-                        }}>{command === "strikeThrough" ? "Strike" : command[0].toUpperCase() + command.slice(1)}</button>)}
-                        <button onClick={() => endReaderEdit()}>Done</button>
-                        <button onClick={() => {
-                            const edit = readerEditRef.current;
-                            if (edit && edit.lastDocument === contentRef.current) {
-                                const reverted = applyReaderEdit(edit.lastDocument, edit.range, edit.original);
-                                if (reverted != null) { contentRef.current = reverted; onContentChange(reverted); }
-                            }
-                            endReaderEdit();
-                        }}>Undo block changes</button>
+                    {readerEditing && !editingBlock && <span>Click text to edit.</span>}
+                    {readerEditing && <>
+                        <button aria-label="Reader undo" disabled={!reader.canUndo} onMouseDown={(event) => event.preventDefault()} onClick={() => reader.undo()}>Undo</button>
+                        <button aria-label="Reader redo" disabled={!reader.canRedo} onMouseDown={(event) => event.preventDefault()} onClick={() => reader.undo(true)}>Redo</button>
+                        <button onClick={reader.appendParagraph}>Add paragraph</button>
                     </>}
-                    {readerNotice && <span role="status">{readerNotice}</span>}
+                    {editingBlock && <>
+                        {reader.styleOptions.length > 0 && <select aria-label="Reader text style" disabled={reader.styleOptions.length === 1} value={reader.active!.element.tagName} onChange={(event) => reader.style(event.target.value)}>
+                            {reader.styleOptions.map((tag) => <option key={tag} value={tag}>{tag === "P" ? "Paragraph" : tag === "UL" ? "Bulleted list" : tag === "OL" ? "Numbered list" : tag === "BLOCKQUOTE" ? "Quote" : `Heading ${tag[1]}`}</option>)}
+                        </select>}
+                        {["bold", "italic", "strikeThrough"].map((command) => <button key={command} onMouseDown={(event) => event.preventDefault()} aria-label={`Reader ${command}`} onClick={() => reader.command(command)}>{command === "strikeThrough" ? "Strike" : command[0].toUpperCase() + command.slice(1)}</button>)}
+                        <button aria-label="Reader inline code" title="Select text to format as inline code" onMouseDown={(event) => event.preventDefault()} onClick={reader.inlineCode}>Code</button>
+                        <button aria-label="Reader link" onMouseDown={(event) => event.preventDefault()} onClick={openReaderLink}>Link</button>
+                        <button onClick={reader.finish}>Done</button>
+                        <button onClick={reader.rollback}>Undo block changes</button>
+                    </>}
+                    {readerLink !== null && editingBlock && <form className="flex flex-wrap items-center gap-2 w-full" onSubmit={(event) => {
+                        event.preventDefault();
+                        const url = readerLink.trim();
+                        if (url && (!defaultUrlTransform(url) || /[\u0000-\u001f]/.test(url))) { setReaderLinkError("Use a web, email, or note link."); return; }
+                        reader.command(url ? "createLink" : "unlink", url);
+                        setReaderLink(null);
+                    }}>
+                        <input autoFocus aria-label="Reader link URL" placeholder="https://example.com or note.md" value={readerLink} onChange={(event) => { setReaderLink(event.target.value); setReaderLinkError(""); }} className="min-w-0 flex-1 px-2 py-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-[var(--text-primary)]" />
+                        <button type="submit">Apply link</button>
+                        <button type="button" onClick={() => setReaderLink(null)}>Cancel</button>
+                        {readerLinkError && <span role="alert">{readerLinkError}</span>}
+                    </form>}
+                    {reader.notice && <span role="status">{reader.notice}</span>}
                 </div>}
                 <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 pt-12 pb-28`}>
                     {hasFrontmatter && (
@@ -1572,23 +1545,20 @@ function MarkdownPreviewImpl({
                         className="markdown-body"
                         ref={markdownBodyRef}
                         dir={textDirection === "auto" ? undefined : textDirection}
-                        onDoubleClick={(event) => beginReaderEdit(event.target as HTMLElement)}
-                        onInput={() => writeReaderEdit()}
+                        onPointerDown={(event) => reader.begin(event.target as HTMLElement, { x: event.clientX, y: event.clientY })}
+                        onDoubleClick={(event) => reader.begin(event.target as HTMLElement)}
+                        onFocus={(event) => reader.begin(event.target as HTMLElement)}
+                        onInput={() => reader.write()}
                         onPaste={(event) => {
-                            if (!readerEditRef.current) return;
+                            if (!reader.active) return;
                             event.preventDefault();
-                            document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
-                            writeReaderEdit();
+                            reader.command("insertText", event.clipboardData.getData("text/plain"));
                         }}
-                        onDrop={(event) => { if (readerEditRef.current) event.preventDefault(); }}
-                        onKeyDown={(event) => {
-                            if (readerEditing && !readerEditRef.current && event.key === "Enter") {
-                                event.preventDefault(); beginReaderEdit(event.target as HTMLElement);
-                            }
-                            if (readerEditRef.current && event.key === "Escape") { event.stopPropagation(); event.preventDefault(); endReaderEdit(); }
-                        }}
+                        onDrop={(event) => { if (reader.active) event.preventDefault(); }}
                         onClickCapture={(event) => {
-                            if (!readerEditRef.current) return;
+                            if (!readerEditing) return;
+                            if ((event.target as HTMLElement).closest("a")) { event.preventDefault(); event.stopPropagation(); }
+                            if (!reader.active) return;
                             if ((event.target as HTMLElement).closest("a, button, input")) event.preventDefault();
                             event.stopPropagation();
                         }}
@@ -1614,13 +1584,14 @@ function MarkdownPreviewImpl({
                                 </div>
                             ))
                         ) : (
-                            <MarkdownBlock
-                                key={readerRevision}
-                                text={renderedBody}
-                                remarkPlugins={remarkPlugins}
-                                rehypePlugins={rehypePlugins}
-                                components={components}
-                            />
+                            <div key={readerRevision} className="md-whole">
+                                <MarkdownBlock
+                                    text={renderedBody}
+                                    remarkPlugins={remarkPlugins}
+                                    rehypePlugins={rehypePlugins}
+                                    components={components}
+                                />
+                            </div>
                         )}
                     </div>
                 </div>
