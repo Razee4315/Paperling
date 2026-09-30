@@ -122,10 +122,13 @@ packaging/
 
 File: [`flake.nix`](../flake.nix) (issue #117).
 
-Builds the full app (frontend via `bun`, Rust crate via
+Builds the full app on **x86_64 Linux** (frontend via `bun`, Rust crate via
 `rustPlatform.buildRustPackage`) against the GTK/WebKit stack from nixpkgs.
-Verified in CI by `.github/workflows/nix-build.yml` on every `flake.nix` or
-Cargo lock change.
+Verified in CI by `.github/workflows/nix-build.yml` on flake, frontend lockfile,
+package version, and Cargo lock changes, including pull requests. The version
+comes from `package.json`; dependency hashes are verified against the frozen
+lockfile. Other architectures are not advertised until their closure is pinned
+and compiled in CI.
 
 ```sh
 # run it
@@ -135,5 +138,16 @@ nix run github:Razee4315/Paperling
 nix build github:Razee4315/Paperling#paperling
 ```
 
-A `flake.lock` is intentionally not committed; Nix generates one on first
-use. Pin by setting an input URL with a rev if you need reproducibility.
+A `flake.lock` is generated on first use. The two top-level input URLs already
+pin exact upstream revisions, so they do not drift with an unstable channel.
+
+## Publication status, checked 2026-09-30 (#212)
+
+The Scoop portable-zip and Homebrew universal-DMG hashes match the GitHub
+digests for v1.0.51. They are prepared manifests, **not published registry
+entries**. No `scoop-bucket` or `homebrew-tap` exists under the owner account
+at this audit. apt requires a signing identity and a chosen repository host;
+F-Droid requires a reviewed source build recipe and its own publication/signing
+process. App releases remain owner-triggered. This branch repairs Nix and
+provides verified manifests; it does not create registry repositories, signing
+keys, or releases on the owner's behalf.

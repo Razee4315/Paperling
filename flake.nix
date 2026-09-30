@@ -11,7 +11,9 @@
     , nixpkgs
     , flake-utils
     }:
-    flake-utils.lib.eachDefaultSystem (system:
+    # PKG-01: only advertise the platform whose dependency closure is pinned
+    # and verified. Other systems need their own hash and build validation.
+    flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         isLinux = pkgs.stdenv.isLinux;
@@ -23,7 +25,7 @@
         # result is pinned by hash). Add a platform by building once and
         # copying the `got: sha256-...` line nix prints.
         bunDepsHashes = {
-          x86_64-linux = "sha256-cK1j7KWB9/tNJI9L0eRx3CCk36mwjp0/cy3qwaUh9BE=";
+          x86_64-linux = "sha256-EO4Qx8J7XVWUEDhRlGVd+LPdXboT7R6MMO9xojPRN2E=";
         };
 
         # Dependency fetch (fixed-output, so the sandbox grants network).
@@ -152,7 +154,7 @@
             homepage = "https://github.com/Razee4315/Paperling";
             license = licenses.asl20;
             mainProgram = pname;
-            platforms = platforms.linux ++ platforms.darwin;
+            platforms = [ "x86_64-linux" ];
           };
         };
 
