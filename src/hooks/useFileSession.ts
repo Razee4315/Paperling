@@ -15,6 +15,7 @@ import {
   addRecentFile,
   getLastFile,
   getOpenInReader,
+  getReopenSession,
   getRecentFiles,
   getSession,
   setLastFile,
@@ -1084,7 +1085,8 @@ export function useFileSession({
       }
       // Prefer the full saved session (TABS-07); fall back to lastFile for
       // sessions saved before multi-tab restore existed.
-      const session = getSession();
+      const reopenSession = getReopenSession();
+      const session = reopenSession ? getSession() : null;
       const cursorByPath = new Map<string, number | undefined>();
       let paths: string[] = [];
       let activePath: string | null = null;
@@ -1093,7 +1095,7 @@ export function useFileSession({
         session.tabs.forEach((tab) => cursorByPath.set(tab.path, tab.cursorLine));
         activePath = session.tabs[session.activeIndex]?.path ?? paths[0] ?? null;
       } else {
-        const lastFile = getLastFile();
+        const lastFile = reopenSession ? getLastFile() : null;
         if (lastFile) {
           paths = [lastFile];
           activePath = lastFile;
@@ -1126,7 +1128,11 @@ export function useFileSession({
       const loaded: TabState[] = [];
       let activeId: string | null = null;
       let recoveredCount = 0;
-      for (const path of paths) {
+      // BOOT-03: read the requested/active file first and paint it before
+      // reading heavy background tabs. Keep booting=true until recovery is
+      // complete so persistence cannot erase backups still waiting on disk.
+      const readOrder = activePath ? [activePath, ...paths.filter((p) => p !== activePath)] : paths;
+      for (const path of readOrder) {
         try {
           const fileData = await readTextFile<FileData>(path);
           const id = newTabId();
@@ -1155,7 +1161,28 @@ export function useFileSession({
             cursorLine: backup?.cursorLine ?? cursorByPath.get(path),
           });
           if (path === activePath) activeId = id;
+          if (path === activePath && tabsRef.current.length === 0) {
+            const first = loaded[loaded.length - 1];
+            commitTabs([first]);
+            setActiveTab(id);
+            applyTabToLive(first);
+            if (getOpenInReader()) setMode("preview");
+            // Allow a frame before starting background IO, even when a test
+            // backend or disk cache resolves every read synchronously.
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          }
         } catch (error) {
+          const backup = backupByPath.get(path);
+          if (backup) {
+            // HOT-05: a missing/unreadable disk file must not take its backup
+            // with it. Recover as an untitled buffer; Save asks for a path.
+            recoveredCount += 1;
+            const id = newTabId();
+            loaded.push({ id, filePath: null, fileName: backup.fileName, content: backup.content,
+              originalContent: backup.originalContent, fileSize: new TextEncoder().encode(backup.content).length,
+              knownMtime: 0, cursorLine: backup.cursorLine });
+            if (path === activePath) activeId = id;
+          }
           const message = errMessage(error);
           if (forcedFile && path === forcedFile) showToast(`Could not open file: ${message || path}`, "error");
           else if (/too large/i.test(message)) showToast(`Could not restore "${path}": ${message}`, "error");
@@ -1202,7 +1229,13 @@ export function useFileSession({
       if (tabsRef.current.length > 0) {
         snapshotActiveTab();
         const fresh = loaded.filter((tab) => !tab.filePath || !findTabByPath(tabsRef.current, tab.filePath));
-        commitTabs([...fresh, ...tabsRef.current]);
+        const merged = [...fresh, ...tabsRef.current];
+        // Retain the original tab-strip order despite active-first reads.
+        merged.sort((a, b) => {
+          const index = (tab: TabState) => tab.filePath ? paths.indexOf(tab.filePath) : paths.length;
+          return index(a) - index(b);
+        });
+        commitTabs(merged);
         setBooting(false);
         return;
       }

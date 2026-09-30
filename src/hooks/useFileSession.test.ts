@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import { invoke } from "@tauri-apps/api/core";
 
 import { __resetBootForTests, useFileSession, type UseFileSessionOptions } from "./useFileSession";
+import { setReopenSession } from "../utils/persistence";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
@@ -255,5 +256,52 @@ describe("useFileSession crash recovery (HOT-02/04)", () => {
     expect(result.current.isDirty).toBe(true);
     expect(result.current.conflictPrompt?.fileName).toBe("a.md");
     expect(result.current.isAutosaveParked("C:/a.md")).toBe(true);
+  });
+
+  it("skips clean session tabs when disabled but always recovers unsaved work (#228)", async () => {
+    setReopenSession(false);
+    localStorage.setItem("paperling:session", JSON.stringify({ tabs: [{ path: "C:/b.md" }], activeIndex: 0 }));
+    seedBackup("alpha");
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    await waitFor(() => expect(result.current.booting).toBe(false));
+    expect(result.current.tabs.map((t) => t.filePath)).toEqual(["C:/a.md"]);
+    expect(result.current.isDirty).toBe(true);
+    expect(invoke).not.toHaveBeenCalledWith("read_file", { path: "C:/b.md" });
+  });
+
+  it("shows the CLI file while a heavy background tab is still loading (#228)", async () => {
+    localStorage.setItem("paperling:session", JSON.stringify({ tabs: [{ path: "C:/a.md" }], activeIndex: 0 }));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "get_cli_file") return "C:/b.md";
+      if (command === "read_file") {
+        const path = (args as { path: string }).path;
+        if (path === "C:/a.md") await gate;
+        return files.get(path);
+      }
+      return 30;
+    });
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    await waitFor(() => expect(result.current.content).toBe("bravo"));
+    expect(result.current.booting).toBe(true);
+    act(() => result.current.setContent("edited during restore"));
+    await act(async () => { release(); });
+    await waitFor(() => expect(result.current.booting).toBe(false));
+    expect(result.current.content).toBe("edited during restore");
+    expect(result.current.tabs.map((t) => t.filePath)).toEqual(["C:/a.md", "C:/b.md"]);
+  });
+
+  it("recovers a backup with an unreadable disk path as a dirty untitled buffer (HOT-05)", async () => {
+    seedBackup("alpha");
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "read_file") throw new Error("file missing");
+      return null;
+    });
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    await waitFor(() => expect(result.current.booting).toBe(false));
+    expect(result.current.content).toBe("alpha plus unsaved work");
+    expect(result.current.filePath).toBeNull();
+    expect(result.current.isDirty).toBe(true);
   });
 });

@@ -18,6 +18,7 @@ import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
 import { wikilinkLabel } from "../utils/wikilinkAnchor";
 import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
 import { splitMarkdownBlocks } from "../utils/markdownBlocks";
+import { getRemoteImages } from "../utils/persistence";
 
 // Detect KaTeX-style math so we only load the heavy katex bundle when needed.
 // $$...$$ for block math, $...$ for inline math (not preceded/followed by digit
@@ -404,9 +405,21 @@ function isUnsafeRelativePath(p: string): boolean {
 function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string; baseDir: string | null } & React.ImgHTMLAttributes<HTMLImageElement>) {
     const [imageSrc, setImageSrc] = useState<string>('');
     const [error, setError] = useState(false);
+    const [remoteEnabled, setRemoteEnabled] = useState(getRemoteImages);
+    const [approvedSrc, setApprovedSrc] = useState<string | null>(null);
+    const remote = /^https:\/\//i.test(src);
+    const blocked = remote && !remoteEnabled && approvedSrc !== src;
 
     useEffect(() => {
-        if (!src) return;
+        const onToggle = () => { setRemoteEnabled(getRemoteImages()); setApprovedSrc(null); };
+        window.addEventListener("paperling:remote-images-toggle", onToggle);
+        return () => window.removeEventListener("paperling:remote-images-toggle", onToggle);
+    }, []);
+
+    useEffect(() => {
+        setImageSrc("");
+        setError(false);
+        if (!src || blocked) return;
 
         // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
         // resolve them as plain paths next to the document, like a text
@@ -419,7 +432,7 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
         // need the document's directory, so they must load even when no file
         // is on disk (browser mode / untitled buffer) — the old `!baseDir`
         // early-return left them as an eternal loading skeleton.
-        if (effective.includes('://') || effective.startsWith('data:')) {
+        if (/^https:\/\//i.test(effective) || /^data:image\//i.test(effective)) {
             setImageSrc(src);
             setError(false);
             return;
@@ -463,7 +476,16 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             // Don't revoke the URL — the cache owns it. Cache eviction handles
             // revocation when the entry is pushed out by LRU pressure.
         };
-    }, [src, baseDir]);
+    }, [src, baseDir, blocked]);
+
+    // IMG-03 (#224): HTTPS is permitted by CSP, with a per-image opt-in when
+    // automatic loading is off. Plain HTTP remains blocked in every build.
+    if (blocked) return (
+        <span className="inline-flex gap-2 items-center p-2 border border-[var(--border)] rounded-lg">
+            <span>Remote image: {alt}</span>
+            <button type="button" onClick={() => setApprovedSrc(src)} className="underline">Load image</button>
+        </span>
+    );
 
     if (error) {
         return (

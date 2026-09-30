@@ -6,7 +6,9 @@
 // the rendered document — is what keeps clicks working in the app and links
 // working in exported HTML, regardless of prefix policy.
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, cleanup, waitFor } from "@testing-library/react";
+import { render, cleanup, waitFor, fireEvent, screen, act } from "@testing-library/react";
+import { setRemoteImages } from "../utils/persistence";
+import config from "../../src-tauri/tauri.conf.json";
 import { MarkdownPreview, sourceLineOf } from "./MarkdownPreview";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -15,7 +17,35 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }));
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); });
+
+describe("remote images (#224)", () => {
+    it("allows HTTPS images in release and dev CSP while leaving HTTP out", () => {
+        for (const policy of [config.app.security.csp, config.app.security.devCsp]) {
+            const directive = policy.split(";").find((d) => d.trim().startsWith("img-src"))!;
+            expect(directive).toContain("https:");
+            expect(directive).not.toMatch(/(?:^|\s)http:/);
+        }
+    });
+    it("shows a placeholder without requesting an image when loading is disabled", async () => {
+        setRemoteImages(false);
+        const { container } = renderPreview("![Badge](https://example.com/badge.svg)");
+        const load = await screen.findByRole("button", { name: "Load image" });
+        expect(container.querySelector('img[src="https://example.com/badge.svg"]')).toBeNull();
+        fireEvent.click(load);
+        await waitFor(() => expect(container.querySelector('img[src="https://example.com/badge.svg"]')).toBeTruthy());
+        act(() => {
+            setRemoteImages(false);
+            window.dispatchEvent(new CustomEvent("paperling:remote-images-toggle"));
+        });
+        expect(container.querySelector('img[src="https://example.com/badge.svg"]')).toBeNull();
+    });
+    it("loads HTTPS by default and rejects plain HTTP", async () => {
+        const { container } = renderPreview("![Badge](https://example.com/badge.svg)\n\n![Unsafe](http://example.com/pixel.gif)");
+        await waitFor(() => expect(container.querySelector('img[src="https://example.com/badge.svg"]')).toBeTruthy());
+        expect(container.querySelector('img[src^="http:"]')).toBeNull();
+    });
+});
 
 function renderPreview(content: string, extraProps: Record<string, unknown> = {}) {
     return render(
