@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyReaderEdit, readerEditRange, readerHtmlToMarkdown } from "./readerEdits";
 
-describe("Reader block edits (READ-01)", () => {
+describe("Reader block edits (READ-02)", () => {
     it("changes only the selected duplicate paragraph, preserving CRLF, frontmatter and diagrams", () => {
         const original = "---\r\ntitle: Keep\r\n---\r\n\r\nsame **text**\r\n\r\nsame **text**\r\n\r\n```mermaid\r\ngraph TD; A-->B\r\n```\r\n";
         const range = readerEditRange(original, 7, 7, "P")!;

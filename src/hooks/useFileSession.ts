@@ -1174,7 +1174,7 @@ export function useFileSession({
         } catch (error) {
           const backup = backupByPath.get(path);
           if (backup) {
-            // HOT-05: a missing/unreadable disk file must not take its backup
+            // HOT-06: a missing/unreadable disk file must not take its backup
             // with it. Recover as an untitled buffer; Save asks for a path.
             recoveredCount += 1;
             const id = newTabId();

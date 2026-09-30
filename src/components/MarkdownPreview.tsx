@@ -1541,7 +1541,7 @@ function MarkdownPreviewImpl({
                     {editingBlock && <>
                         {["bold", "italic", "strikeThrough", "undo", "redo"].map((command) => <button key={command} onMouseDown={(event) => event.preventDefault()} aria-label={`Reader ${command}`} onClick={() => {
                             readerEditRef.current?.element.focus();
-                            // Browser commands retain native undo history (READ-01).
+                            // Browser commands retain native undo history (READ-02).
                             document.execCommand(command);
                             writeReaderEdit();
                         }}>{command === "strikeThrough" ? "Strike" : command[0].toUpperCase() + command.slice(1)}</button>)}

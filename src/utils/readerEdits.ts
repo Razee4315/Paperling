@@ -5,7 +5,7 @@ converter.addRule("strike", { filter: ["del", "s"], replacement: (text) => `~~${
 
 export interface ReaderEditRange { start: number; end: number; source: string }
 
-/** READ-01 (#213): edit one source-addressed text block. Extended syntax and
+/** READ-02 (#213): edit one source-addressed text block. Extended syntax and
  * embedded media remain read-only rather than being flattened by HTML export.
  * Every byte outside the chosen block, including frontmatter, stays intact. */
 export function readerEditRange(document: string, startLine: number, endLine: number, tag: string): ReaderEditRange | null {
