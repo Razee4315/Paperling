@@ -145,8 +145,33 @@ function searchIn(query: string, caseSensitive: boolean, wholeWord: boolean, dir
     return out;
 }
 
+let aiFixture = "prose";
+const aiRequests = new Map<number, AbortController>();
+
 async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
     switch (cmd) {
+        case "ai_cancel": aiRequests.get(a.id)?.abort(); return null;
+        case "ai_request": {
+            const ctrl = new AbortController();
+            aiRequests.set(a.id, ctrl);
+            const body = JSON.parse(a.body);
+            const request = body.messages.at(-1)?.content ?? "";
+            const original = request.match(/<document>\n([\s\S]*?)\n<\/document>/)?.[1];
+            const reply = aiFixture === "edit" && original
+                ? `<<<<<<< SEARCH\n${original}\n=======\n${original}\n\nImproved by the browser AI fixture.\n>>>>>>> REPLACE`
+                : "# Fixture reply\n\nA streamed response for the browser test.";
+            a.channel.onmessage({ type: "status", status: 200 });
+            try {
+                for (const delta of reply.match(/.{1,12}/gs) ?? []) {
+                    if (ctrl.signal.aborted) throw "cancelled";
+                    a.channel.onmessage({ type: "chunk", data: `data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n` });
+                    await new Promise((resolve) => setTimeout(resolve, aiFixture === "slow" ? 800 : 30));
+                }
+                if (ctrl.signal.aborted) throw "cancelled";
+                a.channel.onmessage({ type: "done" });
+                return null;
+            } finally { aiRequests.delete(a.id); }
+        }
         case "read_file": {
             const k = find(a.path) ?? err(`File not found: ${a.path}`);
             const f = disk[k];
@@ -311,6 +336,16 @@ export function installFakeTauri(): void {
         const [use, drop] = panel.querySelectorAll("button");
         use.onclick = () => { hooks.nextOpen = input.value; hooks.nextSave = input.value; };
         drop.onclick = () => hooks.emit("tauri://drag-drop", { paths: [input.value] });
+        const label = document.createElement("label");
+        label.textContent = "AI fixture ";
+        const select = document.createElement("select");
+        select.setAttribute("aria-label", "AI fixture response");
+        for (const value of ["prose", "edit", "slow"]) {
+            const option = document.createElement("option");
+            option.value = value; option.textContent = value; select.append(option);
+        }
+        select.onchange = () => { aiFixture = select.value; };
+        label.append(select); panel.append(label);
         document.body.append(panel);
     }
     w.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
@@ -326,7 +361,7 @@ export function installFakeTauri(): void {
         unregisterCallback(id: number) { callbacks.delete(id); },
         convertFileSrc(p: string) { return p; },
         async invoke(cmd: string, args: Record<string, unknown> = {}) {
-            hooks.log.push({ cmd, args });
+            hooks.log.push({ cmd, args: cmd === "ai_request" ? { ...args, apiKey: "[redacted]" } : args });
             if (hooks.log.length > 200) hooks.log.shift();
             await new Promise((r) => setTimeout(r, hooks.latencyMs));
             return handle(cmd, args as Record<string, any>);

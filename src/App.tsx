@@ -2262,6 +2262,8 @@ function AppContent() {
                 selectionText={content.slice(selectionRange.start, selectionRange.end)}
                 aiConfig={aiConfig}
                 onProposeEdit={handleProposeEdit}
+                onDiscardEdit={clearReview}
+                docKey={activeTabId}
                 width={aiPanelWidth}
                 maxWidth={rightPanelWidth}
                 onWidthChange={setAiPanelWidth}
