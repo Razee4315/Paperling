@@ -240,11 +240,11 @@ const ACTIVITY_BODY = `\
       }
 
       @android.webkit.JavascriptInterface
-      fun saveToDownloads(name: String, content: String, mime: String) {
+      fun saveToDownloads(name: String, content: String, mime: String, requestId: String) {
         runOnUiThread {
           if (isAppOrigin(findWebView(window.decorView))) {
             // Validate on UI, write off UI, deliver the result back on UI.
-            Thread { performSaveToDownloads(name, content, mime) }.start()
+            Thread { performSaveToDownloads(name, content, mime, requestId) }.start()
           }
         }
       }
@@ -309,7 +309,7 @@ const ACTIVITY_BODY = `\
   // path the Rust file commands can read (reopen, recents, autosave).
   // mime carries the file's type so exported HTML (unlike notes) opens in a
   // browser; anything blank or odd falls back to text/markdown.
-  private fun performSaveToDownloads(rawName: String, content: String, rawMime: String) {
+  private fun performSaveToDownloads(rawName: String, content: String, rawMime: String, requestId: String) {
     try {
       if (android.os.Build.VERSION.SDK_INT < 29) throw IllegalStateException("Needs Android 10+")
       val safe = rawName.replace(Regex("[/\\\\\\\\:*?\\"<>|]"), "_")
@@ -330,12 +330,12 @@ const ACTIVITY_BODY = `\
       val cache = File(dir, actualName)
       cache.writeText(content, Charsets.UTF_8)
       val js = "window.__paperlingOnSaveResult && window.__paperlingOnSaveResult(true, " +
-        JSONObject.quote(cache.absolutePath) + ", " + JSONObject.quote(actualName) + ")"
+        JSONObject.quote(cache.absolutePath) + ", " + JSONObject.quote(actualName) + ", " + JSONObject.quote(requestId) + ")"
       runOnUiThread { webviewEval(js) }
     } catch (e: Exception) {
       android.util.Log.e("Paperling", "Save to Downloads failed", e)
       val js = "window.__paperlingOnSaveResult && window.__paperlingOnSaveResult(false, " +
-        JSONObject.quote(e.message ?: "Save failed") + ", null)"
+        JSONObject.quote(e.message ?: "Save failed") + ", null, " + JSONObject.quote(requestId) + ")"
       runOnUiThread { webviewEval(js) }
     }
   }
