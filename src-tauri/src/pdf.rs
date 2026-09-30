@@ -190,7 +190,65 @@ fn wait_for_written_file(path: &std::path::Path) -> Result<(), String> {
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn cleanup(window: tauri::WebviewWindow, temp: &std::path::Path) {
     let _ = window.close();
-    let _ = std::fs::remove_file(temp);
+    // PDF-02 (#214, approach from #215): WebView2 releases its file handle
+    // asynchronously after close. Retry on a worker so cleanup never blocks
+    // the UI or leaves each exported document in Temp after one sharing error.
+    let temp = temp.to_path_buf();
+    std::thread::spawn(move || {
+        if let Err(error) = retry_temp_cleanup(
+            || std::fs::remove_file(&temp),
+            || std::thread::sleep(std::time::Duration::from_millis(100)),
+        ) {
+            eprintln!("PDF temporary file cleanup failed: {error}");
+        }
+    });
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
+fn retry_temp_cleanup(
+    mut remove: impl FnMut() -> std::io::Result<()>,
+    mut wait: impl FnMut(),
+) -> std::io::Result<()> {
+    for attempt in 0..20 {
+        match remove() {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) if attempt == 19 => return Err(e),
+            Err(_) => wait(),
+        }
+    }
+    unreachable!("bounded cleanup loop always returns")
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::retry_temp_cleanup;
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn retries_a_locked_file_then_succeeds() {
+        let mut calls = 0;
+        let mut waits = 0;
+        retry_temp_cleanup(|| {
+            calls += 1;
+            if calls < 3 { Err(Error::from(ErrorKind::PermissionDenied)) } else { Ok(()) }
+        }, || waits += 1).unwrap();
+        assert_eq!((calls, waits), (3, 2));
+    }
+
+    #[test]
+    fn already_removed_is_success_without_waiting() {
+        retry_temp_cleanup(|| Err(Error::from(ErrorKind::NotFound)), || panic!("unexpected wait")).unwrap();
+    }
+
+    #[test]
+    fn persistent_failure_is_bounded_and_reported() {
+        let mut calls = 0;
+        let mut waits = 0;
+        let result = retry_temp_cleanup(|| { calls += 1; Err(Error::from(ErrorKind::PermissionDenied)) }, || waits += 1);
+        assert!(result.is_err());
+        assert_eq!((calls, waits), (20, 19));
+    }
 }
 
 /// Drive WebView2's native `PrintToPdf` to `path` and block (pumping the message
