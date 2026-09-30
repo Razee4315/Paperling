@@ -108,7 +108,11 @@ const ACTIVITY_BODY = `\
           or WindowInsetsCompat.Type.displayCutout()
           or WindowInsetsCompat.Type.navigationBars()
       )
-      v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+      // IME-01 (#252): consuming these insets hides them from the WebView.
+      // Reserve the keyboard here too so its viewport actually shrinks; CSS
+      // measures zero overlay inset on this path and never subtracts twice.
+      val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+      v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
       WindowInsetsCompat.CONSUMED
     }
   }
@@ -171,7 +175,8 @@ const ACTIVITY_BODY = `\
     if (web == null) return false
     val url = web.url ?: return false
     if (url == "about:blank") return true
-    return url.startsWith("https://tauri.localhost") || url.startsWith("http://tauri.localhost")
+    val uri = Uri.parse(url)
+    return (uri.scheme == "https" || uri.scheme == "http") && uri.host == "tauri.localhost"
   }
 
   // ==== Web <-> native bridge ====
@@ -222,15 +227,26 @@ const ACTIVITY_BODY = `\
       fun openDocument() {
         // Origin re-check at entry: a page that navigated away after attach
         // must not be able to drive native actions.
-        if (!isAppOrigin(findWebView(window.decorView))) return
-        runOnUiThread { launchDocumentPicker() }
+        // SAF-01 (#253/#254): JavascriptInterface runs on a bridge thread.
+        // Reading WebView.url there throws before the action can run. Both
+        // hierarchy lookup and origin validation belong on the UI thread.
+        runOnUiThread {
+          if (isAppOrigin(findWebView(window.decorView))) {
+            try { launchDocumentPicker() } catch (e: Exception) {
+              reportPickerError(e.message ?: "Could not open the system file picker")
+            }
+          }
+        }
       }
 
       @android.webkit.JavascriptInterface
       fun saveToDownloads(name: String, content: String, mime: String) {
-        // Runs on the JS bridge thread — do the IO here, report on the UI one.
-        if (!isAppOrigin(findWebView(window.decorView))) return
-        performSaveToDownloads(name, content, mime)
+        runOnUiThread {
+          if (isAppOrigin(findWebView(window.decorView))) {
+            // Validate on UI, write off UI, deliver the result back on UI.
+            Thread { performSaveToDownloads(name, content, mime) }.start()
+          }
+        }
       }
     }, "PaperlingAndroid")
     // Only pages loaded after addJavascriptInterface see it. If the app page
@@ -280,6 +296,11 @@ const ACTIVITY_BODY = `\
       type = "*/*"
     }
     startActivityForResult(intent, requestOpenDocument)
+  }
+
+  private fun reportPickerError(message: String) {
+    webviewEval("window.dispatchEvent(new CustomEvent('paperling:device-file-error', {detail: {message: " +
+      JSONObject.quote(message) + "}}))")
   }
 
   // "Save to Downloads": write into the shared Downloads collection via
@@ -344,6 +365,7 @@ const ACTIVITY_BODY = `\
       webviewEval(js)
     } catch (e: Exception) {
       android.util.Log.e("Paperling", "Failed to import the picked file", e)
+      reportPickerError(e.message ?: "Could not read the selected file")
       webviewEval("window.__paperlingPickDone && window.__paperlingPickDone(false)")
     }
   }

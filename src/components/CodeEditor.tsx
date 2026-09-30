@@ -588,7 +588,6 @@ function CodeEditorImpl({
             }
         });
 
-        // Ctrl/Cmd+click follows the link under the pointer (NAV-11); while
         // the modifier is held, links show a pointer cursor as the hint.
         const modHeld = (e: MouseEvent) => (isMac ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey;
         const linkUnder = (view: EditorView, e: MouseEvent) => {
@@ -1200,6 +1199,30 @@ function CodeEditorImpl({
             window.removeEventListener("paperling:open-find", openFind);
             window.removeEventListener("paperling:open-replace", openReplace);
             window.removeEventListener("paperling:close-find", closeFind);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!IS_MOBILE) return;
+        let frame = 0;
+        const revealCaret = () => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(() => {
+                const view = viewRef.current;
+                if (!view?.hasFocus) return;
+                view.requestMeasure();
+                view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head,
+                    { y: "nearest", yMargin: 24 }) });
+            });
+        };
+        // IME-02 (#252): reveal the caret after the keyboard changes geometry,
+        // including adjustResize where the measured overlay inset is zero.
+        window.addEventListener("paperling:keyboard-resize", revealCaret);
+        window.addEventListener("resize", revealCaret);
+        return () => {
+            cancelAnimationFrame(frame);
+            window.removeEventListener("paperling:keyboard-resize", revealCaret);
+            window.removeEventListener("resize", revealCaret);
         };
     }, []);
 

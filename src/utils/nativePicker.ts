@@ -33,8 +33,12 @@ function getBridge(): PaperlingBridge | undefined {
 export function openSystemFilePicker(): boolean {
     const bridge = getBridge();
     if (!bridge?.openDocument) return false;
-    bridge.openDocument();
-    return true;
+    try {
+        bridge.openDocument();
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -56,20 +60,27 @@ export interface DownloadsSaveResult {
 }
 
 /** Resolves the Kotlin side's one-shot __paperlingOnSaveResult callback. */
-function waitSaveResult(): Promise<DownloadsSaveResult> {
+let savePending = false;
+function waitSaveResult(start: () => void): Promise<DownloadsSaveResult> {
     return new Promise((resolve) => {
         const w = window as unknown as {
             __paperlingOnSaveResult?: (ok: boolean, a: string | null, b: string | null) => void;
         };
-        const timer = window.setTimeout(() => {
-            w.__paperlingOnSaveResult = undefined;
-            resolve({ ok: false, error: "Saving to Downloads timed out" });
-        }, 15_000);
-        w.__paperlingOnSaveResult = (ok, a, b) => {
+        const finish = (result: DownloadsSaveResult) => {
             window.clearTimeout(timer);
             w.__paperlingOnSaveResult = undefined;
-            resolve(ok ? { ok: true, path: a ?? undefined, name: b ?? undefined } : { ok: false, error: a ?? "Save failed" });
+            savePending = false;
+            resolve(result);
         };
+        const timer = window.setTimeout(() => finish({ ok: false, error: "Saving to Downloads timed out" }), 15_000);
+        w.__paperlingOnSaveResult = (ok, a, b) => {
+            finish(ok ? { ok: true, path: a ?? undefined, name: b ?? undefined } : { ok: false, error: a ?? "Save failed" });
+        };
+        // SAF-02: install the callback BEFORE invoking native code, and clean
+        // it up on synchronous Java errors. A second save cannot steal it.
+        try { start(); } catch {
+            finish({ ok: false, error: "Could not start saving to Downloads. Try again or restart Paperling." });
+        }
     });
 }
 
@@ -80,8 +91,9 @@ export async function saveToDownloads(
 ): Promise<DownloadsSaveResult> {
     const bridge = getBridge();
     if (!bridge?.saveToDownloads) return { ok: false, error: "not-available" };
-    bridge.saveToDownloads(name, content, mime);
-    return waitSaveResult();
+    if (savePending) return { ok: false, error: "A Downloads save is already in progress" };
+    savePending = true;
+    return waitSaveResult(() => bridge.saveToDownloads!(name, content, mime));
 }
 
 export function downloadsSaveAvailable(): boolean {

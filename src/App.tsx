@@ -476,6 +476,12 @@ function AppContent() {
   }, [loadFile, closeAllPanels]);
 
   // Export HTML content ref - captures from visible preview
+  useEffect(() => {
+    const onDeviceError = (e: Event) => showToast((e as CustomEvent).detail?.message || "Could not open the selected file", "error");
+    window.addEventListener("paperling:device-file-error", onDeviceError);
+    return () => window.removeEventListener("paperling:device-file-error", onDeviceError);
+  }, [showToast]);
+
   const previewRef = useRef<HTMLDivElement>(null);
   // Reader-mode adapter for the shared FindBar. Stable identity (reads previewRef
   // at call time) so the bar's effects don't churn.
