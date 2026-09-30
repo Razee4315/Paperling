@@ -2187,7 +2187,9 @@ function AppContent() {
                   preferable to a spinner that pre-empts the layout. */}
               <Suspense fallback={null}>
                 <MarkdownPreview
-                  content={deferredContent}
+                  content={mode === "preview" ? content : deferredContent}
+                  liveContent={mode === "preview" ? content : undefined}
+                  allowReaderEditing={mode === "preview"}
                   docKey={activeTabId}
                   fileName={fileName || ""}
                   fileSize={fileSize}

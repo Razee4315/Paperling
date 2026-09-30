@@ -192,6 +192,8 @@ export const setReopenSession = (v: boolean): void => safeSet("paperling:reopenS
 
 export const getRemoteImages = (): boolean => safeGet<boolean>("paperling:remoteImages", true);
 export const setRemoteImages = (v: boolean): void => safeSet("paperling:remoteImages", v);
+export const getReaderEditing = (): boolean => safeGet<boolean>("paperling:readerEditing", false);
+export const setReaderEditing = (v: boolean): void => safeSet("paperling:readerEditing", v);
 
 export const getWorkspaceDirectory = (): string | null => {
     const v = safeGet<unknown>("paperling:workspaceDirectory", null);

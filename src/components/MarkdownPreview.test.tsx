@@ -10,6 +10,7 @@ import { render, cleanup, waitFor, fireEvent, screen, act } from "@testing-libra
 import { setRemoteImages } from "../utils/persistence";
 import config from "../../src-tauri/tauri.conf.json";
 import { MarkdownPreview, sourceLineOf } from "./MarkdownPreview";
+import { useState } from "react";
 
 vi.mock("@tauri-apps/api/core", () => ({
     invoke: vi.fn(async () => null),
@@ -58,6 +59,44 @@ function renderPreview(content: string, extraProps: Record<string, unknown> = {}
         />,
     );
 }
+
+describe("optional Reader editing (#213)", () => {
+    const original = "---\ntitle: Keep\n---\n\n# Heading\n\nPlain **text**.\n\n```diagram\ngraph TD; A-->B\n```\n";
+    function EditablePreview() {
+        const [content, setContent] = useState(original);
+        return <><output aria-label="Source Markdown">{content}</output><MarkdownPreview content={content} liveContent={content} fileName="test.md" fileSize={content.length} onEditClick={() => {}} onContentChange={setContent} docKey="a" /></>;
+    }
+    it("writes each input into the note, supports undoing the whole block and preserves other syntax", async () => {
+        render(<EditablePreview />);
+        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        fireEvent.doubleClick(screen.getByText("Plain", { exact: false, selector: "p" }));
+        const block = await screen.findByRole("textbox", { name: "Reader text block" });
+        block.innerHTML = "Updated <strong>text</strong>.";
+        fireEvent.input(block);
+        expect(screen.getByLabelText("Source Markdown").textContent).toBe(original.replace("Plain **text**.", "Updated **text**."));
+        expect(screen.getByRole("textbox", { name: "Reader text block" })).toBe(block);
+        block.innerHTML = "Updated again <strong>text</strong>.";
+        fireEvent.input(block);
+        expect(screen.getByLabelText("Source Markdown").textContent).toContain("Updated again **text**.");
+        fireEvent.click(screen.getByRole("button", { name: "Undo block changes" }));
+        expect(screen.getByLabelText("Source Markdown").textContent).toBe(original);
+        await waitFor(() => expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull());
+        expect(screen.getByText("Plain", { exact: false, selector: "p" })).toBeInTheDocument();
+    });
+    it("ends an edit on a tab switch and refuses specialized blocks", async () => {
+        const onChange = vi.fn();
+        const { rerender } = renderPreview("Plain text\n\n[[Other]]", { onContentChange: onChange, docKey: "a" });
+        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        fireEvent.doubleClick(screen.getByText("Other", { exact: true }));
+        expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull();
+        expect(screen.getByText(/specialized Markdown/)).toBeInTheDocument();
+        fireEvent.doubleClick(screen.getByText("Plain text", { exact: true }));
+        await screen.findByRole("textbox", { name: "Reader text block" });
+        rerender(<MarkdownPreview content="Another note" fileName="b.md" fileSize={12} onEditClick={() => {}} onContentChange={onChange} docKey="b" />);
+        expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull();
+        expect(onChange).not.toHaveBeenCalled();
+    });
+});
 
 describe("footnote links", () => {
     it("gives every footnote ref and back-arrow an href that resolves to a real id", async () => {
@@ -282,7 +321,7 @@ describe("block-by-block rendering (PERF-02)", () => {
         });
         const clone = body.cloneNode(true) as HTMLElement;
         clone.querySelectorAll(".md-block").forEach((w) => w.replaceWith(...Array.from(w.childNodes)));
-        clone.querySelectorAll("[data-source-line]").forEach((el) => el.removeAttribute("data-source-line"));
+        clone.querySelectorAll("[data-source-line]").forEach((el) => { el.removeAttribute("data-source-line"); el.removeAttribute("data-source-end-line"); });
         // react-markdown separates top-level elements with newline text
         // nodes; they don't render, and block boundaries naturally drop some.
         const html = clone.innerHTML.replace(/>\n+</g, "><");

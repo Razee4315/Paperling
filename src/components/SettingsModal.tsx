@@ -17,6 +17,7 @@ import {
     getOpenInReader, setOpenInReader,
     getReopenSession, setReopenSession,
     getRemoteImages, setRemoteImages,
+    getReaderEditing, setReaderEditing,
     getReadableLineLength, setReadableLineLength,
     getTextDirection, setTextDirection,
     getZenMode, setZenMode,
@@ -177,6 +178,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
     const [reopenSession, setReopenSessionLocal] = useState(getReopenSession);
     const [remoteImages, setRemoteImagesLocal] = useState(getRemoteImages);
+    const [readerEditing, setReaderEditingLocal] = useState(getReaderEditing);
     const [readableLength, setReadableLengthLocal] = useState(getReadableLineLength);
     const [textDirection, setTextDirectionLocal] = useState(getTextDirection);
     // Installed-font suggestions for the custom-font input. Computed lazily on
@@ -565,6 +567,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             setTextDirection(v);
                                             window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: v } }));
                                         }} />
+                                )}
+                                {matches("edit reader wysiwyg rich text") && (
+                                    <ToggleRow label="Edit text in Reader" description="Double-click rendered text blocks to edit them. Specialized Markdown stays available in Code" checked={readerEditing}
+                                        onChange={(v) => { setReaderEditingLocal(v); setReaderEditing(v); fire("paperling:reader-editing-toggle", v); }} />
                                 )}
                                 {matches("zen mode") && (
                                     <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}

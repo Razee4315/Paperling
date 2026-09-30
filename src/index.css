@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+.reader-editing-block {
+  outline: 1px solid var(--accent);
+  outline-offset: 6px;
+  border-radius: 2px;
+}
+
 :root {
   /* RLL-10 (#226): leave a readable center even with both docks at 600px. */
   --sidebar-width: min(288px, max(140px, calc((100vw - 320px) / 2)));
