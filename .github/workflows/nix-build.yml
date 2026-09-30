@@ -13,6 +13,16 @@ on:
       - ".github/workflows/nix-build.yml"
       - "flake.lock"
       - "src-tauri/Cargo.lock"
+      - "package.json"
+      - "bun.lock"
+  pull_request:
+    paths:
+      - "flake.nix"
+      - "flake.lock"
+      - "package.json"
+      - "bun.lock"
+      - "src-tauri/Cargo.lock"
+      - ".github/workflows/nix-build.yml"
 
 jobs:
   nix-build:

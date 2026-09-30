@@ -2,8 +2,8 @@
   description = "Paperling — the minimal, distraction-free Markdown editor with live preview, math, diagrams, and an optional AI assistant";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
+    nixpkgs.url = "github:NixOS/nixpkgs/b6c8664de9b6cc07fe5666a29f91884ba81197c4";
+    flake-utils.url = "github:numtide/flake-utils/11707dc2f618dd54ca8739b309ec4fc024de578b";
   };
 
   outputs =
@@ -16,7 +16,7 @@
         pkgs = nixpkgs.legacyPackages.${system};
         isLinux = pkgs.stdenv.isLinux;
         pname = "paperling";
-        version = "1.0.49";
+        version = (builtins.fromJSON (builtins.readFile ./package.json)).version;
 
         # Hashes of the sandboxed bun dependency fetch, per platform (Nix
         # fixed-output derivation: network access is allowed here and the
