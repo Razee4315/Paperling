@@ -1,3 +1,60 @@
+# GitHub issues — branch `fix/github-issues-2026-09-30`
+
+Use the final Test Build artifacts linked in `GITHUB-ISSUES-REPORT.md`. Local checks used selected tests with one worker; the full suite and native builds run in CI. These boxes are intentionally unchecked for the owner's native/device verification.
+
+## Window controls and reading
+
+- [ ] On touch-enabled Windows, launch Paperling with a mouse/keyboard attached. The desktop title bar, Minimize, Maximize and Close are visible; drag the title bar to move the window (#206).
+- [ ] Shrink the window to its minimum width. The filename truncates and window controls remain reachable (#241).
+- [ ] Enter Zen, wait for the bar to hide, then reveal it at the top edge. Touch controls remain usable (#206).
+- [ ] In Dark/Graphite/Nord/Midnight, the active Reader/Split/Code pill uses a restrained dark surface (#232).
+- [ ] Open a note with an HTTPS badge/image. It loads. Turn off **Settings → Editor → Load remote images**; the placeholder appears, and **Load image** approves only that image (#224).
+
+## Files, folders and session recovery
+
+- [ ] Open Files and select several notes, then create one. Files stays open on desktop (#225).
+- [ ] Open Files and Outline together. Files is left, Outline is right; neither covers the document. Close Outline and Files remains open. Opening AI swaps the right panel (#226).
+- [ ] Choose **Open folder** in the title bar, welcome screen or command palette. Browse a child folder, go up to the root, and switch to a tab outside it. The chosen root remains (#227).
+- [ ] Drop a folder onto the app. Files opens at that folder. Drop multiple `.MD`, `.markdown`, `.txt` and `.text` files; each opens in a tab (#227).
+- [ ] Restart and open Files again. The workspace root is remembered; Find in Files searches it (#227).
+- [ ] Turn off **Reopen last session on launch**, save and close clean tabs, then restart. Clean tabs do not reopen (#228).
+- [ ] With reopening off, leave an unsaved draft and restart. The draft recovers. Restore a backed-up file after moving/removing its disk file; its content appears as an unsaved untitled buffer (#228).
+- [ ] With several large background tabs saved, double-click a small Markdown file. It becomes usable before the older tabs finish loading (#228).
+
+## Optional editing in Reader
+
+- [ ] In Reader choose **Edit Reader**. Double-click a normal paragraph, heading, list or quote and type directly without Split. Bold/Italic/Strike work on selected text (#213).
+- [ ] Try native Undo/Redo, **Undo block changes**, Done and Escape. Changes reach the Markdown source; the block rollback keeps neighboring content (#213).
+- [ ] Type, then switch modes/tabs or restart. The typed changes remain in the note/recovery buffer (#213).
+- [ ] Include frontmatter, math, comments, a table, an image and a Mermaid diagram around the edited paragraph. Their source remains unchanged. Specialized blocks explain that Code is their editing path (#213).
+- [ ] Turn off **Settings → Editor → Edit text in Reader**. Reader is read-only again. Keyboard users can focus a text block and press Enter while editing is enabled (#213).
+
+## AI actions and conversations
+
+- [ ] Use a slow local model to Expand/Rewrite/Shorten selected text. Tokens appear as they arrive; generation is not cancelled at 60 seconds (#229).
+- [ ] Stop generation. The model request stops and the action controls become available again (#229).
+- [ ] Edit an older sent prompt. Cancel keeps history/draft; Send replaces that prompt and later replies. Close/reopen the panel and the revised chat remains (#230).
+- [ ] Regenerate the latest reply. It uses current note context and does not duplicate the question. Disconnect the endpoint and retry: the previous answer is retained (#230).
+- [ ] In Agent, ask an edit from a model that replies with prose. The panel explains that no edits were proposed; choosing **Review full reply as replacement document** opens a diff. Reject keeps the original (#231).
+- [ ] Try edits with CRLF versus LF/trailing whitespace. Unique passages can match; duplicate/ambiguous searches do not guess. Switch tabs during generation: the old reply cannot propose edits to the new note (#231).
+
+## Native platform checks
+
+- [ ] macOS, app closed: double-click a `.md` file whose path contains spaces. The correct note opens. Repeat while Paperling is already running (#250).
+- [ ] Windows/macOS: export to PDF/print repeatedly. After the export WebView closes, its temporary HTML disappears within about two seconds (#214).
+- [ ] Android: tap **Open from device…**. The system picker appears, Cancel returns normally, and selecting a Markdown/text file opens it (#254).
+- [ ] Android: Save As → **Save to Downloads**, then Export → HTML. Check Downloads in the device Files app, reopen the saved files and compare contents (#253).
+- [ ] Android: repeatedly save the same name and exercise a slow/failed save. A late result cannot mark a different note as saved (#253).
+- [ ] Android: type at the bottom of a long note with the keyboard open, rotate, close/reopen the keyboard, and continue typing. The caret stays visible and blank space does not remain after closing it (#252).
+- [ ] Android: Files/Outline remain full-screen sheets, and selecting a note closes Files (#225/#226).
+
+## Distribution
+
+- [ ] x86_64 Linux with Nix: `nix build github:Razee4315/Paperling/fix/github-issues-2026-09-30#paperling`, then launch the result (#212).
+- [ ] Publish Scoop/Homebrew manifests only after choosing the owner bucket/tap or upstream submission. Configure apt signing/hosting and the F-Droid source recipe separately. They are not claimed published by this branch (#212).
+
+---
+
 # ✅ Community issues (branch `feat/community-issues-2026-09-26`)
 
 *Fixes for issues reported by users: #216 (RTL), #206 (window controls in Zen), #212 (package managers). 609 passing tests.*
