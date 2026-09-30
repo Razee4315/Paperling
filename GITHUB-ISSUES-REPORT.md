@@ -21,6 +21,8 @@
 
 # GitHub issue verification — 2026-09-30
 
+**Latest follow-up:** [2026-10-01 recheck of every previous fix](FIXES-RECHECK-2026-10-01.md). That pass corrected five frontend regressions and records two remaining native edge cases. Its TypeScript/live-browser evidence is separate from the historical test/build results below; the earlier artifacts do not contain the follow-up changes.
+
 All **18 open issues** were read, including available comments and relevant existing PRs. Work is on one branch, `fix/github-issues-2026-09-30`, starting from `origin/main` (`0126648`). Review: [PR #255](https://github.com/Razee4315/Paperling/pull/255). No issues were closed and no public issue comments were posted.
 
 The owner's explicit request overrides the normal full-suite requirement: **no full suite and no production build ran locally**. Local Vitest runs selected files with `--maxWorkers=1`; TypeScript ran without emitting output. Frontend verification used the real app at Vite port 5279, with the existing development virtual-disk backend and visible fixture controls. It does not establish native window dragging, Android picker/Downloads behavior, macOS Finder delivery, or Windows temp-file release timing. Those have CI compilation/tests and the device checklist below.

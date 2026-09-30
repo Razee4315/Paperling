@@ -1,6 +1,6 @@
 # GitHub issues — branch `fix/github-issues-2026-09-30`
 
-The GitHub issue fixes have Test Build artifacts linked in `GITHUB-ISSUES-REPORT.md`. The later READ-03 Reader editing changes are local only and are not included in those artifacts. This follow-up used TypeScript checking and the browser on port 5279; no test suite, build, push or GitHub Action ran. These boxes are intentionally unchecked for the owner's native/device verification.
+Latest verification: [2026-10-01 recheck](FIXES-RECHECK-2026-10-01.md) covers all 18 issues plus READ-03. Five additional frontend regressions were corrected and checked with TypeScript and the real browser on port 5279. No test suite, build or manually dispatched GitHub Action ran during this recheck. Written regression cases were not executed. Earlier Test Build artifacts in `GITHUB-ISSUES-REPORT.md` do not contain these later changes. These boxes remain unchecked for repeatable owner/native verification.
 
 ## Window controls and reading
 
@@ -14,12 +14,17 @@ The GitHub issue fixes have Test Build artifacts linked in `GITHUB-ISSUES-REPORT
 
 - [ ] Open Files and select several notes, then create one. Files stays open on desktop (#225).
 - [ ] Open Files and Outline together. Files is left, Outline is right; neither covers the document. Close Outline and Files remains open. Opening AI swaps the right panel (#226).
+- [ ] With Files and Outline open, type a complete sentence in Code and in Reader. Every character appears; focus stays in the editor. Escape outside the docks does not close them (PANEL-02).
 - [ ] Choose **Open folder** in the title bar, welcome screen or command palette. Browse a child folder, go up to the root, and switch to a tab outside it. The chosen root remains (#227).
 - [ ] Drop a folder onto the app. Files opens at that folder. Drop multiple `.MD`, `.markdown`, `.txt` and `.text` files; each opens in a tab (#227).
 - [ ] Restart and open Files again. The workspace root is remembered; Find in Files searches it (#227).
 - [ ] Turn off **Reopen last session on launch**, save and close clean tabs, then restart. Clean tabs do not reopen (#228).
 - [ ] With reopening off, leave an unsaved draft and restart. The draft recovers. Restore a backed-up file after moving/removing its disk file; its content appears as an unsaved untitled buffer (#228).
 - [ ] With several large background tabs saved, double-click a small Markdown file. It becomes usable before the older tabs finish loading (#228).
+- [ ] While background restoration is slow, edit the first note. Restart before loading finishes: new work and older unread backups recover (HOT-08).
+- [ ] During that slow restore, separately open and edit a backed-up background note. When loading completes, new work stays selected and a distinct older draft appears as an unsaved **Recovered …** tab. Restart and verify both survive (HOT-07/HOT-08).
+- [ ] During slow restoration, explicitly close/discard the already recovered first note, or Save As to a different path. The old launch snapshot does not reappear when background loading finishes (HOT-08; both flows passed in browser fixtures, native repeat pending).
+- [ ] In unrestricted Files navigation, Go Up from `/home` reaches `/`, or from `C:/child` reaches `C:/`. Go Up is disabled at the chosen workspace root (FILES-09).
 
 ## Optional editing in Reader
 
@@ -41,6 +46,8 @@ The GitHub issue fixes have Test Build artifacts linked in `GITHUB-ISSUES-REPORT
 - [ ] Stop generation. The model request stops and the action controls become available again (#229).
 - [ ] Edit an older sent prompt. Cancel keeps history/draft; Send replaces that prompt and later replies. Close/reopen the panel and the revised chat remains (#230).
 - [ ] Regenerate the latest reply. It uses current note context and does not duplicate the question. Disconnect the endpoint and retry: the previous answer is retained (#230).
+- [ ] Disconnect after retry tokens arrive, or Stop mid-retry. The full original answer remains. Repeat for an edited early prompt: later turns remain on failure, the edited prompt is still available, and Cancel restores the previous composer draft (AI-09).
+- [ ] Start New Chat or switch history during an unfinished Regenerate. Reopen the original chat: its completed answer remains (AI-09).
 - [ ] In Agent, ask an edit from a model that replies with prose. The panel explains that no edits were proposed; choosing **Review full reply as replacement document** opens a diff. Reject keeps the original (#231).
 - [ ] Try edits with CRLF versus LF/trailing whitespace. Unique passages can match; duplicate/ambiguous searches do not guess. Switch tabs during generation: the old reply cannot propose edits to the new note (#231).
 
@@ -53,6 +60,8 @@ The GitHub issue fixes have Test Build artifacts linked in `GITHUB-ISSUES-REPORT
 - [ ] Android: repeatedly save the same name and exercise a slow/failed save. A late result cannot mark a different note as saved (#253).
 - [ ] Android: type at the bottom of a long note with the keyboard open, rotate, close/reopen the keyboard, and continue typing. The caret stays visible and blank space does not remain after closing it (#252).
 - [ ] Android: Files/Outline remain full-screen sheets, and selecting a note closes Files (#225/#226).
+- [ ] **Known P1, unresolved:** import two different documents both named `report.md`, then simulate a failed copy. They must retain distinct working files and existing text. The current native cache implementation does not meet this requirement; see the recheck report before relying on it.
+- [ ] **Known P3, unresolved:** force PDF URL/window creation failure after staging. No staged HTML should remain in Temp. This error-path cleanup still needs a compiled native fix.
 
 ## Distribution
 
