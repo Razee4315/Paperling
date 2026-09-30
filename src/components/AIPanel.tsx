@@ -159,6 +159,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                 },
             });
             if (abortRef.current !== ctrl || ctrl.signal.aborted) return;
+            if (!full.trim()) throw new Error("AI returned an empty response. Try again or check the endpoint.");
             // Agent mode: if the reply was edit blocks, apply them and hand the
             // proposed document to the editor for review (replacing the raw blocks
             // that briefly streamed into the bubble with a clean summary).
@@ -191,7 +192,13 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
             if (abortRef.current !== ctrl) return;
             if ((e as Error).name !== "AbortError") setError((e as Error).message);
             // Drop the empty assistant bubble if nothing streamed in.
-            setMessages((prev) => (prev[assistantIdx]?.content ? prev : prev.slice(0, assistantIdx)));
+            setMessages((prev) => (prev[assistantIdx]?.content ? prev : retry || editingIndex != null ? messages : prev.slice(0, assistantIdx)));
+            if (editingIndex != null) {
+                setEditingIndex(editingIndex);
+                setInput(text);
+                inputDraftRef.current = text;
+                if (inputRef.current) inputRef.current.value = text;
+            }
         } finally {
             if (abortRef.current === ctrl) { setBusy(false); abortRef.current = null; }
         }

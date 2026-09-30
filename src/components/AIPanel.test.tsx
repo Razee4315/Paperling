@@ -85,3 +85,22 @@ it("ignores late tokens and completion from an aborted previous chat", async () 
     expect(screen.queryByText("stale reply")).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop generating" })).toBeNull();
 });
+
+it("keeps the previous transcript when regeneration fails before producing a token", async () => {
+    vi.mocked(streamChat).mockImplementationOnce(async (_messages, _cfg, opts) => { opts?.onToken?.("saved answer"); return "saved answer"; });
+    render(<AIPanel {...props} />);
+    await send("question");
+    vi.mocked(streamChat).mockRejectedValueOnce(new Error("Endpoint unavailable"));
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate reply" }));
+    await screen.findByText("Endpoint unavailable");
+    expect(screen.getByText("saved answer")).toBeInTheDocument();
+    await waitFor(() => expect(getChatSessions()[0].messages.at(-1)?.content).toBe("saved answer"));
+});
+
+it("does not leave an empty reply showing Thinking after the request completed", async () => {
+    vi.mocked(streamChat).mockResolvedValue("");
+    render(<AIPanel {...props} />);
+    await send("question");
+    expect(screen.getByText(/AI returned an empty response/)).toBeInTheDocument();
+    expect(screen.queryByText("Thinking…")).toBeNull();
+});
