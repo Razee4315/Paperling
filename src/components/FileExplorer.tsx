@@ -180,7 +180,7 @@ export function FileExplorer({
                 setNameEdit(null);
                 await loadFiles(currentViewDir);
                 onFileSelect(path);
-                onClose();
+                if (IS_MOBILE) onClose();
                 return;
             }
             if (edit.mode === "folder") {
@@ -228,9 +228,10 @@ export function FileExplorer({
             // Navigate into the folder
             setCurrentViewDir(entry.path);
         } else {
-            // Select the file and close
+            // FILES-03 (#225): the desktop dock stays available for the next
+            // note; the phone sheet yields its screen to the opened note.
             onFileSelect(entry.path);
-            onClose();
+            if (IS_MOBILE) onClose();
         }
     };
     
