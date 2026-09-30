@@ -220,37 +220,6 @@ fn retry_temp_cleanup(
     unreachable!("bounded cleanup loop always returns")
 }
 
-#[cfg(test)]
-mod cleanup_tests {
-    use super::retry_temp_cleanup;
-    use std::io::{Error, ErrorKind};
-
-    #[test]
-    fn retries_a_locked_file_then_succeeds() {
-        let mut calls = 0;
-        let mut waits = 0;
-        retry_temp_cleanup(|| {
-            calls += 1;
-            if calls < 3 { Err(Error::from(ErrorKind::PermissionDenied)) } else { Ok(()) }
-        }, || waits += 1).unwrap();
-        assert_eq!((calls, waits), (3, 2));
-    }
-
-    #[test]
-    fn already_removed_is_success_without_waiting() {
-        retry_temp_cleanup(|| Err(Error::from(ErrorKind::NotFound)), || panic!("unexpected wait")).unwrap();
-    }
-
-    #[test]
-    fn persistent_failure_is_bounded_and_reported() {
-        let mut calls = 0;
-        let mut waits = 0;
-        let result = retry_temp_cleanup(|| { calls += 1; Err(Error::from(ErrorKind::PermissionDenied)) }, || waits += 1);
-        assert!(result.is_err());
-        assert_eq!((calls, waits), (20, 19));
-    }
-}
-
 /// Drive WebView2's native `PrintToPdf` to `path` and block (pumping the message
 /// loop) until it finishes. Must be called on the UI thread.
 ///
@@ -396,3 +365,35 @@ pub async fn export_pdf(
 ) -> Result<(), String> {
     Err("Direct PDF export is only available on Windows and macOS".into())
 }
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::retry_temp_cleanup;
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn retries_a_locked_file_then_succeeds() {
+        let mut calls = 0;
+        let mut waits = 0;
+        retry_temp_cleanup(|| {
+            calls += 1;
+            if calls < 3 { Err(Error::from(ErrorKind::PermissionDenied)) } else { Ok(()) }
+        }, || waits += 1).unwrap();
+        assert_eq!((calls, waits), (3, 2));
+    }
+
+    #[test]
+    fn already_removed_is_success_without_waiting() {
+        retry_temp_cleanup(|| Err(Error::from(ErrorKind::NotFound)), || panic!("unexpected wait")).unwrap();
+    }
+
+    #[test]
+    fn persistent_failure_is_bounded_and_reported() {
+        let mut calls = 0;
+        let mut waits = 0;
+        let result = retry_temp_cleanup(|| { calls += 1; Err(Error::from(ErrorKind::PermissionDenied)) }, || waits += 1);
+        assert!(result.is_err());
+        assert_eq!((calls, waits), (20, 19));
+    }
+}
+
