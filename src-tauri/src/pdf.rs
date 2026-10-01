@@ -92,8 +92,16 @@ pub async fn export_pdf(app: tauri::AppHandle, html: String, path: String) -> Re
         )
     })?;
 
-    let url = tauri::Url::from_file_path(&temp)
-        .map_err(|_| "Failed to build a URL for the export file".to_string())?;
+    // PDF-03: nothing holds the staged file before the export view exists, so
+    // a failure up to and including its creation removes it directly instead
+    // of leaving a copy of the document in Temp.
+    let url = match tauri::Url::from_file_path(&temp) {
+        Ok(url) => url,
+        Err(()) => {
+            let _ = std::fs::remove_file(&temp);
+            return Err("Failed to build a URL for the export file".into());
+        }
+    };
 
     // Signalled once the hidden webview has finished loading the document.
     let (load_tx, load_rx) = mpsc::channel::<()>();
@@ -102,7 +110,7 @@ pub async fn export_pdf(app: tauri::AppHandle, html: String, path: String) -> Re
     let load_tx = Mutex::new(Some(load_tx));
 
     let label = format!("pdf-export-{seq}");
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
+    let built = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
         .visible(false)
         .skip_taskbar(true)
         .title("")
@@ -118,8 +126,14 @@ pub async fn export_pdf(app: tauri::AppHandle, html: String, path: String) -> Re
                 }
             }
         })
-        .build()
-        .map_err(|e| format!("Failed to create the export view: {e}"))?;
+        .build();
+    let window = match built {
+        Ok(window) => window,
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp);
+            return Err(format!("Failed to create the export view: {e}"));
+        }
+    };
 
     // Wait for the document to load before printing so we never capture a blank
     // or half-rendered page. Bounded so a stuck load can't hang the export.
