@@ -99,7 +99,7 @@ describe("optional Reader editing (#213)", () => {
     it("keeps heading controls outside editable text and preserves a typed suffix", async () => {
         render(<EditablePreview />);
         fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
-        const heading = await screen.findByRole("heading", { name: /Heading Copy link/ });
+        const heading = await screen.findByRole("heading", { name: /^Heading\b/ });
         fireEvent.pointerDown(heading);
         const block = await screen.findByRole("textbox", { name: "Reader text block" });
         expect(block.tagName).toBe("H1");
@@ -108,12 +108,12 @@ describe("optional Reader editing (#213)", () => {
         fireEvent.input(block);
         fireEvent.click(screen.getByRole("button", { name: "Done", exact: true }));
         expect(screen.getByLabelText("Source Markdown").textContent).toBe(original.replace("# Heading", "# Heading suffix that must survive"));
-        await screen.findByRole("heading", { name: /Heading suffix that must survive Copy link/ });
+        await screen.findByRole("heading", { name: /^Heading suffix that must survive\b/ });
     });
     it("switches blocks without Done and undoes across finishing", async () => {
         render(<EditablePreview />);
         fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
-        fireEvent.pointerDown(await screen.findByRole("heading", { name: /Heading Copy link/ }));
+        fireEvent.pointerDown(await screen.findByRole("heading", { name: /^Heading\b/ }));
         let block = await screen.findByRole("textbox", { name: "Reader text block" });
         block.textContent = "Changed heading";
         fireEvent.input(block);
@@ -133,7 +133,7 @@ describe("optional Reader editing (#213)", () => {
     it("splits a heading with Enter without losing its text or the remainder", async () => {
         render(<EditablePreview />);
         fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
-        fireEvent.pointerDown(await screen.findByRole("heading", { name: /Heading Copy link/ }));
+        fireEvent.pointerDown(await screen.findByRole("heading", { name: /^Heading\b/ }));
         const heading = await screen.findByRole("textbox", { name: "Reader text block" });
         const node = heading.firstChild!;
         window.getSelection()!.setBaseAndExtent(node, node.textContent!.length, node, node.textContent!.length);
