@@ -325,9 +325,7 @@ const ACTIVITY_BODY = `\
         out.write(content.toByteArray(Charsets.UTF_8))
       } ?: throw IllegalStateException("Could not open the Downloads entry for writing")
       val actualName = queryDisplayName(uri) ?: safe
-      val dir = File(cacheDir, "open")
-      dir.mkdirs()
-      val cache = File(dir, actualName)
+      val cache = File(workingDirFor(uri), actualName)
       cache.writeText(content, Charsets.UTF_8)
       val js = "window.__paperlingOnSaveResult && window.__paperlingOnSaveResult(true, " +
         JSONObject.quote(cache.absolutePath) + ", " + JSONObject.quote(actualName) + ", " + JSONObject.quote(requestId) + ")"
@@ -351,12 +349,7 @@ const ACTIVITY_BODY = `\
     try {
       val name = queryDisplayName(uri) ?: "picked.md"
       val safe = name.replace(Regex("[/\\\\\\\\:*?\\"<>|]"), "_")
-      val dir = File(cacheDir, "open")
-      dir.mkdirs()
-      val outFile = File(dir, safe)
-      contentResolver.openInputStream(uri)?.use { input ->
-        outFile.outputStream().use { output -> input.copyTo(output) }
-      } ?: run {
+      val outFile = importToCache(uri, safe) ?: run {
         webviewEval("window.__paperlingPickDone && window.__paperlingPickDone(false)")
         return
       }
@@ -391,12 +384,7 @@ const ACTIVITY_BODY = `\
     try {
       val name = queryDisplayName(uri) ?: "opened.md"
       val safe = name.replace(Regex("[/\\\\\\\\:*?\\"<>|]"), "_")
-      val dir = File(cacheDir, "open")
-      dir.mkdirs()
-      val outFile = File(dir, safe)
-      contentResolver.openInputStream(uri)?.use { input ->
-        outFile.outputStream().use { output -> input.copyTo(output) }
-      } ?: return
+      val outFile = importToCache(uri, safe) ?: return
       val payload = JSONObject()
       payload.put("path", outFile.absolutePath)
       payload.put("name", safe)
@@ -404,6 +392,38 @@ const ACTIVITY_BODY = `\
       deliverToWebview(outFile.absolutePath, safe)
     } catch (e: Exception) {
       android.util.Log.e("Paperling", "Failed to import the opened file", e)
+    }
+  }
+
+  // ANDR-01: every source document gets its own working directory,
+  // keyed by its URI. Before this, all imports lived in one flat folder named
+  // by display name, so opening folderA/report.md and then folderB/report.md
+  // overwrote the first note's working copy while its tab stayed open. The
+  // same source still maps to the same path, which the app relies on to
+  // dedupe the boot-time and live deliveries of one file.
+  private fun workingDirFor(uri: Uri): File {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+      .digest(uri.toString().toByteArray(Charsets.UTF_8))
+    val key = digest.take(8).joinToString("") { "%02x".format(it) }
+    val dir = File(File(cacheDir, "open"), key)
+    dir.mkdirs()
+    return dir
+  }
+
+  // Copies through a sibling temp file and renames it into place, so a read
+  // that fails halfway can never truncate a working copy a tab already uses.
+  // Returns null when the provider gives no stream.
+  private fun importToCache(uri: Uri, safe: String): File? {
+    val dir = workingDirFor(uri)
+    val outFile = File(dir, safe)
+    val tmp = File.createTempFile("import", ".part", dir)
+    try {
+      val input = contentResolver.openInputStream(uri) ?: return null
+      input.use { src -> tmp.outputStream().use { dst -> src.copyTo(dst) } }
+      if (!tmp.renameTo(outFile)) throw java.io.IOException("Could not store the imported file")
+      return outFile
+    } finally {
+      tmp.delete()
     }
   }
 
