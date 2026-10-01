@@ -44,6 +44,8 @@ describe("Reader block edits (READ-02)", () => {
         expect(readerHtmlToMarkdown(html, false)).toBe("See [[Roadmap|the plan]] today #work");
         const list = '<ul><li><input type="checkbox" data-md-src="[X]"> shipped <mark data-md-src="==fast==">fast</mark></li><li>plain</li></ul>';
         expect(readerHtmlToMarkdown(list, false)).toBe("- [X] shipped ==fast==\n- plain");
+        // A box the browser left glued to its text still saves as a task.
+        expect(readerHtmlToMarkdown('<ul><li><input type="checkbox" data-md-src="[ ]">new one</li></ul>', false)).toBe("- [ ] new one");
     });
     it("rejects stale ranges and supports deletion without touching neighbors", () => {
         const range = readerEditRange("before\n\ntext\n\nafter", 3, 3, "P")!;

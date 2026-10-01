@@ -116,6 +116,12 @@ describe("optional Reader editing (#213)", () => {
         block.lastElementChild!.lastChild!.textContent = " rest later";
         fireEvent.input(block);
         expect(screen.getByLabelText("Source Markdown").textContent).toBe(note.replace("See ", "Look at ").replace("[ ] rest", "[ ] rest later"));
+        // Enter in a task item: the browser clones the <li> without its checkbox.
+        const added = block.lastElementChild!.cloneNode(false) as HTMLElement;
+        added.textContent = "added";
+        block.append(added);
+        fireEvent.input(block);
+        expect(screen.getByLabelText("Source Markdown").textContent).toContain("- [ ] rest later\n- [ ] added\n");
         fireEvent.click(screen.getByRole("button", { name: "Done", exact: true }));
         expect(document.querySelector("[data-md-src]")).toBeNull();
     });

@@ -24,7 +24,11 @@ converter.addRule("listItem", {
             prefix = `${start + Array.prototype.indexOf.call(parent.children, node)}. `;
         }
         const paragraph = /\n$/.test(content);
-        const body = (content.replace(/^\n+|\n+$/g, "") + (paragraph ? "\n" : "")).replace(/\n/g, `\n${" ".repeat(prefix.length)}`);
+        let text = content.replace(/^\n+|\n+$/g, "");
+        // A task box needs exactly one space before its text to stay a task;
+        // browsers drop that space while typing into a freshly added item.
+        if ((node as HTMLElement).firstElementChild?.matches("input[type='checkbox']")) text = text.replace(/^(\[[ xX]\])[ \t]*/, "$1 ");
+        const body = (text + (paragraph ? "\n" : "")).replace(/\n/g, `\n${" ".repeat(prefix.length)}`);
         return prefix + body + (node.nextSibling ? "\n" : "");
     },
 });

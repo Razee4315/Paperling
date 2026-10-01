@@ -48,6 +48,36 @@ function stampIslands(element: HTMLElement, source: string): boolean {
     return true;
 }
 
+/** READ-05: pressing Enter in a task item makes the browser clone the item
+ * without its checkbox, which would save a plain bullet in the middle of a
+ * task list. Items that appear during the edit get an unchecked box; an
+ * existing item whose box the user deleted on purpose is left alone. */
+const knownItems = new WeakSet<Element>();
+function completeTaskItems(element: HTMLElement) {
+    element.querySelectorAll("li").forEach((item) => {
+        const fresh = !knownItems.has(item);
+        knownItems.add(item);
+        if (!fresh || !item.classList.contains("task-list-item") || item.querySelector(":scope > input[type='checkbox']")) return;
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.className = "mr-2 cursor-pointer accent-[var(--accent)]";
+        box.setAttribute(READER_ISLAND_ATTR, "[ ]");
+        box.setAttribute("contenteditable", "false");
+        // Not React's checkbox: it has no source line until the edit is saved.
+        box.addEventListener("click", (event) => event.preventDefault());
+        // An empty new item holds only the browser's placeholder <br> with the
+        // caret in front of it. Left alone, typing would land before the box
+        // and the <br> would be saved as a hard line break.
+        const selection = window.getSelection();
+        const empty = item.childNodes.length === 1 && item.firstChild?.nodeName === "BR";
+        const caretHere = empty && !!selection?.focusNode && item.contains(selection.focusNode);
+        if (empty) item.firstChild!.remove();
+        const gap = document.createTextNode(" ");
+        item.prepend(box, gap);
+        if (caretHere) selection!.collapse(gap, 1);
+    });
+}
+
 function clearIslands(scope: ParentNode | null | undefined) {
     scope?.querySelectorAll(`[${READER_ISLAND_ATTR}]`).forEach((node) => {
         node.removeAttribute(READER_ISLAND_ATTR);
@@ -184,6 +214,7 @@ export function useReaderEditor(options: Options) {
             const title = element.querySelector(":scope > span");
             if (title) title.replaceWith(...Array.from(title.childNodes));
         }
+        element.querySelectorAll("li").forEach((item) => knownItems.add(item));
         element.setAttribute("contenteditable", "true");
         element.setAttribute("role", "textbox");
         element.setAttribute("aria-label", "Reader text block");
@@ -256,6 +287,7 @@ export function useReaderEditor(options: Options) {
     function write(type?: string) {
         const edit = active.current;
         if (!edit) return;
+        completeTaskItems(edit.element);
         const html = cleanHtml(edit.element);
         if (html === edit.html) return;
         const from = beforeInput.current?.cursor ?? edit.selection;
