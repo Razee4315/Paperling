@@ -14,9 +14,9 @@ const cfg = (over: Partial<AIConfig> = {}): AIConfig => ({
 
 /** Shorthand for a transport response the Rust command would deliver. */
 const respond = (status: number, body: unknown) =>
-    mockAiFetch.mockResolvedValue({
-        status,
-        body: typeof body === "string" ? body : JSON.stringify(body),
+    mockAiFetch.mockImplementation(async (_endpoint, _key, _body, opts) => {
+        opts.onStatus?.(status);
+        return { status, body: typeof body === "string" ? body : JSON.stringify(body) };
     });
 
 describe("isValidEndpoint", () => {
@@ -86,6 +86,21 @@ describe("runAIAction config guards", () => {
 });
 
 describe("runAIAction request handling", () => {
+    it("streams editor actions with a header-only budget and cancellation", async () => {
+        const ctrl = new AbortController();
+        const tokens = vi.fn();
+        mockAiFetch.mockImplementation(async (_endpoint, _key, body, opts) => {
+            expect(JSON.parse(body).stream).toBe(true);
+            expect(opts.connectTimeoutMs).toBe(120_000);
+            expect(opts.totalTimeoutMs).toBeUndefined();
+            expect(opts.signal).toBe(ctrl.signal);
+            opts.onStatus?.(200);
+            opts.onChunk?.('data: {"choices":[{"delta":{"content":"Slow reply"}}]}\n');
+            return { status: 200, body: "" };
+        });
+        expect(await runAIAction("expand", "x", cfg(), ctrl.signal, tokens)).toBe("Slow reply");
+        expect(tokens).toHaveBeenCalledWith("Slow reply");
+    });
     it("returns the OpenAI-style content on success", async () => {
         respond(200, { choices: [{ message: { content: "  hello  " } }] });
         await expect(runAIAction("rewrite", "x", cfg())).resolves.toBe("hello");
@@ -113,9 +128,9 @@ describe("runAIAction request handling", () => {
         expect(out.endsWith("[Response truncated]")).toBe(true);
     });
 
-    it("maps a transport timeout to the 60s message", async () => {
+    it("maps a transport timeout to the shared header budget", async () => {
         mockAiFetch.mockRejectedValue(new Error("timed out"));
-        await expect(runAIAction("rewrite", "x", cfg())).rejects.toThrow("AI request timed out after 60s.");
+        await expect(runAIAction("rewrite", "x", cfg())).rejects.toThrow("AI endpoint did not respond within 120s.");
     });
 
     it("lets a user abort propagate as AbortError", async () => {

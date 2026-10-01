@@ -4,7 +4,7 @@
  * with `stream: true` so the panel can render tokens as they arrive.
  */
 
-import { isValidEndpoint, endpointLeaksKey, INSECURE_KEY_MESSAGE, type AIConfig } from "./aiAssist";
+import { isValidEndpoint, endpointLeaksKey, INSECURE_KEY_MESSAGE, type AIConfig } from "./aiConfig";
 import { aiFetch } from "./aiTransport";
 
 export type ChatRole = "system" | "user" | "assistant";
@@ -114,6 +114,7 @@ export async function streamChat(
     if (status < 200 || status >= 300) {
         throw new Error(mapHttpError(status, res.body));
     }
+    if (buffer.trim().startsWith("data:")) parseSseLine(buffer);
 
     // Endpoint ignored `stream: true` — no SSE frames arrived, but the body is
     // a regular (non-streamed) completion. Read the whole thing.
@@ -217,8 +218,9 @@ const EDIT_BLOCK_RE = /<<<<<<<[ \t]*SEARCH[ \t]*\r?\n([\s\S]*?)\r?\n=======[ \t]
 
 /**
  * Parse SEARCH/REPLACE blocks out of an agent response and apply them to the
- * current document, in order. Each SEARCH is matched literally (first
- * occurrence). Blocks whose SEARCH isn't found are counted as failed and skipped.
+ * current document, in order. AI-08: only unique matches are safe. Normalize
+ * line endings and trailing horizontal whitespace as a conservative fallback,
+ * preserving offsets into the source. Never guess between duplicate passages.
  */
 export function parseEdits(response: string, currentDoc: string): EditResult {
     const blocks: Array<[string, string]> = [];
@@ -232,12 +234,44 @@ export function parseEdits(response: string, currentDoc: string): EditResult {
     let applied = 0;
     let failed = 0;
     for (const [search, replace] of blocks) {
-        const idx = doc.indexOf(search);
-        if (idx === -1) { failed++; continue; }
-        doc = doc.slice(0, idx) + replace + doc.slice(idx + search.length);
+        const range = uniqueEditRange(doc, search);
+        if (!range) { failed++; continue; }
+        const replacement = doc.includes("\r\n") ? replace.replace(/\r?\n/g, "\r\n") : replace;
+        doc = doc.slice(0, range[0]) + replacement + doc.slice(range[1]);
         applied++;
     }
 
     const explanation = response.replace(EDIT_BLOCK_RE, "").trim();
     return { proposedDoc: doc, applied, failed, explanation, hasEdits: blocks.length > 0 };
+}
+
+function uniqueEditRange(doc: string, search: string): [number, number] | null {
+    if (!search.trim()) return null;
+    const uniqueIndex = (text: string, needle: string) => {
+        const index = text.indexOf(needle);
+        return index >= 0 && text.indexOf(needle, index + 1) < 0 ? index : -1;
+    };
+    const exact = uniqueIndex(doc, search);
+    if (exact >= 0) return [exact, exact + search.length];
+    const normalize = (text: string) => {
+        const offsets: number[] = [];
+        let normalized = "";
+        const omitted = /[ \t]+(?=\r?\n|$)|\r(?=\n)/g;
+        let skip = omitted.exec(text);
+        for (let index = 0; index < text.length; index++) {
+            if (skip?.index === index) {
+                index += skip[0].length - 1;
+                skip = omitted.exec(text);
+                continue;
+            }
+            offsets.push(index);
+            normalized += text[index];
+        }
+        return { normalized, offsets };
+    };
+    const source = normalize(doc);
+    const needle = normalize(search).normalized;
+    if (!needle.trim()) return null;
+    const index = uniqueIndex(source.normalized, needle);
+    return index < 0 ? null : [source.offsets[index], source.offsets[index + needle.length - 1] + 1];
 }

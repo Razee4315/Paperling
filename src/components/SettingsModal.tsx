@@ -15,6 +15,9 @@ import {
     getVimMode, setVimMode,
     getAutoSave, setAutoSave,
     getOpenInReader, setOpenInReader,
+    getReopenSession, setReopenSession,
+    getRemoteImages, setRemoteImages,
+    getReaderEditing, setReaderEditing,
     getReadableLineLength, setReadableLineLength,
     getTextDirection, setTextDirection,
     getZenMode, setZenMode,
@@ -173,6 +176,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [vimMode, setVimModeLocal] = useState(getVimMode);
     const [autoSave, setAutoSaveLocal] = useState(getAutoSave);
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
+    const [reopenSession, setReopenSessionLocal] = useState(getReopenSession);
+    const [remoteImages, setRemoteImagesLocal] = useState(getRemoteImages);
+    const [readerEditing, setReaderEditingLocal] = useState(getReaderEditing);
     const [readableLength, setReadableLengthLocal] = useState(getReadableLineLength);
     const [textDirection, setTextDirectionLocal] = useState(getTextDirection);
     // Installed-font suggestions for the custom-font input. Computed lazily on
@@ -542,9 +548,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     <ToggleRow label="Open files in reader mode" description="Every file opens read-first; editing stays one click away" checked={openInReader}
                                         onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
                                 )}
+                                {matches("reopen last session launch startup recovery") && (
+                                    <ToggleRow label="Reopen last session on launch" description="Restore saved tabs on startup. Unsaved work is always recovered" checked={reopenSession}
+                                        onChange={(v) => { setReopenSessionLocal(v); setReopenSession(v); fire("paperling:reopen-session-toggle", v); }} />
+                                )}
                                 {matches("readable line length preview width column") && (
                                     <ToggleRow label="Readable line length" description="Center the reading column at a comfortable width (Obsidian-style). Off: the preview fills the window" checked={readableLength}
                                         onChange={(v) => { setReadableLengthLocal(v); setReadableLineLength(v); fire("paperling:readable-toggle", v); }} />
+                                )}
+                                {matches("load remote images privacy badges") && (
+                                    <ToggleRow label="Load remote images" description="Show HTTPS images and badges. Image hosts can see your IP address" checked={remoteImages}
+                                        onChange={(v) => { setRemoteImagesLocal(v); setRemoteImages(v); fire("paperling:remote-images-toggle", v); }} />
                                 )}
                                 {matches("text direction right to left rtl ltr arabic hebrew persian urdu") && (
                                     <DirectionRow value={textDirection}
@@ -553,6 +567,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             setTextDirection(v);
                                             window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: v } }));
                                         }} />
+                                )}
+                                {matches("edit reader wysiwyg rich text") && (
+                                    <ToggleRow label="Edit text in Reader" description="Click rendered text to edit it. Tables, images, code blocks and callouts are edited in Code" checked={readerEditing}
+                                        onChange={(v) => { setReaderEditingLocal(v); setReaderEditing(v); fire("paperling:reader-editing-toggle", v); }} />
                                 )}
                                 {matches("zen mode") && (
                                     <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}

@@ -185,6 +185,22 @@ const KEY_OPEN_IN_READER = "paperling:openInReader";
 export const getOpenInReader = (): boolean => safeGet<boolean>(KEY_OPEN_IN_READER, false);
 export const setOpenInReader = (v: boolean): void => safeSet(KEY_OPEN_IN_READER, v);
 
+// BOOT-03 (#228): controls clean session tabs only; hot-exit recovery is
+// unconditional so turning this off can never discard unsaved work.
+export const getReopenSession = (): boolean => safeGet<boolean>("paperling:reopenSession", true);
+export const setReopenSession = (v: boolean): void => safeSet("paperling:reopenSession", v);
+
+export const getRemoteImages = (): boolean => safeGet<boolean>("paperling:remoteImages", true);
+export const setRemoteImages = (v: boolean): void => safeSet("paperling:remoteImages", v);
+export const getReaderEditing = (): boolean => safeGet<boolean>("paperling:readerEditing", false);
+export const setReaderEditing = (v: boolean): void => safeSet("paperling:readerEditing", v);
+
+export const getWorkspaceDirectory = (): string | null => {
+    const v = safeGet<unknown>("paperling:workspaceDirectory", null);
+    return typeof v === "string" && v.length > 0 ? v : null;
+};
+export const setWorkspaceDirectory = (v: string | null): void => safeSet("paperling:workspaceDirectory", v);
+
 // Readable line length (RLL-01): center the preview in a comfortable
 // ~800px column, Obsidian-style. ON by default — long measure (~100+ chars)
 // is measurably harder to read, and the pre-#205 behavior is the better

@@ -13,8 +13,9 @@
  * Mobile is detected by user agent + a coarse/limited pointer, NOT by width:
  * a 400 px browser window on a laptop still has a mouse and hover, and
  * dragging that user into a thumb-first shell is worse than leaving it
- * narrow. `?mobile=1` / `?mobile=0` in the URL overrides the decision for
- * testing the phone shell from a desktop browser.
+ * narrow. A desktop OS in the user agent always wins over the pointer
+ * signals (PLAT-01). `?mobile=1` / `?mobile=0` in the URL overrides the
+ * decision for testing the phone shell from a desktop browser.
  */
 
 /** True inside any Tauri webview (desktop or mobile). */
@@ -36,6 +37,7 @@ export interface MobileSignals {
  * - iPadOS 13+ masquerades as desktop Safari, hence the (mac + touch + no
  *   fine pointer) branch — a Mac laptop has `maxTouchPoints === 0` or a fine
  *   pointer, so it never trips.
+ * - A Windows or Linux desktop UA is definitive the other way (PLAT-01).
  * - `maxTouchPoints > 1` alone is not enough (touch laptops), so the coarse
  *   pointer media query is the tiebreaker for anything else.
  */
@@ -45,6 +47,16 @@ export function detectMobileDevice(s: MobileSignals): boolean {
     if (/ipad/i.test(ua)) return true;
     // iPadOS pretends to be "Macintosh" — but it has 5 touch points and no hover.
     if (/macintosh/i.test(ua) && s.maxTouchPoints > 1 && s.coarsePointer) return true;
+    // PLAT-01 (#206): Chromium/WebView2 on Windows reports `pointer: coarse`
+    // for any touchscreen PC it believes is used as a tablet (touch + rotation
+    // sensor + slate posture), and then ignores a connected mouse entirely.
+    // Many 2-in-1s claim slate posture with the keyboard attached, so the
+    // generic fallback below put the desktop app into the phone shell: no
+    // title bar, so no way to move, maximize or close the frameless window,
+    // plus the phone open/save flows. The desktop app has no phone build, and
+    // Android/Windows Phone UAs already returned above, so any remaining
+    // Windows or Linux (X11, WebKitGTK, ChromeOS) UA is a desktop, touch or not.
+    if (/windows nt|x11|linux/i.test(ua)) return false;
     // Generic touch-first fallback (Android Go devices, unusual WebViews).
     return s.maxTouchPoints > 1 && s.coarsePointer;
 }

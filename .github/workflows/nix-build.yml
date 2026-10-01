@@ -13,6 +13,20 @@ on:
       - ".github/workflows/nix-build.yml"
       - "flake.lock"
       - "src-tauri/Cargo.lock"
+      - "package.json"
+      - "bun.lock"
+  pull_request:
+    paths:
+      - "flake.nix"
+      - "flake.lock"
+      - "package.json"
+      - "bun.lock"
+      - "src-tauri/Cargo.lock"
+      - ".github/workflows/nix-build.yml"
+
+concurrency:
+  group: nix-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   nix-build:

@@ -18,6 +18,9 @@ import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
 import { wikilinkLabel } from "../utils/wikilinkAnchor";
 import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
 import { splitMarkdownBlocks } from "../utils/markdownBlocks";
+import { getRemoteImages, getReaderEditing, setReaderEditing } from "../utils/persistence";
+import { useReaderEditor } from "../hooks/useReaderEditor";
+import { matchesBinding } from "../config/keybindings";
 
 // Detect KaTeX-style math so we only load the heavy katex bundle when needed.
 // $$...$$ for block math, $...$ for inline math (not preceded/followed by digit
@@ -114,7 +117,7 @@ const mdUrlTransform = (url: string): string =>
 // from (data-source-line). Lets the preview report the ACCURATE top-visible line
 // instead of the `fraction * lineCount` approximation, which is wrong whenever
 // blocks have non-uniform heights (headings, images, code, tables). PREVIEW-05.
-interface HastBlock { type: string; position?: { start?: { line?: number } }; properties?: Record<string, unknown> }
+interface HastBlock { type: string; position?: { start?: { line?: number }; end?: { line?: number } }; properties?: Record<string, unknown> }
 function rehypeSourceLine() {
     return (tree: { children?: HastBlock[] }) => {
         if (!tree.children) return;
@@ -123,6 +126,7 @@ function rehypeSourceLine() {
             if (node.type === "element" && line) {
                 node.properties = node.properties || {};
                 node.properties.dataSourceLine = line;
+                node.properties.dataSourceEndLine = node.position?.end?.line ?? line;
             }
         }
     };
@@ -232,6 +236,8 @@ const loadMathPlugins = (): Promise<PluginPair> => {
 };
 
 interface MarkdownPreviewProps {
+    liveContent?: string;
+    allowReaderEditing?: boolean;
     content: string;
     fileName: string;
     fileSize: number;
@@ -404,9 +410,21 @@ function isUnsafeRelativePath(p: string): boolean {
 function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string; baseDir: string | null } & React.ImgHTMLAttributes<HTMLImageElement>) {
     const [imageSrc, setImageSrc] = useState<string>('');
     const [error, setError] = useState(false);
+    const [remoteEnabled, setRemoteEnabled] = useState(getRemoteImages);
+    const [approvedSrc, setApprovedSrc] = useState<string | null>(null);
+    const remote = /^https:\/\//i.test(src);
+    const blocked = remote && !remoteEnabled && approvedSrc !== src;
 
     useEffect(() => {
-        if (!src) return;
+        const onToggle = () => { setRemoteEnabled(getRemoteImages()); setApprovedSrc(null); };
+        window.addEventListener("paperling:remote-images-toggle", onToggle);
+        return () => window.removeEventListener("paperling:remote-images-toggle", onToggle);
+    }, []);
+
+    useEffect(() => {
+        setImageSrc("");
+        setError(false);
+        if (!src || blocked) return;
 
         // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
         // resolve them as plain paths next to the document, like a text
@@ -419,7 +437,7 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
         // need the document's directory, so they must load even when no file
         // is on disk (browser mode / untitled buffer) — the old `!baseDir`
         // early-return left them as an eternal loading skeleton.
-        if (effective.includes('://') || effective.startsWith('data:')) {
+        if (/^https:\/\//i.test(effective) || /^data:image\//i.test(effective)) {
             setImageSrc(src);
             setError(false);
             return;
@@ -463,7 +481,16 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             // Don't revoke the URL — the cache owns it. Cache eviction handles
             // revocation when the entry is pushed out by LRU pressure.
         };
-    }, [src, baseDir]);
+    }, [src, baseDir, blocked]);
+
+    // IMG-03 (#224): HTTPS is permitted by CSP, with a per-image opt-in when
+    // automatic loading is off. Plain HTTP remains blocked in every build.
+    if (blocked) return (
+        <span className="inline-flex gap-2 items-center p-2 border border-[var(--border)] rounded-lg">
+            <span>Remote image: {alt}</span>
+            <button type="button" onClick={() => setApprovedSrc(src)} className="underline">Load image</button>
+        </span>
+    );
 
     if (error) {
         return (
@@ -823,6 +850,8 @@ const MarkdownBlock = memo(function MarkdownBlock({
 
 function MarkdownPreviewImpl({
     content,
+    liveContent,
+    allowReaderEditing = true,
     onLineChange,
     filePath,
     readableLineLength = true,
@@ -844,6 +873,9 @@ function MarkdownPreviewImpl({
     const shownKeyRef = useRef(docKey);
     const restoredScrollRef = useRef(false);
     const [zoomImage, setZoomImage] = useState<{ src: string; alt: string } | null>(null);
+    const [readerEditing, setReaderEditingLocal] = useState(getReaderEditing);
+    const [readerLink, setReaderLink] = useState<string | null>(null);
+    const [readerLinkError, setReaderLinkError] = useState("");
 
     // lineCount is derived here (instead of being passed as a prop) so the
     // preview's split happens once, against the same `content` we render.
@@ -856,8 +888,27 @@ function MarkdownPreviewImpl({
     // map) stays reference-stable across keystrokes — without this the map is
     // rebuilt every edit, forcing react-markdown to treat every renderer as new
     // and defeating the deferred render below. PREVIEW-06.
-    const contentRef = useRef(content);
-    contentRef.current = content;
+    const contentRef = useRef(liveContent ?? content);
+    contentRef.current = liveContent ?? content;
+
+    const renderedContentRef = useRef(content);
+    const reader = useReaderEditor({
+        enabled: readerEditing && !!allowReaderEditing && !!onContentChange,
+        docKey, content: liveContent ?? content, contentRef, renderedContentRef, mainRef,
+        onChange: onContentChange, onRendered,
+    });
+    const editingBlock = !!reader.active;
+    const readerRevision = reader.revision;
+    const previewContent = reader.snapshot ?? content;
+    const openReaderLink = () => { setReaderLink(reader.linkHref()); setReaderLinkError(""); };
+    useEffect(() => { setReaderLink(null); setReaderLinkError(""); }, [docKey, reader.active?.element]);
+    const readerFrozenRef = useRef(false);
+    readerFrozenRef.current = reader.frozen;
+    useEffect(() => {
+        const refresh = () => setReaderEditingLocal(getReaderEditing());
+        window.addEventListener("paperling:reader-editing-toggle", refresh);
+        return () => window.removeEventListener("paperling:reader-editing-toggle", refresh);
+    }, []);
 
     // Listen for zoom requests from LocalImage clicks
     useEffect(() => {
@@ -894,7 +945,7 @@ function MarkdownPreviewImpl({
     // toggled task N+1). A line number identifies the task regardless of how
     // many times anything rendered.
     const handleTaskToggle = useCallback((bodyLine: number, checked: boolean) => {
-        if (!onContentChange) return;
+        if (!onContentChange || readerFrozenRef.current) return;
         const lines = contentRef.current.split("\n");
         // node positions are body-relative (frontmatter is stripped before
         // react-markdown sees the text) and 1-based.
@@ -1068,11 +1119,11 @@ function MarkdownPreviewImpl({
     const fmOffsetRef = useRef(0);
 
     const { body: parsedBody, data: frontmatter, hasFrontmatter } = useMemo(
-        () => parseFrontmatter(content),
-        [content]
+        () => parseFrontmatter(previewContent),
+        [previewContent]
     );
     fmOffsetRef.current = hasFrontmatter
-        ? Math.max(0, content.split("\n").length - parsedBody.split("\n").length)
+        ? Math.max(0, previewContent.split("\n").length - parsedBody.split("\n").length)
         : 0;
 
     // Pre-process wikilinks: [[Foo]] and [[Foo|alias]] → [alias](wikilink:Foo).
@@ -1138,12 +1189,21 @@ function MarkdownPreviewImpl({
         setRendered({ body: renderBody, content });
     }
     const renderedBody = rendered.body;
+    renderedContentRef.current = rendered.content;
+    const [shownReaderRevision, setShownReaderRevision] = useState(readerRevision);
+    if (!reader.frozen && shownReaderRevision !== readerRevision) {
+        // Finishing/undoing replaces a DOM editing session in one commit. A
+        // deferred rebuild would briefly show the old source or an empty note.
+        setShownReaderRevision(readerRevision);
+        setRendered({ body: renderBody, content });
+    }
     const [, startBodyTransition] = useTransition();
     useEffect(() => {
+        if (reader.frozen) return;
         startBodyTransition(() => setRendered({ body: renderBody, content }));
         // `content` rides along only to report what was rendered.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [renderBody]);
+    }, [renderBody, readerRevision]);
     // After commit: the DOM now shows `rendered.content`. EXPORT-07.
     const onRenderedRef = useRef(onRendered);
     onRenderedRef.current = onRendered;
@@ -1154,6 +1214,12 @@ function MarkdownPreviewImpl({
     // Top-level blocks of the body (null = render it whole, e.g. footnotes).
     // PERF-02.
     const blocks = useMemo(() => splitMarkdownBlocks(renderedBody), [renderedBody]);
+    useLayoutEffect(() => {
+        mainRef.current?.querySelectorAll<HTMLElement>("[data-source-line]").forEach((element) => {
+            if (readerEditing && allowReaderEditing) element.setAttribute("tabindex", "0");
+            else element.removeAttribute("tabindex");
+        });
+    }, [readerEditing, allowReaderEditing, renderedBody, readerRevision]);
 
     // Unique heading ids across blocks, before paint so anchors and exports
     // never see duplicates. NAV-02.
@@ -1421,13 +1487,54 @@ function MarkdownPreviewImpl({
                 // Focusable (not in the Tab order) so Space / PageDown /
                 // arrows scroll the reader after a tab switch. FOCUS-01.
                 tabIndex={-1}
+                onKeyDown={(event) => {
+                    if (reader.active && !(event.target as HTMLElement).closest("input,textarea,select") && matchesBinding(event.nativeEvent, "link")) {
+                        event.preventDefault(); openReaderLink();
+                    } else reader.keyDown(event);
+                }}
                 className="flex-1 overflow-y-auto bg-[var(--bg-primary)] transition-colors outline-none"
             >
+                {allowReaderEditing && onContentChange && <div className="reader-edit-toolbar sticky top-0 z-10 px-4 py-2 bg-[var(--bg-primary)] border-b border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] flex flex-wrap gap-2 items-center">
+                    <button aria-pressed={readerEditing} onClick={() => {
+                        const enabled = !readerEditing;
+                        setReaderEditing(enabled);
+                        window.dispatchEvent(new CustomEvent("paperling:reader-editing-toggle", { detail: { enabled } }));
+                    }}>{readerEditing ? "Stop editing Reader" : "Edit Reader"}</button>
+                    {readerEditing && !editingBlock && <span>Click text to edit.</span>}
+                    {readerEditing && <>
+                        <button aria-label="Reader undo" disabled={!reader.canUndo} onMouseDown={(event) => event.preventDefault()} onClick={() => reader.undo()}>Undo</button>
+                        <button aria-label="Reader redo" disabled={!reader.canRedo} onMouseDown={(event) => event.preventDefault()} onClick={() => reader.undo(true)}>Redo</button>
+                        <button onClick={reader.appendParagraph}>Add paragraph</button>
+                    </>}
+                    {editingBlock && <>
+                        {reader.styleOptions.length > 0 && <select aria-label="Reader text style" disabled={reader.styleOptions.length === 1} value={reader.active!.element.tagName} onChange={(event) => reader.style(event.target.value)}>
+                            {reader.styleOptions.map((tag) => <option key={tag} value={tag}>{tag === "P" ? "Paragraph" : tag === "UL" ? "Bulleted list" : tag === "OL" ? "Numbered list" : tag === "BLOCKQUOTE" ? "Quote" : `Heading ${tag[1]}`}</option>)}
+                        </select>}
+                        {["bold", "italic", "strikeThrough"].map((command) => <button key={command} onMouseDown={(event) => event.preventDefault()} aria-label={`Reader ${command}`} onClick={() => reader.command(command)}>{command === "strikeThrough" ? "Strike" : command[0].toUpperCase() + command.slice(1)}</button>)}
+                        <button aria-label="Reader inline code" title="Select text to format as inline code" onMouseDown={(event) => event.preventDefault()} onClick={reader.inlineCode}>Code</button>
+                        <button aria-label="Reader link" onMouseDown={(event) => event.preventDefault()} onClick={openReaderLink}>Link</button>
+                        <button onClick={reader.finish}>Done</button>
+                        <button onClick={reader.rollback}>Undo block changes</button>
+                    </>}
+                    {readerLink !== null && editingBlock && <form className="flex flex-wrap items-center gap-2 w-full" onSubmit={(event) => {
+                        event.preventDefault();
+                        const url = readerLink.trim();
+                        if (url && (!defaultUrlTransform(url) || /[\u0000-\u001f]/.test(url))) { setReaderLinkError("Use a web, email, or note link."); return; }
+                        reader.command(url ? "createLink" : "unlink", url);
+                        setReaderLink(null);
+                    }}>
+                        <input autoFocus aria-label="Reader link URL" placeholder="https://example.com or note.md" value={readerLink} onChange={(event) => { setReaderLink(event.target.value); setReaderLinkError(""); }} className="min-w-0 flex-1 px-2 py-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-[var(--text-primary)]" />
+                        <button type="submit">Apply link</button>
+                        <button type="button" onClick={() => setReaderLink(null)}>Cancel</button>
+                        {readerLinkError && <span role="alert">{readerLinkError}</span>}
+                    </form>}
+                    {reader.notice && <span role="status">{reader.notice}</span>}
+                </div>}
                 <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 pt-12 pb-28`}>
                     {hasFrontmatter && (
                         <FrontmatterCard
                             data={frontmatter}
-                            editable={!!onContentChange}
+                            editable={!!onContentChange && !editingBlock}
                             onChange={(next) => {
                                 if (!onContentChange) return;
                                 onContentChange(serializeFrontmatter(next, parsedBody));
@@ -1438,6 +1545,23 @@ function MarkdownPreviewImpl({
                         className="markdown-body"
                         ref={markdownBodyRef}
                         dir={textDirection === "auto" ? undefined : textDirection}
+                        onPointerDown={(event) => reader.begin(event.target as HTMLElement, { x: event.clientX, y: event.clientY })}
+                        onDoubleClick={(event) => reader.begin(event.target as HTMLElement)}
+                        onFocus={(event) => reader.begin(event.target as HTMLElement)}
+                        onInput={() => reader.write()}
+                        onPaste={(event) => {
+                            if (!reader.active) return;
+                            event.preventDefault();
+                            reader.command("insertText", event.clipboardData.getData("text/plain"));
+                        }}
+                        onDrop={(event) => { if (reader.active) event.preventDefault(); }}
+                        onClickCapture={(event) => {
+                            if (!readerEditing) return;
+                            if ((event.target as HTMLElement).closest("a")) { event.preventDefault(); event.stopPropagation(); }
+                            if (!reader.active) return;
+                            if ((event.target as HTMLElement).closest("a, button, input")) event.preventDefault();
+                            event.stopPropagation();
+                        }}
                         // #tag pills: search the folder for the tag. SYNTAX-02.
                         onClick={(e) => {
                             const tag = (e.target as HTMLElement).closest<HTMLElement>(".md-tag")?.dataset.tag;
@@ -1450,7 +1574,7 @@ function MarkdownPreviewImpl({
                             // block's line offset; the memoized block only
                             // re-renders when its own text changes.
                             blocks.map((b) => (
-                                <div key={b.key} className="md-block" data-line-offset={b.lineOffset}>
+                                <div key={`${b.key}-${readerRevision}`} className="md-block" data-line-offset={b.lineOffset}>
                                     <MarkdownBlock
                                         text={b.text}
                                         remarkPlugins={remarkPlugins}
@@ -1460,12 +1584,14 @@ function MarkdownPreviewImpl({
                                 </div>
                             ))
                         ) : (
-                            <MarkdownBlock
-                                text={renderedBody}
-                                remarkPlugins={remarkPlugins}
-                                rehypePlugins={rehypePlugins}
-                                components={components}
-                            />
+                            <div key={readerRevision} className="md-whole">
+                                <MarkdownBlock
+                                    text={renderedBody}
+                                    remarkPlugins={remarkPlugins}
+                                    rehypePlugins={rehypePlugins}
+                                    components={components}
+                                />
+                            </div>
                         )}
                     </div>
                 </div>

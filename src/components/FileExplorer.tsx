@@ -7,6 +7,7 @@ import { errMessage } from "../utils/errors";
 import { saveTextFile } from "../utils/fileIO";
 import { TabContextMenu } from "./TabContextMenu";
 import { samePath } from "../utils/tabsModel";
+import { isPathWithin, parentDirectory } from "../utils/documentPaths";
 import mascotCarry from "../assets/mascot/mascot-carry.png";
 import mascotShrug from "../assets/mascot/mascot-shrug.png";
 
@@ -21,6 +22,9 @@ interface FileExplorerProps {
     currentFilePath: string | null;
     /** Directory to browse when no file is open (the mobile notes root). */
     fallbackDirectory?: string | null;
+    /** Explicit workspace stays rooted independently of the active note. */
+    rootDirectory?: string | null;
+    onOpenFolder?: () => void;
     onFileSelect: (path: string) => void;
     onClose: () => void;
     /** A file or folder was renamed/moved to the trash (newPath null): the
@@ -44,6 +48,8 @@ export function FileExplorer({
     isOpen,
     currentFilePath,
     fallbackDirectory,
+    rootDirectory,
+    onOpenFolder,
     onFileSelect,
     onClose,
     onPathChanged,
@@ -58,12 +64,7 @@ export function FileExplorer({
     const [menu, setMenu] = useState<{ entry: FileEntry; x: number; y: number } | null>(null);
 
     // Get directory from current file path
-    const getDirectory = (filePath: string | null): string | null => {
-        if (!filePath) return null;
-        const normalized = filePath.replace(/\\/g, "/");
-        const lastSlash = normalized.lastIndexOf("/");
-        return lastSlash > 0 ? filePath.substring(0, lastSlash) : null;
-    };
+    const getDirectory = parentDirectory;
 
     // Initialize the view directory when opening the panel, and FOLLOW the
     // active note: switching tabs (or opening a note elsewhere) moves the
@@ -76,12 +77,13 @@ export function FileExplorer({
         if (isOpen) {
             // Falls back to the provided root (e.g. the mobile notes folder)
             // when there is no open file to derive a directory from.
-            setCurrentViewDir((prev) => activeDir ?? prev ?? fallbackDirectory ?? null);
+            setCurrentViewDir((prev) => rootDirectory ? prev ?? rootDirectory : activeDir ?? prev ?? fallbackDirectory ?? null);
         } else {
             // Reset view when closed so it snaps back to the active file next time
             setCurrentViewDir(null);
         }
-    }, [isOpen, activeDir, currentFilePath, fallbackDirectory]);
+    }, [isOpen, activeDir, currentFilePath, fallbackDirectory, rootDirectory]);
+    useEffect(() => { if (rootDirectory) setCurrentViewDir(rootDirectory); }, [rootDirectory]);
 
     // Load files whenever the view directory changes, and re-list the same
     // folder when the active note changes inside it (new/renamed files).
@@ -180,7 +182,7 @@ export function FileExplorer({
                 setNameEdit(null);
                 await loadFiles(currentViewDir);
                 onFileSelect(path);
-                onClose();
+                if (IS_MOBILE) onClose();
                 return;
             }
             if (edit.mode === "folder") {
@@ -228,13 +230,15 @@ export function FileExplorer({
             // Navigate into the folder
             setCurrentViewDir(entry.path);
         } else {
-            // Select the file and close
+            // FILES-03 (#225): the desktop dock stays available for the next
+            // note; the phone sheet yields its screen to the opened note.
             onFileSelect(entry.path);
-            onClose();
+            if (IS_MOBILE) onClose();
         }
     };
     
-    const parentDir = currentViewDir ? getDirectory(currentViewDir) : null;
+    const parent = currentViewDir ? getDirectory(currentViewDir) : null;
+    const parentDir = parent && (!rootDirectory || isPathWithin(parent, rootDirectory)) ? parent : null;
 
     const handleGoUp = () => {
         if (parentDir) setCurrentViewDir(parentDir);
@@ -261,11 +265,13 @@ export function FileExplorer({
             aria-label="File explorer"
             tabIndex={-1}
             data-panel="left"
+            style={IS_MOBILE ? undefined : { width: "var(--sidebar-width)" }}
             className={`fixed left-0 top-12 bottom-7 w-72 bg-[var(--bg-secondary)] border-r border-[var(--border)] z-50 shadow-2xl flex flex-col overflow-hidden transition-transform duration-200 ease-out ${
                 isOpen ? "translate-x-0" : "-translate-x-full"
             }`}
         >
             {/* Header */}
+            {onOpenFolder && !IS_MOBILE && <button onClick={onOpenFolder} className="px-4 py-2 text-left text-sm hover:bg-[var(--bg-hover)]">Open folder…</button>}
             <div className="h-10 shrink-0 px-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-titlebar)]">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)] no-select">
                     <button

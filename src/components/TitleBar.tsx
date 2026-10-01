@@ -12,6 +12,7 @@ interface TitleBarProps {
     isDirty?: boolean;
     filePath?: string;
     onOpenFile?: () => void;
+    onOpenFolder?: () => void;
     onNewFile?: () => void;
     getExportHtml?: () => Promise<string>;
     onExportSuccess?: (format: string) => void;
@@ -26,7 +27,7 @@ interface TitleBarProps {
     onFindInFiles?: () => void;
 }
 
-function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles }: TitleBarProps) {
+function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles }: TitleBarProps) {
     // Whether the AI button's icon shimmers. Some users prefer it plain (#111).
     // Held locally and refreshed from the Settings event rather than threaded
     // down from App, since nothing else on the way needs to know about it.
@@ -122,11 +123,11 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                 className="h-12 shrink-0 flex items-center justify-between px-4 bg-[var(--bg-titlebar)] border-b border-[var(--border)] no-select drag-region transition-colors"
             >
                 {/* Left: Icon & Title */}
-                <div className="flex items-center gap-3 no-drag">
-                    <div className="flex items-center justify-center w-5 h-5">
+                <div className="flex flex-1 min-w-0 items-center gap-1 sm:gap-3 no-drag">
+                    <div className="flex shrink-0 items-center justify-center w-5 h-5">
                         <img src="/icon.svg" alt="Paperling" className="w-full h-full" />
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)] min-w-0">
+                    <div className="flex flex-1 items-center gap-2 text-sm text-[var(--text-secondary)] min-w-0">
                         {parentFolder && (
                             <>
                                 <span className="opacity-60 hidden md:inline">{parentFolder} /</span>
@@ -153,6 +154,11 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                     </div>
 
                     {/* Open File / New Button - shown when a file is already open */}
+                    {onOpenFolder && (
+                        <button onClick={onOpenFolder} aria-label="Open folder" title="Open folder…" className="shrink-0 w-7 h-7 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
+                            <span className="material-symbols-outlined text-[16px]">folder</span>
+                        </button>
+                    )}
                     {hasFile && onOpenFile && (
                         <>
                             <div className="w-[1px] h-4 bg-[var(--border)] ml-2"></div>
@@ -205,7 +211,9 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onNewFile, getE
                 </div>
 
                 {/* Right: Settings & Window Controls */}
-                <div className="flex items-center gap-1 no-drag">
+                {/* RLL-09 (#241): chrome always owns its width; the note name
+                    yields first so a narrow desktop never loses Close. */}
+                <div className="flex shrink-0 items-center gap-1 no-drag">
                     <SettingsMenu />
                     <div className="w-[1px] h-4 bg-[var(--border)] mx-1"></div>
                     <button

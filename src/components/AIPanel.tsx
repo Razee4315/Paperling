@@ -23,6 +23,7 @@ import { IS_MOBILE } from "../utils/platform";
 import mascotWizard from "../assets/mascot/mascot-wizard.png";
 
 interface AIPanelProps {
+    maxWidth?: string;
     isOpen: boolean;
     onClose: () => void;
     /** Current document text. */
@@ -33,6 +34,8 @@ interface AIPanelProps {
     aiConfig: AIConfig;
     /** Called (Agent mode) with the proposed document to review in the editor. */
     onProposeEdit?: (proposedDoc: string) => void;
+    onDiscardEdit?: () => void;
+    docKey?: string | null;
     /** Live panel width in px; owned by App so the editor can reserve the space. */
     width: number;
     /** Fires continuously while the edge is dragged. */
@@ -48,7 +51,7 @@ interface UIMessage {
 // (Settings → AI, default 8), read live per send — the document itself is
 // attached only to the latest turn inside buildAskMessages.
 
-export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConfig, onProposeEdit, width, onWidthChange }: AIPanelProps) {
+export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConfig, onProposeEdit, onDiscardEdit, docKey, width, onWidthChange, maxWidth }: AIPanelProps) {
     // Stored chats (#111). Closing the panel unmounts it, so message state used
     // to die with it. Read the saved history once, then resume the most recent
     // chat, which makes close/reopen and app restarts non-destructive.
@@ -70,8 +73,14 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
+    const replacementTranscriptRef = useRef<UIMessage[] | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const [editingIndex, setEditingIndex] = useState<number | null>(null);
+    const savedDraftRef = useRef("");
+    const [replyReview, setReplyReview] = useState<{ text: string; note: string; docKey: string | null | undefined } | null>(null);
+    const contextRef = useRef({ note, docKey });
+    contextRef.current = { note, docKey };
 
     const configured = !!aiConfig.endpoint && !!aiConfig.model;
 
@@ -89,7 +98,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
         const el = scrollRef.current;
         if (el) el.scrollTop = el.scrollHeight;
     }, [messages]);
-    useEffect(() => () => abortRef.current?.abort(), []);
+    useEffect(() => () => { abortRef.current?.abort(); abortRef.current = null; }, []);
 
     // Auto-grow the composer as the user types more lines (up to a max, then
     // scroll). Without this the single-row textarea just scrolls internally and
@@ -103,25 +112,45 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
         el.style.overflowY = el.scrollHeight > AI_INPUT_MAX_PX ? "auto" : "hidden";
     }, [input]);
 
-    const send = useCallback(async () => {
-        const text = input.trim();
-        if (!text || busy) return;
+    const send = useCallback(async (retry?: { text: string; history: UIMessage[] }) => {
+        const text = (retry?.text ?? input).trim();
+        if (!text || busy || abortRef.current) return;
         if (!configured) { setError("Configure an AI endpoint in Settings → AI first."); return; }
         setError(null);
         // The textarea is uncontrolled (see below) — clear the DOM value directly
         // and keep the state mirror in sync for the send button / auto-grow.
-        if (inputRef.current) inputRef.current.value = "";
-        inputDraftRef.current = "";
-        setInput("");
+        if (!retry) {
+            if (inputRef.current) inputRef.current.value = "";
+            inputDraftRef.current = "";
+            setInput("");
+        }
+        const prior = retry?.history ?? (editingIndex == null ? messages : messages.slice(0, editingIndex));
+        const replacingTranscript = !!retry || editingIndex != null;
+        // AI-09 (#230): replacing an existing conversation is transactional.
+        // A partial stream is useful for a new question, but must never erase a
+        // completed answer/later turns when a retry fails or is cancelled.
+        replacementTranscriptRef.current = replacingTranscript ? messages : null;
+        const restoreTranscript = () => {
+            setMessages(messages);
+            if (editingIndex != null) {
+                setEditingIndex(editingIndex);
+                setInput(text);
+                inputDraftRef.current = text;
+                if (inputRef.current) inputRef.current.value = text;
+            }
+        };
+        setEditingIndex(null);
+        setReplyReview(null);
+        onDiscardEdit?.();
 
         // Prior turns as plain Q/A (no document) — the doc is attached only to the
         // newest user turn by buildAskMessages.
         const turns = getAIHistoryTurns();
         const history: ChatMessage[] = turns > 0
-            ? messages.slice(-turns * 2).map((m) => ({ role: m.role, content: m.content }))
+            ? prior.slice(-turns * 2).map((m) => ({ role: m.role, content: m.content }))
             : [];
 
-        const withUser: UIMessage[] = [...messages, { role: "user", content: text }, { role: "assistant", content: "" }];
+        const withUser: UIMessage[] = [...prior, { role: "user", content: text }, { role: "assistant", content: "" }];
         const assistantIdx = withUser.length - 1;
         setMessages(withUser);
         setBusy(true);
@@ -135,6 +164,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
             const full = await streamChat(msgs, aiConfig, {
                 signal: ctrl.signal,
                 onToken: (delta) => {
+                    if (abortRef.current !== ctrl || ctrl.signal.aborted) return;
                     setMessages((prev) => {
                         const copy = prev.slice();
                         const cur = copy[assistantIdx];
@@ -143,10 +173,16 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                     });
                 },
             });
+            if (abortRef.current !== ctrl || ctrl.signal.aborted) return;
+            if (!full.trim()) throw new Error("AI returned an empty response. Try again or check the endpoint.");
             // Agent mode: if the reply was edit blocks, apply them and hand the
             // proposed document to the editor for review (replacing the raw blocks
             // that briefly streamed into the bubble with a clean summary).
             if (mode === "agent") {
+                if (contextRef.current.note !== note || contextRef.current.docKey !== docKey) {
+                    setError("The document changed while the reply was generated. No changes were proposed; send again for the current document.");
+                    return;
+                }
                 const res = parseEdits(full, note);
                 if (res.hasEdits) {
                     let summary: string;
@@ -162,19 +198,56 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                         return copy;
                     });
                 }
-                // No edit blocks → it was an answer; the streamed text stays as-is.
+                else {
+                    setError("No document changes were proposed. This reply contains no valid edit blocks. You can retry with a clearer request, or review the full reply as a replacement document below.");
+                    if (full.trim()) setReplyReview({ text: full, note, docKey });
+                }
             }
         } catch (e) {
+            if (abortRef.current !== ctrl) return;
             if ((e as Error).name !== "AbortError") setError((e as Error).message);
-            // Drop the empty assistant bubble if nothing streamed in.
-            setMessages((prev) => (prev[assistantIdx]?.content ? prev : prev.slice(0, assistantIdx)));
+            if (replacingTranscript) restoreTranscript();
+            // New questions keep any useful partial answer; empty bubbles go.
+            else setMessages((prev) => (prev[assistantIdx]?.content ? prev : prev.slice(0, assistantIdx)));
         } finally {
-            setBusy(false);
-            abortRef.current = null;
+            if (abortRef.current === ctrl) {
+                // A late Stop may race with a successful transport completion.
+                if (ctrl.signal.aborted && replacingTranscript) restoreTranscript();
+                replacementTranscriptRef.current = null;
+                setBusy(false);
+                abortRef.current = null;
+            }
         }
-    }, [input, busy, configured, messages, note, selectionText, aiConfig, mode, onProposeEdit]);
+    }, [input, busy, configured, messages, editingIndex, note, docKey, selectionText, aiConfig, mode, onProposeEdit, onDiscardEdit]);
 
     const stop = useCallback(() => abortRef.current?.abort(), []);
+
+    const resetRequest = useCallback(() => {
+        const originalTranscript = replacementTranscriptRef.current;
+        replacementTranscriptRef.current = null;
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setBusy(false);
+        setEditingIndex(null);
+        setReplyReview(null);
+        onDiscardEdit?.();
+        return originalTranscript;
+    }, [onDiscardEdit]);
+    const editMessage = (index: number) => {
+        if (busy) return;
+        if (editingIndex == null) savedDraftRef.current = inputDraftRef.current;
+        const text = messages[index].content;
+        setEditingIndex(index);
+        setInput(text);
+        inputDraftRef.current = text;
+        if (inputRef.current) { inputRef.current.value = text; inputRef.current.focus(); }
+    };
+    const cancelEdit = () => {
+        setEditingIndex(null);
+        setInput(savedDraftRef.current);
+        inputDraftRef.current = savedDraftRef.current;
+        if (inputRef.current) inputRef.current.value = savedDraftRef.current;
+    };
 
     /** Write one chat into the stored history. Empty chats are not stored. */
     const commitSession = useCallback((id: string, msgs: UIMessage[]) => {
@@ -201,27 +274,27 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
     // Start a fresh chat, keeping the current one in history. This is the button
     // that used to be "clear", which discarded the conversation outright (#111).
     const newChat = useCallback(() => {
-        abortRef.current?.abort();
-        commitSession(sessionId, messages);
+        const originalTranscript = resetRequest();
+        commitSession(sessionId, originalTranscript ?? messages);
         setSessionId(makeSessionId());
         setMessages([]);
         setError(null);
         setHistoryOpen(false);
-    }, [commitSession, sessionId, messages]);
+    }, [commitSession, sessionId, messages, resetRequest]);
 
     const selectSession = useCallback((id: string) => {
         setHistoryOpen(false);
         if (id === sessionId) return;
-        abortRef.current?.abort();
+        const originalTranscript = resetRequest();
         // Save where we are before moving, so switching away mid-conversation
         // (or mid-stream) doesn't lose it.
-        commitSession(sessionId, messages);
+        commitSession(sessionId, originalTranscript ?? messages);
         const target = sessionsRef.current.find((s) => s.id === id);
         if (!target) return;
         setSessionId(id);
         setMessages(target.messages);
         setError(null);
-    }, [commitSession, sessionId, messages]);
+    }, [commitSession, sessionId, messages, resetRequest]);
 
     const deleteSession = useCallback((id: string) => {
         const next = removeSession(sessionsRef.current, id);
@@ -230,12 +303,12 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
         setChatSessions(next);
         // Deleting the open chat leaves an empty one rather than a stale view.
         if (id === sessionId) {
-            abortRef.current?.abort();
+            resetRequest();
             setSessionId(makeSessionId());
             setMessages([]);
             setError(null);
         }
-    }, [sessionId]);
+    }, [sessionId, resetRequest]);
 
     // Close the history dropdown on Escape or a click elsewhere.
     const historyRef = useRef<HTMLDivElement>(null);
@@ -277,7 +350,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
             // max-w keeps it on screen if the window is narrower than the stored px.
             // On mobile the shell CSS overrides this to a full-screen sheet
             // (100% width, no resize handle).
-            style={{ width: `${width}px` }}
+            style={{ width: `${width}px`, maxWidth }}
             className="fixed right-0 top-12 bottom-7 max-w-[90vw] z-50 flex flex-col bg-[var(--bg-secondary)] border-l border-[var(--border)] shadow-2xl"
         >
             {!IS_MOBILE && (
@@ -416,6 +489,10 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                             {m.role === "user" ? (
                                 <div className="max-w-[85%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-text)] text-sm whitespace-pre-wrap break-words">
                                     {m.content}
+                                    <div className="flex gap-2 mt-1 text-xs">
+                                        <button disabled={busy} onClick={() => editMessage(i)} aria-label={`Edit message ${i + 1}`} className="underline disabled:opacity-40">Edit</button>
+                                        {!messages.slice(i + 1).some((next) => next.role === "user") && <button disabled={busy} onClick={() => void send({ text: m.content, history: messages.slice(0, i) })} aria-label="Regenerate reply" className="underline disabled:opacity-40">Regenerate</button>}
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="max-w-[92%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm w-full">
@@ -437,11 +514,21 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                 {error && (
                     <div className="px-3 py-2 text-xs text-[var(--danger)] bg-[var(--danger)]/10 rounded-[var(--radius-sm)] whitespace-pre-wrap">{error}</div>
                 )}
+                {replyReview && <button className="text-xs underline text-[var(--text-primary)]" onClick={() => {
+                    if (contextRef.current.note !== replyReview.note || contextRef.current.docKey !== replyReview.docKey) {
+                        setError("The document changed. Send again before reviewing a replacement.");
+                        setReplyReview(null);
+                        return;
+                    }
+                    onProposeEdit?.(replyReview.text);
+                    setReplyReview(null);
+                }}>Review full reply as replacement document</button>}
             </div>
 
             {/* Input */}
             {configured && (
                 <div className="shrink-0 p-3 pt-2">
+                    {editingIndex != null && <div className="text-xs mb-2 text-[var(--text-secondary)]">Editing message. Sending replaces it and later replies. <button onClick={cancelEdit} className="underline">Cancel edit</button></div>}
                     <div className="ai-composer flex items-end gap-2 bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-lg)] px-3 py-2 shadow-sm transition-all duration-150">
                         {/* Uncontrolled on purpose: a controlled textarea has React
                             re-assign value/defaultValue on renders, which WebKitGTK
@@ -462,7 +549,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                                 <span className="material-symbols-outlined text-[18px]">stop</span>
                             </button>
                         ) : (
-                            <button onClick={send} disabled={!input.trim()} title="Send (Enter)" aria-label="Send" className="shrink-0 w-8 h-8 rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-text)] flex items-center justify-center enabled:hover:opacity-90 enabled:active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                            <button onClick={() => void send()} disabled={!input.trim()} title="Send (Enter)" aria-label="Send" className="shrink-0 w-8 h-8 rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-text)] flex items-center justify-center enabled:hover:opacity-90 enabled:active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                                 <span className="material-symbols-outlined text-[18px]">arrow_upward</span>
                             </button>
                         )}

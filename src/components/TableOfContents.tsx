@@ -98,8 +98,9 @@ export function TableOfContents({
             role="navigation"
             aria-label="Table of contents"
             tabIndex={-1}
-            data-panel="left"
-            className={`fixed left-0 top-12 bottom-7 w-72 bg-[var(--bg-secondary)] border-r border-[var(--border)] z-50 shadow-2xl flex flex-col overflow-hidden transition-transform duration-200 ease-out ${isOpen ? "translate-x-0" : "-translate-x-full"
+            data-panel={IS_MOBILE ? "left" : "right"}
+            style={IS_MOBILE ? undefined : { width: "var(--sidebar-width)" }}
+            className={`fixed ${IS_MOBILE ? "left-0 border-r" : "right-0 border-l"} top-12 bottom-7 w-72 bg-[var(--bg-secondary)] border-[var(--border)] z-50 shadow-2xl flex flex-col overflow-hidden transition-transform duration-200 ease-out ${isOpen ? "translate-x-0" : "translate-x-full"
                 }`}
         >
             {/* Header */}

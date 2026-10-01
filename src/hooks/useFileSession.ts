@@ -15,6 +15,7 @@ import {
   addRecentFile,
   getLastFile,
   getOpenInReader,
+  getReopenSession,
   getRecentFiles,
   getSession,
   setLastFile,
@@ -141,6 +142,9 @@ export function useFileSession({
   const tabSeqRef = useRef(0);
   const tabsRef = useRef<TabState[]>([]);
   tabsRef.current = tabs;
+  // HOT-08: records not yet published as tabs must survive interim backup
+  // writes while the active-first launch is still reading background notes.
+  const pendingBootBackupsRef = useRef<ReturnType<typeof loadBufferBackups>>([]);
   const activeTabIdRef = useRef<string | null>(null);
   activeTabIdRef.current = activeTabId;
   // Stack of recently-closed tabs (path + caret line) for Ctrl+Shift+T. Only
@@ -1044,11 +1048,19 @@ export function useFileSession({
   // debounce window of work. Clean tabs are skipped (disk holds their state),
   // so saved/closed/reverted tabs age out of the store automatically.
   useEffect(() => {
-    if (booting) return;
     const id = window.setTimeout(() => {
-      saveBufferBackups(
-        collectBufferBackups(tabsRef.current, activeTabIdRef.current, liveRef.current, currentLineRef.current),
-      );
+      const liveBackups = collectBufferBackups(tabsRef.current, activeTabIdRef.current, liveRef.current, currentLineRef.current);
+      // HOT-08 (#228): the first note is editable before every disk read
+      // finishes. Back it up immediately while retaining unread recovery
+      // records. Distinct versions of a same-path note need separate targets
+      // in storage too: the next launch indexes saved-file backups by path.
+      const pending = booting ? pendingBootBackupsRef.current.flatMap((backup) => {
+        const live = backup.filePath ? liveBackups.find((candidate) => samePath(candidate.filePath, backup.filePath)) : undefined;
+        if (!live) return [backup];
+        if (live.content === backup.content) return [];
+        return [{ ...backup, filePath: null, fileName: `Recovered ${backup.fileName}` }];
+      }) : [];
+      saveBufferBackups([...pending, ...liveBackups]);
     }, 800);
     return () => window.clearTimeout(id);
   }, [booting, tabs, content]);
@@ -1063,6 +1075,8 @@ export function useFileSession({
     }
     if (bootResolved) return;
     bootResolved = true;
+    const backups = loadBufferBackups();
+    pendingBootBackupsRef.current = backups;
     void (async () => {
       let cliFile: string | null = null;
       try {
@@ -1084,7 +1098,8 @@ export function useFileSession({
       }
       // Prefer the full saved session (TABS-07); fall back to lastFile for
       // sessions saved before multi-tab restore existed.
-      const session = getSession();
+      const reopenSession = getReopenSession();
+      const session = reopenSession ? getSession() : null;
       const cursorByPath = new Map<string, number | undefined>();
       let paths: string[] = [];
       let activePath: string | null = null;
@@ -1093,7 +1108,7 @@ export function useFileSession({
         session.tabs.forEach((tab) => cursorByPath.set(tab.path, tab.cursorLine));
         activePath = session.tabs[session.activeIndex]?.path ?? paths[0] ?? null;
       } else {
-        const lastFile = getLastFile();
+        const lastFile = reopenSession ? getLastFile() : null;
         if (lastFile) {
           paths = [lastFile];
           activePath = lastFile;
@@ -1108,7 +1123,6 @@ export function useFileSession({
       }
       // Hot exit (HOT-01): unsaved buffers from the previous run overlay the
       // restored session (and can seed one when nothing else restores).
-      const backups = loadBufferBackups();
       const backupByPath = new Map(backups.filter((b) => b.filePath).map((b) => [b.filePath as string, b]));
       const untitledBackups = backups.filter((b) => !b.filePath);
       const hadNoSessionPaths = paths.length === 0;
@@ -1123,10 +1137,15 @@ export function useFileSession({
       // Read each file, skipping stale entries. Always surface a forced-open
       // file's failure (CLI arg or Android intent) — the user explicitly
       // requested it from outside the app.
-      const loaded: TabState[] = [];
+      let loaded: TabState[] = [];
+      const publishedIds = new Set<string>();
       let activeId: string | null = null;
       let recoveredCount = 0;
-      for (const path of paths) {
+      // BOOT-03: read the requested/active file first and paint it before
+      // reading heavy background tabs. Keep booting=true until recovery is
+      // complete so persistence cannot erase backups still waiting on disk.
+      const readOrder = activePath ? [activePath, ...paths.filter((p) => p !== activePath)] : paths;
+      for (const path of readOrder) {
         try {
           const fileData = await readTextFile<FileData>(path);
           const id = newTabId();
@@ -1155,7 +1174,32 @@ export function useFileSession({
             cursorLine: backup?.cursorLine ?? cursorByPath.get(path),
           });
           if (path === activePath) activeId = id;
+          if (path === activePath && tabsRef.current.length === 0) {
+            const first = loaded[loaded.length - 1];
+            // The published tab now owns this backup. Its edits, saves and
+            // explicit discards must replace/remove that record normally.
+            pendingBootBackupsRef.current = pendingBootBackupsRef.current.filter((candidate) => candidate !== backup);
+            publishedIds.add(id);
+            commitTabs([first]);
+            setActiveTab(id);
+            applyTabToLive(first);
+            if (getOpenInReader()) setMode("preview");
+            // Allow a frame before starting background IO, even when a test
+            // backend or disk cache resolves every read synchronously.
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          }
         } catch (error) {
+          const backup = backupByPath.get(path);
+          if (backup) {
+            // HOT-06: a missing/unreadable disk file must not take its backup
+            // with it. Recover as an untitled buffer; Save asks for a path.
+            recoveredCount += 1;
+            const id = newTabId();
+            loaded.push({ id, filePath: null, fileName: backup.fileName, content: backup.content,
+              originalContent: backup.originalContent, fileSize: new TextEncoder().encode(backup.content).length,
+              knownMtime: 0, cursorLine: backup.cursorLine });
+            if (path === activePath) activeId = id;
+          }
           const message = errMessage(error);
           if (forcedFile && path === forcedFile) showToast(`Could not open file: ${message || path}`, "error");
           else if (/too large/i.test(message)) showToast(`Could not restore "${path}": ${message}`, "error");
@@ -1177,6 +1221,10 @@ export function useFileSession({
         });
         if (activeId === null) activeId = id;
       }
+      // HOT-08: once published, a tab belongs entirely to live state. A
+      // Save As or explicit Close/Discard while a background read is held
+      // must not resurrect its stale launch snapshot at the final merge.
+      loaded = loaded.filter((tab) => !publishedIds.has(tab.id));
       if (recoveredCount > 0) {
         showToast(
           recoveredCount === 1
@@ -1201,12 +1249,29 @@ export function useFileSession({
       // restored tabs in instead and leave the user's tab on screen. BOOT-01.
       if (tabsRef.current.length > 0) {
         snapshotActiveTab();
-        const fresh = loaded.filter((tab) => !tab.filePath || !findTabByPath(tabsRef.current, tab.filePath));
-        commitTabs([...fresh, ...tabsRef.current]);
+        // HOT-07 (#228): active-first restore lets Files open a background
+        // note before its backup read finishes. A same-path live tab must win
+        // focus, but cannot discard a distinct recovered draft: the next
+        // backup mirror would erase its only surviving copy. Keep that draft
+        // as an unsaved recovery tab with no disk overwrite target. The
+        // already-published active tab shares its id and needs no extra copy.
+        const fresh = loaded.flatMap((tab) => {
+          const existing = tab.filePath ? findTabByPath(tabsRef.current, tab.filePath) : undefined;
+          if (!existing) return [tab];
+          if (existing.id === tab.id || tab.content === tab.originalContent || tab.content === existing.content) return [];
+          return [{ ...tab, filePath: null, fileName: `Recovered ${tab.fileName}`, knownMtime: 0 }];
+        });
+        const merged = [...fresh, ...tabsRef.current];
+        // Retain the original tab-strip order despite active-first reads.
+        merged.sort((a, b) => {
+          const index = (tab: TabState) => tab.filePath ? paths.indexOf(tab.filePath) : paths.length;
+          return index(a) - index(b);
+        });
+        commitTabs(merged);
         setBooting(false);
         return;
       }
-      if (!activeId) activeId = loaded[0].id;
+      if (!activeId || !loaded.some((tab) => tab.id === activeId)) activeId = loaded[0].id;
       const activeTab = loaded.find((tab) => tab.id === activeId)!;
       bumpDocSwap();
       commitTabs(loaded);
