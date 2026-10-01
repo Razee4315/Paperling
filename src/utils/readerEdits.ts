@@ -1,8 +1,16 @@
 import TurndownService from "turndown";
 import { markdownLanguage } from "@codemirror/lang-markdown";
 
+/** Set on a rendered island while Reader editing is on; holds its exact source. */
+export const READER_ISLAND_ATTR = "data-md-src";
+
 const converter = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-", emDelimiter: "*" });
 converter.addRule("strike", { filter: ["del", "s"], replacement: (text) => `~~${text}~~` });
+// READ-05: an island writes back exactly the source it was rendered from.
+converter.addRule("island", {
+    filter: (node) => node.nodeType === 1 && (node as HTMLElement).hasAttribute(READER_ISLAND_ATTR),
+    replacement: (_content, node) => (node as HTMLElement).getAttribute(READER_ISLAND_ATTR) ?? "",
+});
 // READ-04: Turndown pads list markers ("-   item", "1.  item"), so touching one
 // item rewrote the spacing of every item in the list. Emit the single-space
 // markers people actually type; continuation lines indent to the marker width.
@@ -41,6 +49,28 @@ function unprotectedSyntax(source: string): string {
     return out + source.slice(end);
 }
 
+export type ReaderIslandKind = "task" | "math" | "wikilink" | "highlight" | "tag";
+export interface ReaderIsland { kind: ReaderIslandKind; text: string; from: number; to: number }
+
+// Leftmost match wins, mirroring the preview: inline math shields what it
+// contains from the wikilink/tag passes, and `![[embed]]` is an image, not a
+// link, so it stays out (and keeps its block read-only).
+const ISLAND_RE = /(?<task>(?<=^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+)\[[ xX]\](?=[ \t]))|(?<math>(?<!\$)\$(?:[^\s$]|[^\s$][^\n$]*?[^\s$])\$(?!\$))|(?<wikilink>(?<!!)\[\[[^\]|\n]+?(?:\|[^\]\n]+)?\]\])|(?<highlight>==[^=\n]+?==)|(?<tag>(?<=^|\s)#[\p{L}\p{N}_/-]*[\p{L}_/-][\p{L}\p{N}_/-]*)/gmu;
+
+/** READ-05 (#213): note syntax the Reader shows as one rendered piece — a
+ * wikilink, #tag, ==highlight==, inline $math$ or a task checkbox. HTML export
+ * cannot rebuild these, which used to make every paragraph or list containing
+ * one read-only. They are now carried through an edit as verbatim source
+ * ("islands"), so the text around them is editable and their bytes never change. */
+export function readerIslands(source: string): ReaderIsland[] {
+    const syntax = unprotectedSyntax(source), islands: ReaderIsland[] = [];
+    for (const match of syntax.matchAll(ISLAND_RE)) {
+        const kind = (Object.keys(match.groups!) as ReaderIslandKind[]).find((name) => match.groups![name] != null)!;
+        islands.push({ kind, text: source.slice(match.index, match.index + match[0].length), from: match.index, to: match.index + match[0].length });
+    }
+    return islands;
+}
+
 /** READ-02 (#213): edit one source-addressed text block. Extended syntax and
  * embedded media remain read-only rather than being flattened by HTML export.
  * Every byte outside the chosen block, including frontmatter, stays intact. */
@@ -54,7 +84,10 @@ export function readerEditRange(document: string, startLine: number, endLine: nu
     const source = document.slice(start, end);
     // These constructs require a richer Markdown model; keep them available in
     // Code. The reader must never silently erase comments, refs, math or ids.
-    const syntax = unprotectedSyntax(source);
+    // Islands are preserved verbatim (READ-05), so only what remains around
+    // them decides whether the block is plain enough to edit.
+    let syntax = unprotectedSyntax(source);
+    for (const island of readerIslands(source)) syntax = syntax.slice(0, island.from) + " ".repeat(island.to - island.from) + syntax.slice(island.to);
     if (/%%|<\/?[a-zA-Z!\?]|\[\[|!\[|\[\^|\]\s*\[|\{#|==|`{3,}|~{3,}|(?:^|\s)#[\p{L}\p{N}_-]+|\$\$|\$(?:[^\s$]|[^\s$][^\n$]*?[^\s$])\$|\^([^\s^]+)\^|(?<!~)~([^\s~]+)~(?!~)|^\s*[-*+]\s+\[[ xX]\]|^\s*>\s*\[!|^\s*\[[^\]]+\]:|^[ \t>]*\|?[ \t]*:?-{3,}:?[ \t]*(?:\||$)/mu.test(syntax)) return null;
     return { start, end, source };
 }

@@ -569,7 +569,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         }} />
                                 )}
                                 {matches("edit reader wysiwyg rich text") && (
-                                    <ToggleRow label="Edit text in Reader" description="Click rendered text blocks to edit them. Specialized Markdown stays available in Code" checked={readerEditing}
+                                    <ToggleRow label="Edit text in Reader" description="Click rendered text to edit it. Tables, images, code blocks and callouts are edited in Code" checked={readerEditing}
                                         onChange={(v) => { setReaderEditingLocal(v); setReaderEditing(v); fire("paperling:reader-editing-toggle", v); }} />
                                 )}
                                 {matches("zen mode") && (

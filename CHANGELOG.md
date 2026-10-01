@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Edit in Reader** (optional, Settings → Editor): click rendered paragraphs, headings, lists, task lists and quotes to edit them in place. Wikilinks, tags, highlights and inline math are kept exactly as written; tables, images, code blocks and callouts are still edited in Code (#213).
+- **Open folder**: from the title bar, welcome screen, Files panel, command palette, or by dropping a folder on the window. The folder stays the Files root and the search scope (#227).
+- **Outline next to Files**: Files docks on the left, Outline and Backlinks on the right, both open at once (#226).
+- **Edit a sent AI message and regenerate** the latest reply (#230).
+- **Reopen last session** can be turned off; unsaved work is always recovered either way, and the note you asked for appears before background tabs load (#228).
+- Remote `https` images and badges render in the preview, with a setting to turn them off and load them per image (#224).
+
+### Fixed
+
+- Touchscreen Windows and Linux PCs opened the phone layout, which has no title bar, so the window could not be moved or closed (#206).
+- Window buttons stay visible in a narrow window (#241).
+- The active Read / Split / Code button is no longer a white pill in dark themes (#232).
+- Files stays open after opening a note on desktop (#225).
+- Editor AI actions stream and no longer time out after 60 seconds on local models (#229).
+- Agent mode explains when the model returned no usable edit instead of doing nothing (#231).
+- macOS: double-clicking a `.md` in Finder opens that file (#250, thanks @leewaichong).
+- Android: "Open from device…", "Save to Downloads" and "Export as HTML" work again, and the editor stays above the on-screen keyboard (#252, #253, #254). Two different files with the same name no longer share one working copy.
+- PDF export no longer leaves its temporary HTML file behind on Windows (#214, thanks @Gracy769).
+- The Nix package builds again (#212).
+
 ## [1.0.51] - 2026-09-26
 
 ### Android: one-time reinstall (please read before updating)

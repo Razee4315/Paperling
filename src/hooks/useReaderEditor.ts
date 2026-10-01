@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { parseFrontmatter } from "../utils/frontmatter";
 import { matchesBinding, isMac } from "../config/keybindings";
-import { applyReaderChange, applyReaderEdit, readerChange, readerEditRange, readerHtmlToMarkdown, type ReaderChange, type ReaderEditRange } from "../utils/readerEdits";
+import { applyReaderChange, applyReaderEdit, readerChange, readerEditRange, readerHtmlToMarkdown, readerIslands, READER_ISLAND_ATTR, type ReaderChange, type ReaderEditRange, type ReaderIslandKind } from "../utils/readerEdits";
 
 interface Cursor { start: number; anchor: number; focus: number }
 interface HistoryEntry { change: ReaderChange; before: Cursor; after: Cursor; group: string; time: number }
@@ -22,6 +22,37 @@ function cleanHtml(element: HTMLElement): string {
     const clone = element.cloneNode(true) as HTMLElement;
     clone.querySelectorAll("button").forEach((button) => button.remove());
     return clone.outerHTML;
+}
+
+const ISLAND_SELECTOR = "input[type='checkbox'], .katex, a[data-wikilink], mark, .md-tag";
+
+function islandKind(node: Element): ReaderIslandKind {
+    if (node.matches("input")) return "task";
+    if (node.matches(".katex")) return "math";
+    if (node.matches("a")) return "wikilink";
+    return node.matches("mark") ? "highlight" : "tag";
+}
+
+/** READ-05: pair each rendered island with the source it came from, in order.
+ * The block is editable only when both sides agree on every island's kind;
+ * any disagreement (math not rendered yet, syntax the preview read differently)
+ * leaves it read-only instead of guessing which bytes belong to which element. */
+function stampIslands(element: HTMLElement, source: string): boolean {
+    const rendered = Array.from(element.querySelectorAll<HTMLElement>(ISLAND_SELECTOR)).filter((node) => !node.parentElement?.closest(ISLAND_SELECTOR));
+    const expected = readerIslands(source);
+    if (rendered.length !== expected.length || rendered.some((node, index) => islandKind(node) !== expected[index].kind)) return false;
+    rendered.forEach((node, index) => {
+        node.setAttribute(READER_ISLAND_ATTR, expected[index].text);
+        node.setAttribute("contenteditable", "false");
+    });
+    return true;
+}
+
+function clearIslands(scope: ParentNode | null | undefined) {
+    scope?.querySelectorAll(`[${READER_ISLAND_ATTR}]`).forEach((node) => {
+        node.removeAttribute(READER_ISLAND_ATTR);
+        node.removeAttribute("contenteditable");
+    });
 }
 
 function textOffset(element: HTMLElement, node: Node, offset: number): number {
@@ -110,6 +141,7 @@ export function useReaderEditor(options: Options) {
         // not React. Remove them before rebuilding from the saved source, or a
         // newly appended paragraph would appear twice after Done (READ-03).
         root()?.querySelectorAll("[data-reader-block]").forEach((element) => element.remove());
+        clearIslands(root());
         snapshot.current = null;
         ranges.current.clear();
         const stack = histories.current.get(latest.current.docKey)?.undo;
@@ -126,7 +158,7 @@ export function useReaderEditor(options: Options) {
         root()?.querySelectorAll<HTMLElement>("[data-source-line]").forEach((element) => {
             const offset = Number(element.closest("[data-line-offset]")?.getAttribute("data-line-offset") ?? 0) + fm;
             const range = readerEditRange(source(), Number(element.dataset.sourceLine) + offset, Number(element.dataset.sourceEndLine) + offset, element.tagName);
-            if (range) ranges.current.set(element, range);
+            if (range && stampIslands(element, range.source)) ranges.current.set(element, range);
         });
         snapshot.current = source();
         return true;
@@ -140,7 +172,7 @@ export function useReaderEditor(options: Options) {
         if (!range || source().slice(range.start, range.end) !== range.source) {
             setNotice("This block uses specialized Markdown. Edit it in Code.");
             // A failed activation must not pin a snapshot without an active editor.
-            if (!active.current) { snapshot.current = null; ranges.current.clear(); }
+            if (!active.current) { snapshot.current = null; ranges.current.clear(); clearIslands(root()); }
             return;
         }
         deactivate();
@@ -505,7 +537,7 @@ export function useReaderEditor(options: Options) {
                     }
                 }
                 if (target) activate(target, position);
-                else { snapshot.current = null; ranges.current.clear(); }
+                else { snapshot.current = null; ranges.current.clear(); clearIslands(root()); }
             }
         }
     });

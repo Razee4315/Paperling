@@ -85,9 +85,9 @@ describe("optional Reader editing (#213)", () => {
     });
     it("ends an edit on a tab switch and refuses specialized blocks", async () => {
         const onChange = vi.fn();
-        const { rerender } = renderPreview("Plain text\n\n[[Other]]", { onContentChange: onChange, docKey: "a" });
+        const { rerender } = renderPreview("Plain text\n\nSome <b>Other</b> html", { onContentChange: onChange, docKey: "a" });
         fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
-        fireEvent.doubleClick(screen.getByText("Other", { exact: true }));
+        fireEvent.doubleClick(await screen.findByText("Other", { exact: true }));
         expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull();
         expect(screen.getByText(/specialized Markdown/)).toBeInTheDocument();
         fireEvent.doubleClick(screen.getByText("Plain text", { exact: true }));
@@ -95,6 +95,29 @@ describe("optional Reader editing (#213)", () => {
         rerender(<MarkdownPreview content="Another note" fileName="b.md" fileSize={12} onEditClick={() => {}} onContentChange={onChange} docKey="b" />);
         expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull();
         expect(onChange).not.toHaveBeenCalled();
+    });
+    it("edits text around wikilinks, tags, highlights and task boxes without changing their source (READ-05)", () => {
+        const note = "See [[Other|the other]] and #idea today.\n\n- [X] ship ==fast==\n- [ ] rest\n";
+        function Editable() {
+            const [content, setContent] = useState(note);
+            return <><output aria-label="Source Markdown">{content}</output><MarkdownPreview content={content} liveContent={content} fileName="test.md" fileSize={content.length} onEditClick={() => {}} onContentChange={setContent} docKey="a" /></>;
+        }
+        render(<Editable />);
+        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        fireEvent.pointerDown(screen.getByText("See", { exact: false, selector: "p" }));
+        let block = screen.getByRole("textbox", { name: "Reader text block" });
+        expect(block.querySelector("a")).toHaveAttribute("contenteditable", "false");
+        block.firstChild!.textContent = "Look at ";
+        fireEvent.input(block);
+        expect(screen.getByLabelText("Source Markdown").textContent).toBe(note.replace("See ", "Look at "));
+        fireEvent.pointerDown(screen.getByText("rest", { exact: false, selector: "li" }));
+        block = screen.getByRole("textbox", { name: "Reader text block" });
+        expect(block.tagName).toBe("UL");
+        block.lastElementChild!.lastChild!.textContent = " rest later";
+        fireEvent.input(block);
+        expect(screen.getByLabelText("Source Markdown").textContent).toBe(note.replace("See ", "Look at ").replace("[ ] rest", "[ ] rest later"));
+        fireEvent.click(screen.getByRole("button", { name: "Done", exact: true }));
+        expect(document.querySelector("[data-md-src]")).toBeNull();
     });
     it("keeps heading controls outside editable text and preserves a typed suffix", async () => {
         render(<EditablePreview />);

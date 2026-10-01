@@ -37,6 +37,8 @@ Latest verification: [2026-10-01 recheck](FIXES-RECHECK-2026-10-01.md) covers al
 - [ ] **Undo block changes** restores the current block while keeping neighboring content.
 - [ ] Type, then switch modes/tabs or restart. The typed changes remain in the note/recovery buffer (#213).
 - [ ] Include frontmatter, math, comments, a table, an image and a Mermaid diagram around the edited paragraph. Their source remains unchanged. Specialized blocks explain that Code is their editing path (#213).
+- [ ] Edit a paragraph that contains a `[[wikilink]]`, a `#tag`, `==highlight==` or inline `$math$`, and a task list (`- [ ]`). The text around them is editable; the link, tag, highlight, math and checkbox stay exactly as written in Code (READ-05).
+- [ ] Change one item of a numbered list in Reader, then look in Code: the other items keep `1. ` with a single space (READ-04).
 - [ ] A paragraph with ordinary inline code such as `x < y` or `$literal` remains editable. After Done, its code text is intact.
 - [ ] Turn off **Settings → Editor → Edit text in Reader**. Reader is read-only again. Keyboard users can focus a text block and press Enter while editing is enabled (#213).
 
