@@ -3,6 +3,23 @@ import { markdownLanguage } from "@codemirror/lang-markdown";
 
 const converter = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-", emDelimiter: "*" });
 converter.addRule("strike", { filter: ["del", "s"], replacement: (text) => `~~${text}~~` });
+// READ-04: Turndown pads list markers ("-   item", "1.  item"), so touching one
+// item rewrote the spacing of every item in the list. Emit the single-space
+// markers people actually type; continuation lines indent to the marker width.
+converter.addRule("listItem", {
+    filter: "li",
+    replacement(content, node, options) {
+        const parent = node.parentNode as HTMLElement | null;
+        let prefix = `${options.bulletListMarker} `;
+        if (parent?.nodeName === "OL") {
+            const start = Number(parent.getAttribute("start")) || 1;
+            prefix = `${start + Array.prototype.indexOf.call(parent.children, node)}. `;
+        }
+        const paragraph = /\n$/.test(content);
+        const body = (content.replace(/^\n+|\n+$/g, "") + (paragraph ? "\n" : "")).replace(/\n/g, `\n${" ".repeat(prefix.length)}`);
+        return prefix + body + (node.nextSibling ? "\n" : "");
+    },
+});
 
 export interface ReaderEditRange { start: number; end: number; source: string }
 

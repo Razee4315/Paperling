@@ -23,6 +23,11 @@ describe("Reader block edits (READ-02)", () => {
         expect(readerHtmlToMarkdown('<p><em>italic</em> <code>x</code> <del>old</del> <a href="https://example.com">link</a></p>', false)).toBe("*italic* `x` ~~old~~ [link](https://example.com)");
         expect(readerHtmlToMarkdown('<ul><li>first<ul><li>nested</li></ul></li><li>second</li></ul>', false)).toContain("nested");
     });
+    it("writes single-space list markers so an edit does not respace the list (READ-04)", () => {
+        expect(readerHtmlToMarkdown("<ol><li>one more</li><li>inserted</li><li>two</li></ol>", false)).toBe("1. one more\n2. inserted\n3. two");
+        expect(readerHtmlToMarkdown('<ol start="4"><li>four</li><li>five</li></ol>', false)).toBe("4. four\n5. five");
+        expect(readerHtmlToMarkdown("<ul><li>first<ul><li>nested</li></ul></li><li>second</li></ul>", false)).toBe("- first\n  - nested\n- second");
+    });
     it("rejects stale ranges and supports deletion without touching neighbors", () => {
         const range = readerEditRange("before\n\ntext\n\nafter", 3, 3, "P")!;
         expect(applyReaderEdit("a different document", range, "new")).toBeNull();
