@@ -91,7 +91,7 @@ Write a full markdown report in the repo (see `WAKEUP_REPORT.md` for the establi
 | Full app dev | `bun run tauri dev` (needs Rust — not available locally) |
 | Tests | `node node_modules/vitest/vitest.mjs run` (or `bun run test`) — suite must be green before every commit |
 | Typecheck | `node node_modules/typescript/bin/tsc --noEmit` |
-| Build CI | GitHub Actions **Test Build** (`.github/workflows/test-build.yml`, `workflow_dispatch`, branch ref) → Windows msi/exe/portable-zip + macOS dmg artifacts, 14-day retention |
+| Build CI | GitHub Actions **Test Build** (`.github/workflows/test-build.yml`, `workflow_dispatch`, branch ref) → Windows msi/exe/portable-zip artifacts, 14-day retention. Windows only by default; add `-f macos=true` for the macOS dmg, and only when the owner asks for it |
 | Release CI | `release.yml` — owner-triggered only; agents never cut releases |
 | Branch naming | `fix/…` / `feat/…` + short topic (+ date for audit passes) |
 | Issue-tag registry | `EXT/TABS` (file/session), `FIND/GS` (search), `MMV` (mermaid viewer), `SHC` (shortcuts), `NAV/TOC` (navigation), `RLL` (layout), `SET` (settings), `PASTE`, `A11Y`, `ZEN` |
