@@ -1477,7 +1477,12 @@ function AppContent() {
     }
   }, [customFont, fileName, font, fontSize, getExportHtml, showToast]);
 
-  // Open find / find-and-replace from the Edit menu and command palette. In
+  // Stable identities for the memoised TitleBar: inline arrows here made it
+  // re-render on every keystroke.
+  const handlePrintAction = useCallback(() => { void handlePrint(); }, [handlePrint]);
+  const handleShowSearch = useCallback(() => setShowSearch(true), []);
+
+  // Open find / find-and-replace from the Find menu and command palette. In
   // reader mode "find" uses the preview find bar; "replace" only applies to the
   // editor, so from reader mode we switch to code mode first. The editor listens
   // for these events (CodeEditor's paperling:open-find / paperling:open-replace).
@@ -1613,6 +1618,18 @@ function AppContent() {
         section: "View",
         icon: "code",
         run: () => setMode("code"),
+      });
+      items.push({
+        id: "edit.reader",
+        label: "Edit in place (Reader)",
+        section: "View",
+        icon: "edit_note",
+        keywords: "wysiwyg rich text edit reader in place double click",
+        run: () => {
+          setMode("preview");
+          // The Reader has to be mounted and showing this note before a session can start.
+          window.setTimeout(() => window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")), 50);
+        },
       });
       items.push({
         id: "view.split",
@@ -1973,7 +1990,12 @@ function AppContent() {
             onToggleFullscreen={toggleFullscreen}
             onFind={openFind}
             onReplace={openReplace}
-            onFindInFiles={() => setShowSearch(true)}
+            onFindInFiles={handleShowSearch}
+            onSave={handleSaveFile}
+            onSaveAs={handleSaveAs}
+            onPrint={handlePrintAction}
+            mode={mode}
+            onToggleMode={handleToggleMode}
           />
         )
       )}
@@ -2294,6 +2316,7 @@ function AppContent() {
             <StatusBar
               isSaved={!isDirty}
               savePulse={savePulse}
+              onSave={handleSaveFile}
               lineNumber={mode === "preview" ? previewLine : cursorPosition.line}
               columnNumber={cursorPosition.col}
               mode={mode}

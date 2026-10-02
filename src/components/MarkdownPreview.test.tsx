@@ -20,6 +20,9 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }))
 
 afterEach(() => { cleanup(); localStorage.clear(); });
 
+/** Start a Reader editing session the way the palette command does. */
+const startReaderSession = () => act(() => { window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")); });
+
 describe("remote images (#224)", () => {
     it("allows HTTPS images in release and dev CSP while leaving HTTP out", () => {
         for (const policy of [config.app.security.csp, config.app.security.devCsp]) {
@@ -68,7 +71,7 @@ describe("optional Reader editing (#213)", () => {
     }
     it("writes each input into the note, supports undoing the whole block and preserves other syntax", async () => {
         render(<EditablePreview />);
-        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        startReaderSession();
         fireEvent.doubleClick(screen.getByText("Plain", { exact: false, selector: "p" }));
         const block = await screen.findByRole("textbox", { name: "Reader text block" });
         block.innerHTML = "Updated <strong>text</strong>.";
@@ -86,7 +89,7 @@ describe("optional Reader editing (#213)", () => {
     it("ends an edit on a tab switch and refuses specialized blocks", async () => {
         const onChange = vi.fn();
         const { rerender } = renderPreview("Plain text\n\nSome <b>Other</b> html", { onContentChange: onChange, docKey: "a" });
-        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        startReaderSession();
         fireEvent.doubleClick(await screen.findByText("Other", { exact: true }));
         expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull();
         expect(screen.getByText(/specialized Markdown/)).toBeInTheDocument();
@@ -96,6 +99,32 @@ describe("optional Reader editing (#213)", () => {
         expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull();
         expect(onChange).not.toHaveBeenCalled();
     });
+    it("shows no editing chrome until a double-click starts a session, and Escape leaves it (READ-06)", async () => {
+        render(<EditablePreview />);
+        const paragraph = () => screen.getByText("Plain", { exact: false, selector: "p" });
+        expect(document.querySelector(".reader-edit-toolbar")).toBeNull();
+        // Reading gestures stay reading gestures.
+        fireEvent.pointerDown(paragraph());
+        fireEvent.click(paragraph());
+        expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull();
+        fireEvent.doubleClick(paragraph());
+        const block = await screen.findByRole("textbox", { name: "Reader text block" });
+        expect(block.tagName).toBe("P");
+        expect(screen.getByRole("button", { name: "Stop editing" })).toBeInTheDocument();
+        fireEvent.keyDown(block, { key: "Escape" });
+        expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull();
+        expect(document.querySelector(".reader-edit-toolbar")).not.toBeNull();
+        fireEvent.keyDown(document.querySelector("main")!, { key: "Escape" });
+        expect(document.querySelector(".reader-edit-toolbar")).toBeNull();
+        expect(screen.getByLabelText("Source Markdown").textContent).toBe(original);
+    });
+    it("ignores the double-click when the setting is off (READ-06)", () => {
+        localStorage.setItem("paperling:readerEditing", "false");
+        render(<EditablePreview />);
+        fireEvent.doubleClick(screen.getByText("Plain", { exact: false, selector: "p" }));
+        expect(screen.queryByRole("textbox", { name: "Reader text block" })).toBeNull();
+        expect(document.querySelector(".reader-edit-toolbar")).toBeNull();
+    });
     it("edits text around wikilinks, tags, highlights and task boxes without changing their source (READ-05)", () => {
         const note = "See [[Other|the other]] and #idea today.\n\n- [X] ship ==fast==\n- [ ] rest\n";
         function Editable() {
@@ -103,7 +132,7 @@ describe("optional Reader editing (#213)", () => {
             return <><output aria-label="Source Markdown">{content}</output><MarkdownPreview content={content} liveContent={content} fileName="test.md" fileSize={content.length} onEditClick={() => {}} onContentChange={setContent} docKey="a" /></>;
         }
         render(<Editable />);
-        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        startReaderSession();
         fireEvent.pointerDown(screen.getByText("See", { exact: false, selector: "p" }));
         let block = screen.getByRole("textbox", { name: "Reader text block" });
         expect(block.querySelector("a")).toHaveAttribute("contenteditable", "false");
@@ -127,7 +156,7 @@ describe("optional Reader editing (#213)", () => {
     });
     it("keeps heading controls outside editable text and preserves a typed suffix", async () => {
         render(<EditablePreview />);
-        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        startReaderSession();
         const heading = await screen.findByRole("heading", { name: /^Heading\b/ });
         fireEvent.pointerDown(heading);
         const block = await screen.findByRole("textbox", { name: "Reader text block" });
@@ -141,7 +170,7 @@ describe("optional Reader editing (#213)", () => {
     });
     it("switches blocks without Done and undoes across finishing", async () => {
         render(<EditablePreview />);
-        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        startReaderSession();
         fireEvent.pointerDown(await screen.findByRole("heading", { name: /^Heading\b/ }));
         let block = await screen.findByRole("textbox", { name: "Reader text block" });
         block.textContent = "Changed heading";
@@ -161,7 +190,7 @@ describe("optional Reader editing (#213)", () => {
     });
     it("splits a heading with Enter without losing its text or the remainder", async () => {
         render(<EditablePreview />);
-        fireEvent.click(screen.getByRole("button", { name: "Edit Reader", exact: true }));
+        startReaderSession();
         fireEvent.pointerDown(await screen.findByRole("heading", { name: /^Heading\b/ }));
         const heading = await screen.findByRole("textbox", { name: "Reader text block" });
         const node = heading.firstChild!;

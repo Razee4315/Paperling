@@ -569,7 +569,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         }} />
                                 )}
                                 {matches("edit reader wysiwyg rich text") && (
-                                    <ToggleRow label="Edit text in Reader" description="Click rendered text to edit it. Tables, images, code blocks and callouts are edited in Code" checked={readerEditing}
+                                    <ToggleRow label="Edit text in Reader" description="Double-click rendered text to edit it in place. Tables, images, code blocks and callouts are edited in Code" checked={readerEditing}
                                         onChange={(v) => { setReaderEditingLocal(v); setReaderEditing(v); fire("paperling:reader-editing-toggle", v); }} />
                                 )}
                                 {matches("zen mode") && (
@@ -751,7 +751,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="text-[11px]">A minimal markdown editor</div>
+                                        <div className="text-[11px]">A no-setup Markdown reader and editor</div>
                                     </div>
                                 </div>
                                 <p>Built with Tauri + React + TypeScript.</p>

@@ -21,6 +21,8 @@ interface StatusBarProps {
     selectionWordCount?: number;
     /** Bumped on each manual Ctrl+S; replays the "Saved" pulse. SAVE-07. */
     savePulse?: number;
+    /** Makes the "Unsaved" indicator a button that saves. CHROME-02. */
+    onSave?: () => void;
 }
 
 const formatReadingTime = (min: number): string => {
@@ -48,6 +50,7 @@ function StatusBarImpl({
     selectionLength = 0,
     selectionWordCount = 0,
     savePulse = 0,
+    onSave,
 }: StatusBarProps) {
     const hasSelection = selectionLength > 0;
     return (
@@ -108,11 +111,17 @@ function StatusBarImpl({
                 </button>
             </div>
             <div className="flex items-center gap-4">
-                <div
+                <button
+                    type="button"
                     // key: a new pulse remounts the element so the animation replays.
                     key={savePulse}
-                    className={`flex items-center gap-1.5 ${savePulse > 0 ? "save-pulse" : ""}`}
-                    aria-label={isSaved ? "File saved" : "File has unsaved changes"}
+                    // "Unsaved" was a label with nothing to click; it is now the
+                    // most direct way to save for someone who doesn't use Ctrl+S.
+                    onClick={isSaved ? undefined : onSave}
+                    disabled={isSaved || !onSave}
+                    title={isSaved ? undefined : "Click to save"}
+                    className={`flex items-center gap-1.5 rounded px-1 -mx-1 ${savePulse > 0 ? "save-pulse" : ""} ${isSaved || !onSave ? "cursor-default" : "hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"}`}
+                    aria-label={isSaved ? "File saved" : "File has unsaved changes. Save now"}
                 >
                     <span
                         className={`w-2 h-2 rounded-full transition-all ${isSaved
@@ -121,7 +130,7 @@ function StatusBarImpl({
                             }`}
                     ></span>
                     <span className="transition-colors" role="status" aria-live="polite">{isSaved ? "Saved" : "Unsaved"}</span>
-                </div>
+                </button>
                 {(mode === "code" || mode === "split") && (
                     // Tabular digits (footer) plus a minimum width: Ln/Col and
                     // the counts no longer nudge their neighbours sideways as
