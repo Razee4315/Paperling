@@ -21,7 +21,7 @@ do that one first.
 
 ## 1. winget (Windows) — ready to submit ✅
 
-Files: [`winget/`](./winget/) — three manifests for `Razee4315.Paperling` v1.0.51,
+Files: [`winget/`](./winget/) — three manifests for `Razee4315.Paperling` v1.1.0,
 targeting the per-user NSIS `.exe` for **x64 and arm64**. Hashes are the SHA-256
 digests GitHub publishes for the release assets; `winget validate` passes.
 
@@ -36,13 +36,13 @@ digests GitHub publishes for the release assets; `winget validate` passes.
    ```
 2. Fork [`microsoft/winget-pkgs`](https://github.com/microsoft/winget-pkgs) and
    copy these files to
-   `manifests/r/Razee4315/Paperling/1.0.51/`.
+   `manifests/r/Razee4315/Paperling/1.1.0/`.
 3. Open a PR. Microsoft's bot validates the URL + hash and installs it in a
    sandbox; once merged, `winget install Razee4315.Paperling` works for everyone.
 
 **Even easier** — let `wingetcreate` build & submit from the release:
 ```powershell
-wingetcreate new "https://github.com/Razee4315/Paperling/releases/download/v1.0.51/Paperling_1.0.51_x64-setup.exe" "https://github.com/Razee4315/Paperling/releases/download/v1.0.51/Paperling_1.0.51_arm64-setup.exe"
+wingetcreate new "https://github.com/Razee4315/Paperling/releases/download/v1.1.0/Paperling_1.1.0_x64-setup.exe" "https://github.com/Razee4315/Paperling/releases/download/v1.1.0/Paperling_1.1.0_arm64-setup.exe"
 # after the first version is merged, later releases are one line:
 wingetcreate update Razee4315.Paperling -u <x64-setup.exe url> <arm64-setup.exe url> -v <version> --submit
 ```
@@ -59,7 +59,7 @@ File: [`scoop/paperling.json`](./scoop/paperling.json).
 Releases include a **portable zip** — `Paperling_<version>_x64-portable.zip`,
 built by `scripts/make-portable-zip.ps1` in `release.yml` (the unpacked
 `Paperling.exe` plus any runtime DLLs, at the zip root). The manifest pins
-v1.0.51's portable zip and `autoupdate` follows new releases, so there is no
+v1.1.0's portable zip and `autoupdate` follows new releases, so there is no
 installer-extraction hack left, which makes it eligible for the Scoop
 `extras` bucket.
 
@@ -84,7 +84,7 @@ in, then `scoop bucket add paperling https://github.com/Razee4315/scoop-bucket`.
 ## 4. Homebrew (macOS) — tap-ready
 
 File: [`homebrew/paperling.rb`](./homebrew/paperling.rb) — a cask for the
-universal `.dmg` (Apple Silicon + Intel), v1.0.51, with the release digest.
+universal `.dmg` (Apple Silicon + Intel), v1.1.0, with the release digest.
 
 The official `homebrew/cask` repository no longer accepts apps that fail
 Gatekeeper, and the macOS build is not signed + notarized yet, so publish it
@@ -144,7 +144,7 @@ pin exact upstream revisions, so they do not drift with an unstable channel.
 ## Publication status, checked 2026-09-30 (#212)
 
 The Scoop portable-zip and Homebrew universal-DMG hashes match the GitHub
-digests for v1.0.51. They are prepared manifests, **not published registry
+digests for v1.1.0. They are prepared manifests, **not published registry
 entries**. No `scoop-bucket` or `homebrew-tap` exists under the owner account
 at this audit. apt requires a signing identity and a chosen repository host;
 F-Droid requires a reviewed source build recipe and its own publication/signing
