@@ -7,6 +7,7 @@ import iconSwatches from "../assets/mascot/icon-theme-swatches.png";
 import mascotRocket from "../assets/mascot/mascot-rocket.png";
 import { formatShortcut } from "../config/keybindings";
 import { getAutoSave } from "../utils/persistence";
+import { IS_MOBILE } from "../utils/platform";
 
 interface TourProps {
     /** Called when the tour finishes or is skipped. Caller persists the done flag. */
@@ -48,12 +49,15 @@ const buildSteps = (): Step[] => [
     {
         id: "mode",
         target: "[data-tour='mode']",
-        placement: "below",
+        // The phone's switch is in the bottom bar; the desktop's in the title bar.
+        placement: IS_MOBILE ? "above" : "below",
         image: iconPencil,
         imageAlt: "A pencil",
         imageClass: "h-20",
         title: "Read it, or edit it",
-        body: `Notes open ready to read. This button (${formatShortcut("toggleMode")}) switches to the editor and back. To fix a single sentence, just double-click it while reading.`,
+        body: IS_MOBILE
+            ? "Notes open ready to read. Tap Edit to change the text, and Read to come back."
+            : `Notes open ready to read. This button (${formatShortcut("toggleMode")}) switches to the editor and back. To fix a single sentence, just double-click it while reading.`,
     },
     {
         id: "save",
@@ -64,8 +68,12 @@ const buildSteps = (): Step[] => [
         imageClass: "h-20",
         title: getAutoSave() ? "Saved for you" : "Saving",
         body: getAutoSave()
-            ? "Paperling saves a moment after you stop typing, and this light shows it. A brand-new note asks once where it should live."
-            : `This light shows whether your changes are saved. Click it, press Save, or use ${formatShortcut("save")}. Autosave can be turned on in Settings.`,
+            ? IS_MOBILE
+                ? "Paperling saves a moment after you stop typing. A brand-new note asks once where it should live."
+                : "Paperling saves a moment after you stop typing, and this light shows it. A brand-new note asks once where it should live."
+            : IS_MOBILE
+                ? "The dot next to the note's name shows unsaved changes. Save is in the menu; Autosave can be turned on in Settings."
+                : `This light shows whether your changes are saved. Click it, press Save, or use ${formatShortcut("save")}. Autosave can be turned on in Settings.`,
     },
     {
         id: "look",
@@ -75,7 +83,9 @@ const buildSteps = (): Step[] => [
         imageAlt: "Theme colour swatches",
         imageClass: "h-20",
         title: "Make it yours",
-        body: `Theme, font and text size live here. ${formatShortcut("zoomIn")} and ${formatShortcut("zoomOut")} zoom the text any time.`,
+        body: IS_MOBILE
+            ? "Theme, font and text size are in Settings, in the menu at the top left."
+            : `Theme, font and text size live here. ${formatShortcut("zoomIn")} and ${formatShortcut("zoomOut")} zoom the text any time.`,
     },
     {
         id: "more",
@@ -84,7 +94,9 @@ const buildSteps = (): Step[] => [
         imageAlt: "Command palette illustration",
         imageClass: "h-24",
         title: "Everything else is one box away",
-        body: `Files, the outline, search across notes, export and the rest are in the command palette: ${formatShortcut("palette")}.`,
+        body: IS_MOBILE
+            ? "Files and the outline are in the bottom bar. Search, export and the rest are behind the magnifier at the top."
+            : `Files, the outline, search across notes, export and the rest are in the command palette: ${formatShortcut("palette")}.`,
     },
     {
         id: "done",

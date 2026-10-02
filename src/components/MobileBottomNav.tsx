@@ -62,6 +62,8 @@ export function MobileBottomNav({ hasFile, mode, onSetMode, onOpenFiles, onToggl
             {buttons.map((b) => (
                 <button
                     key={b.id}
+                    // The tour points at the read/edit switch (TOUR-02).
+                    data-tour={b.id === "mode" ? "mode" : undefined}
                     onClick={b.onSelect}
                     aria-label={b.label}
                     aria-pressed={b.active}
