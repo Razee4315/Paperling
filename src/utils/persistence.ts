@@ -391,6 +391,10 @@ export function pinLegacyDefaults(mobile: boolean = IS_MOBILE): void {
             pin(KEY_OPEN_IN_READER, false);
             pin(KEY_TOOLBAR, mobile);
             pin(KEY_SPELL_CHECK, false);
+            // THEME-01: a profile that never chose a theme has been looking at
+            // Paper; following the OS is for new installs only. (Raw string:
+            // ThemeContext owns this key and does not JSON-encode it.)
+            if (localStorage.getItem("paperling-theme") === null) localStorage.setItem("paperling-theme", "paper");
         }
         localStorage.setItem(KEY_DEFAULTS_VERSION, "2");
     } catch { /* storage unavailable — defaults simply apply */ }

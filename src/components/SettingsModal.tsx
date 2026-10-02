@@ -167,7 +167,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
     const [section, setSection] = useState<Section>("appearance");
     const [filter, setFilter] = useState("");
-    const { theme, setTheme, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
+    const { theme, setTheme, followSystem, setFollowSystem, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
 
     const [typewriter, setTypewriterLocal] = useState(getTypewriterMode);
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
@@ -382,12 +382,28 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     <section>
                                         <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Theme</h3>
                                         <div className="grid grid-cols-4 gap-2">
+                                            {/* THEME-01: follows the OS light/dark setting. */}
+                                            <button
+                                                onClick={() => setFollowSystem(true)}
+                                                aria-pressed={followSystem}
+                                                className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${followSystem
+                                                    ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
+                                                    : "hover:bg-[var(--bg-hover)]"
+                                                    }`}
+                                                title="Match the system's light or dark setting"
+                                            >
+                                                <div className="w-12 h-12 rounded-[var(--radius-md)] overflow-hidden border border-[var(--border)] flex">
+                                                    <div className="w-1/2 h-full" style={{ backgroundColor: "#f5f0e6" }}></div>
+                                                    <div className="w-1/2 h-full" style={{ backgroundColor: "#1c1917" }}></div>
+                                                </div>
+                                                <span className="text-[11px] text-[var(--text-primary)]">System</span>
+                                            </button>
                                             {themes.map((t) => (
                                                 <button
                                                     key={t.id}
                                                     onClick={() => setTheme(t.id)}
-                                                    aria-pressed={theme === t.id}
-                                                    className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${theme === t.id
+                                                    aria-pressed={!followSystem && theme === t.id}
+                                                    className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${!followSystem && theme === t.id
                                                         ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
                                                         : "hover:bg-[var(--bg-hover)]"
                                                         }`}

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ThemeProvider, useTheme } from "./ThemeContext";
 
@@ -96,5 +96,80 @@ describe("ThemeProvider accent", () => {
         localStorage.setItem("paperling-accent", "chartreuse");
         render(<ThemeProvider><AccentControls /></ThemeProvider>);
         expect(screen.getByTestId("accent")).toHaveTextContent("default");
+    });
+});
+
+function ThemeControls() {
+    const { theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom } = useTheme();
+    return (
+        <>
+            <span data-testid="theme">{theme}</span>
+            <span data-testid="follow">{String(followSystem)}</span>
+            <span data-testid="zoom">{zoom}</span>
+            <button onClick={() => setTheme("nord")}>Use nord</button>
+            <button onClick={() => setFollowSystem(true)}>Follow system</button>
+            <button onClick={() => zoomBy(1)}>Zoom in</button>
+            <button onClick={resetZoom}>Reset zoom</button>
+        </>
+    );
+}
+
+describe("ThemeProvider system theme and zoom", () => {
+    let listeners: Array<() => void> = [];
+    let dark = false;
+    const originalMatchMedia = window.matchMedia;
+    beforeEach(() => {
+        cleanup();
+        localStorage.clear();
+        listeners = [];
+        dark = false;
+        window.matchMedia = ((query: string) => ({
+            get matches() { return dark; },
+            media: query,
+            addEventListener: (_: string, fn: () => void) => { listeners.push(fn); },
+            removeEventListener: (_: string, fn: () => void) => { listeners = listeners.filter((l) => l !== fn); },
+        })) as unknown as typeof window.matchMedia;
+        return () => { window.matchMedia = originalMatchMedia; };
+    });
+
+    it("follows the OS on a first run and switches live when it changes (THEME-01)", async () => {
+        dark = true;
+        render(<ThemeProvider><ThemeControls /></ThemeProvider>);
+        expect(screen.getByTestId("follow")).toHaveTextContent("true");
+        expect(screen.getByTestId("theme")).toHaveTextContent("graphite");
+        dark = false;
+        await waitFor(() => expect(listeners.length).toBe(1));
+        act(() => listeners.forEach((fn) => fn()));
+        expect(screen.getByTestId("theme")).toHaveTextContent("paper");
+    });
+
+    it("stops following once a theme is picked, and can be turned back on (THEME-01)", () => {
+        dark = true;
+        render(<ThemeProvider><ThemeControls /></ThemeProvider>);
+        fireEvent.click(screen.getByText("Use nord"));
+        expect(screen.getByTestId("follow")).toHaveTextContent("false");
+        expect(screen.getByTestId("theme")).toHaveTextContent("nord");
+        expect(localStorage.getItem("paperling-theme")).toBe("nord");
+        fireEvent.click(screen.getByText("Follow system"));
+        expect(screen.getByTestId("theme")).toHaveTextContent("graphite");
+        expect(localStorage.getItem("paperling-theme")).toBe("system");
+    });
+
+    it("keeps a saved theme regardless of the OS (THEME-01)", () => {
+        dark = true;
+        localStorage.setItem("paperling-theme", "paper");
+        render(<ThemeProvider><ThemeControls /></ThemeProvider>);
+        expect(screen.getByTestId("follow")).toHaveTextContent("false");
+        expect(screen.getByTestId("theme")).toHaveTextContent("paper");
+    });
+
+    it("steps, persists and applies the zoom (ZOOM-01)", async () => {
+        render(<ThemeProvider><ThemeControls /></ThemeProvider>);
+        fireEvent.click(screen.getByText("Zoom in"));
+        expect(screen.getByTestId("zoom")).toHaveTextContent("1.1");
+        expect(localStorage.getItem("paperling-zoom")).toBe("1.1");
+        await waitFor(() => expect(document.documentElement.style.getPropertyValue("--zoom")).toBe("1.1"));
+        fireEvent.click(screen.getByText("Reset zoom"));
+        expect(screen.getByTestId("zoom")).toHaveTextContent("1");
     });
 });

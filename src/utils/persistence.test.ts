@@ -137,6 +137,14 @@ describe("new-install defaults (DEFAULTS-01)", () => {
         pinLegacyDefaults(false);
         expect(defaults()).toEqual([false, false, false, true]);
     });
+    it("pins Paper for an existing profile that never chose a theme, so it does not start following the OS (THEME-01)", () => {
+        localStorage.setItem("paperling:recentFiles", "[]");
+        pinLegacyDefaults(false);
+        expect(localStorage.getItem("paperling-theme")).toBe("paper");
+        localStorage.clear();
+        pinLegacyDefaults(false);
+        expect(localStorage.getItem("paperling-theme")).toBeNull();
+    });
     it("pins only once, so a later reset to defaults is not overridden", () => {
         pinLegacyDefaults(false);
         localStorage.setItem("paperling:recentFiles", "[]");

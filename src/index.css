@@ -438,9 +438,10 @@
 }
 
 /* ===== Font Size Variables ===== */
-/* Default font size - must come BEFORE attribute selectors */
+/* Default font size - must come BEFORE attribute selectors.
+   --zoom (ZOOM-01) multiplies whichever preset is active; ThemeContext sets it. */
 :root {
-  --font-size-base: 16px;
+  --font-size-base: calc(16px * var(--zoom, 1));
   --font-size-h1: 2.25em;
   --font-size-h2: 1.75em;
   --font-size-h3: 1.25em;
@@ -448,8 +449,8 @@
 }
 
 [data-font-size="small"] {
-  --editor-font-size: 13px;
-  --font-size-base: 14px;
+  --editor-font-size: calc(13px * var(--zoom, 1));
+  --font-size-base: calc(14px * var(--zoom, 1));
   --font-size-h1: 1.875em;
   --font-size-h2: 1.5em;
   --font-size-h3: 1.125em;
@@ -457,8 +458,8 @@
 }
 
 [data-font-size="medium"] {
-  --editor-font-size: 14px;
-  --font-size-base: 16px;
+  --editor-font-size: calc(14px * var(--zoom, 1));
+  --font-size-base: calc(16px * var(--zoom, 1));
   --font-size-h1: 2.25em;
   --font-size-h2: 1.75em;
   --font-size-h3: 1.25em;
@@ -466,8 +467,8 @@
 }
 
 [data-font-size="large"] {
-  --editor-font-size: 16px;
-  --font-size-base: 18px;
+  --editor-font-size: calc(16px * var(--zoom, 1));
+  --font-size-base: calc(18px * var(--zoom, 1));
   --font-size-h1: 2.5em;
   --font-size-h2: 2em;
   --font-size-h3: 1.375em;
@@ -475,8 +476,8 @@
 }
 
 [data-font-size="xlarge"] {
-  --editor-font-size: 18px;
-  --font-size-base: 20px;
+  --editor-font-size: calc(18px * var(--zoom, 1));
+  --font-size-base: calc(20px * var(--zoom, 1));
   --font-size-h1: 2.5em;
   --font-size-h2: 2em;
   --font-size-h3: 1.375em;

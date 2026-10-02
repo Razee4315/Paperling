@@ -61,6 +61,8 @@ const groups: ShortcutGroup[] = [
             { keys: formatShortcut("toggleSplit"), description: "Toggle split view" },
             { keys: formatShortcut("zenMode"), description: "Toggle Zen mode (reading canvas only)" },
             { keys: formatShortcut("fullscreen"), description: "Toggle fullscreen" },
+            { keys: `${formatShortcut("zoomIn")} / ${formatShortcut("zoomOut")}`, description: "Zoom text in / out" },
+            { keys: formatShortcut("zoomReset"), description: "Reset zoom" },
             { keys: formatShortcut("toggleFileExplorer"), description: "Toggle file explorer" },
             { keys: formatShortcut("searchInFolder"), description: "Search across files" },
             { keys: formatShortcut("toggleTOC"), description: "Toggle outline" },

@@ -119,6 +119,7 @@ import {
   setTextDirection,
 } from "./utils/persistence";
 import { getAutoSave } from "./utils/persistence";
+import { formatZoom } from "./utils/zoom";
 import { clearBufferBackups } from "./utils/bufferBackup";
 import { findAnchorLine, splitWikilinkTarget } from "./utils/wikilinkAnchor";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
@@ -168,7 +169,7 @@ const THEME_CHOICES: { id: Theme; label: string }[] = [
 ];
 
 function AppContent() {
-  const { theme, setTheme, font, fontSize, customFont } = useTheme();
+  const { theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom, font, fontSize, customFont } = useTheme();
 
   // Publishes --keyboard-inset (the on-screen keyboard's height) and keeps
   // focused fields visible. Desktop-safe: without a visualViewport the hook
@@ -1364,6 +1365,7 @@ function AppContent() {
     handleOpenFile, handleSaveFile, handleSaveAs, handleNewFile,
     handleToggleMode, handleToggleSplit, handleToggleFileExplorer, handleToggleTOC,
     toggleFullscreen, toggleZen: handleToggleZen,
+    zoomBy, resetZoom,
     openCheatsheet: () => setShowCheatsheet(true),
     openPalette: () => { setPaletteSeed(undefined); setShowPalette(true); },
     openGotoLine: () => { setPaletteSeed(":"); setShowPalette(true); },
@@ -1476,6 +1478,15 @@ function AppContent() {
       showToast(errMessage(err) || "Could not print", "error");
     }
   }, [customFont, fileName, font, fontSize, getExportHtml, showToast]);
+
+  // ZOOM-01: say the level whenever it changes, since the shortcut and the
+  // wheel have no other visible readout. Skips the initial mount.
+  const shownZoomRef = useRef(zoom);
+  useEffect(() => {
+    if (shownZoomRef.current === zoom) return;
+    shownZoomRef.current = zoom;
+    showToast(`Zoom ${formatZoom(zoom)}`, "info");
+  }, [zoom, showToast]);
 
   // Stable identities for the memoised TitleBar: inline arrows here made it
   // re-render on every keystroke.
@@ -1619,6 +1630,11 @@ function AppContent() {
         icon: "code",
         run: () => setMode("code"),
       });
+      items.push(
+        { id: "view.zoomIn", label: "Zoom in", hint: formatShortcut("zoomIn"), section: "View", icon: "zoom_in", keywords: "bigger larger text size", run: () => zoomBy(1) },
+        { id: "view.zoomOut", label: "Zoom out", hint: formatShortcut("zoomOut"), section: "View", icon: "zoom_out", keywords: "smaller text size", run: () => zoomBy(-1) },
+        { id: "view.zoomReset", label: "Reset zoom", hint: formatShortcut("zoomReset"), section: "View", icon: "search", keywords: "100% actual size text", run: resetZoom },
+      );
       items.push({
         id: "edit.reader",
         label: "Edit in place (Reader)",
@@ -1757,10 +1773,18 @@ function AppContent() {
     // === Theme === switch directly from the palette. The welcome tour tells
     // users themes live here, and it makes the four themes discoverable without
     // opening Settings. The active theme is marked and skipped as a no-op.
+    items.push({
+      id: "theme.system",
+      label: followSystem ? "Theme: follow system (current)" : "Theme: follow system light / dark",
+      section: "Theme",
+      icon: "brightness_auto",
+      keywords: "theme auto automatic system os dark light night",
+      run: () => setFollowSystem(true),
+    });
     for (const t of THEME_CHOICES) {
       items.push({
         id: `theme.${t.id}`,
-        label: theme === t.id ? `Theme: ${t.label} (current)` : `Change theme to ${t.label}`,
+        label: !followSystem && theme === t.id ? `Theme: ${t.label} (current)` : `Change theme to ${t.label}`,
         section: "Theme",
         icon: "palette",
         keywords: "theme color appearance dark light paper dracula graphite nord midnight",
@@ -1837,7 +1861,7 @@ function AppContent() {
     handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
     loadFile, filePath, hasFile, showToast, closeTab, handlePrint,
-    typewriterModeEnabled, toolbarVisible, aiEnabled,
+    typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
 

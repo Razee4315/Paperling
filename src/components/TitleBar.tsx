@@ -245,6 +245,7 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                         // CHROME-01: the read/edit switch, in words, where a new
                         // user looks first. The floating pill keeps Split.
                         <button
+                            data-tour="mode"
                             onClick={onToggleMode}
                             aria-label={mode === "preview" ? "Edit this note" : "Back to reading"}
                             title={`${mode === "preview" ? "Edit" : "Read"} (${formatShortcut("toggleMode")})`}
