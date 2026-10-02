@@ -118,7 +118,7 @@ import {
   getTextDirection,
   setTextDirection,
 } from "./utils/persistence";
-import { getAutoSave } from "./utils/persistence";
+import { getAutoSave, getOpenInReader } from "./utils/persistence";
 import { formatZoom } from "./utils/zoom";
 import { clearBufferBackups } from "./utils/bufferBackup";
 import { findAnchorLine, splitWikilinkTarget } from "./utils/wikilinkAnchor";
@@ -1161,6 +1161,34 @@ function AppContent() {
       unlisten?.();
     };
   }, [loadFile]);
+
+  // MODE-02: with "Open files in reader" on, the view belongs to the note, not
+  // the window. The mode used to be one global value, so opening a new note
+  // (Code) and going back to the one being read left that one in Code too.
+  // Each tab remembers the view it was last in; switching to it restores that.
+  // With the setting off the mode stays global, as before, so people who work
+  // in Split everywhere are not bounced back to Reader on every tab switch.
+  // Layout effect: the restore lands before paint, so there is no flash of
+  // the wrong view.
+  const tabModesRef = useRef(new Map<string, ViewMode>());
+  const modeTabRef = useRef(activeTabId);
+  useLayoutEffect(() => {
+    const modes = tabModesRef.current;
+    if (modeTabRef.current !== activeTabId) {
+      modeTabRef.current = activeTabId;
+      const remembered = activeTabId ? modes.get(activeTabId) : undefined;
+      if (remembered && remembered !== mode && getOpenInReader()) {
+        setMode(remembered);
+        return;
+      }
+    }
+    if (activeTabId) modes.set(activeTabId, mode);
+    // Closed tabs drop out; ids are never reused.
+    if (modes.size > tabs.length) {
+      const open = new Set(tabs.map((tab) => tab.id));
+      for (const id of modes.keys()) if (!open.has(id)) modes.delete(id);
+    }
+  }, [activeTabId, mode, setMode, tabs]);
 
   // Toggle between preview and code (skips split — split has its own shortcut)
   const handleToggleMode = useCallback(() => {

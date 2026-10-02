@@ -495,17 +495,19 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
 
     if (error) {
         return (
-            <div className="my-4 p-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-sm">
+            // Spans, not divs: an image sits inside its paragraph, and a <div>
+            // in a <p> is invalid HTML that React warns about on every render.
+            <span className="block my-4 p-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-sm">
                 Failed to load image: {src}
-            </div>
+            </span>
         );
     }
 
     if (!imageSrc) {
         return (
-            <div className="my-4 p-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-secondary)] animate-pulse">
-                <div className="h-32 bg-[var(--bg-tertiary)] rounded"></div>
-            </div>
+            <span className="block my-4 p-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-secondary)] animate-pulse">
+                <span className="block h-32 bg-[var(--bg-tertiary)] rounded"></span>
+            </span>
         );
     }
 
