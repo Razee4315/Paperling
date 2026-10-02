@@ -3,7 +3,7 @@ import type { MouseEvent } from "react";
 import { Window } from "@tauri-apps/api/window";
 import { SettingsMenu } from "./SettingsMenu";
 import { ExportMenu } from "./ExportMenu";
-import { FindMenu } from "./FindMenu";
+import { MoreMenu } from "./MoreMenu";
 import { formatShortcut } from "../config/keybindings";
 import { getAIIconAnimation } from "../utils/persistence";
 
@@ -30,12 +30,9 @@ interface TitleBarProps {
     onSave?: () => void;
     onSaveAs?: () => void;
     onPrint?: () => void;
-    /** Current view, for the Read / Edit switch (CHROME-01). */
-    mode?: "preview" | "code" | "split";
-    onToggleMode?: () => void;
 }
 
-function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles, onSave, onSaveAs, onPrint, mode, onToggleMode }: TitleBarProps) {
+function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles, onSave, onSaveAs, onPrint }: TitleBarProps) {
     // Whether the AI button's icon shimmers. Some users prefer it plain (#111).
     // Held locally and refreshed from the Settings event rather than threaded
     // down from App, since nothing else on the way needs to know about it.
@@ -149,7 +146,7 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                         )}
                         {/* Always laid out, only shown when dirty: appearing
                             and disappearing it pushed the whole toolbar
-                            (New / Open / Save / Find / Export) ~60px sideways on the
+                            (New / Open / Save / Export / More) ~60px sideways on the
                             first keystroke and back on every save. TITLE-02. */}
                         {fileName && (
                             <span
@@ -161,20 +158,17 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                         )}
                     </div>
 
-                    {/* Open File / New Button - shown when a file is already open */}
-                    {onOpenFolder && (
-                        <button onClick={onOpenFolder} aria-label="Open folder" title="Open folder…" className="shrink-0 w-7 h-7 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
-                            <span className="material-symbols-outlined text-[16px]">folder</span>
-                        </button>
-                    )}
+                    {/* CHROME-04: four everyday actions as buttons, the rest
+                        under More. Shown once a note is open; the welcome
+                        screen has its own Open / New / Open folder. */}
                     {hasFile && onOpenFile && (
                         <>
-                            <div className="w-[1px] h-4 bg-[var(--border)] ml-2"></div>
+                            <div className="w-[1px] h-4 bg-[var(--border)] mx-1"></div>
                             {onNewFile && (
                                 <button
                                     onClick={onNewFile}
                                     aria-label="New file"
-                                    className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-xs"
+                                    className="chrome-btn flex items-center gap-1 px-2 h-8 text-xs"
                                     title={`New File (${formatShortcut("newFile")})`}
                                 >
                                     <span className="material-symbols-outlined text-[16px]">edit_note</span>
@@ -184,7 +178,7 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                             <button
                                 onClick={onOpenFile}
                                 aria-label="Open file"
-                                className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-xs"
+                                className="chrome-btn flex items-center gap-1 px-2 h-8 text-xs"
                                 title={`Open File (${formatShortcut("openFile")})`}
                             >
                                 <span className="material-symbols-outlined text-[16px]">folder_open</span>
@@ -197,37 +191,29 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                                     onClick={onSave}
                                     disabled={!isDirty}
                                     aria-label="Save"
-                                    className={`flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] transition-colors text-xs ${isDirty
-                                        ? "text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-                                        : "text-[var(--text-muted)] cursor-default"
-                                        }`}
+                                    className={`chrome-btn flex items-center gap-1 px-2 h-8 text-xs ${isDirty ? "!text-[var(--text-primary)]" : "!text-[var(--text-muted)] cursor-default"}`}
                                     title={isDirty ? `Save (${formatShortcut("save")})` : "All changes saved"}
                                 >
                                     <span className="material-symbols-outlined text-[16px]">save</span>
                                     <span className="hidden sm:inline">Save</span>
                                 </button>
                             )}
-                            {onFind && onReplace && onFindInFiles && (
-                                <FindMenu onFind={onFind} onReplace={onReplace} onFindInFiles={onFindInFiles} />
-                            )}
                             <ExportMenu
                                 fileName={fileName || 'document.md'}
                                 getExportHtml={getExportHtml}
                                 onSuccess={onExportSuccess}
                                 onError={onExportError}
-                                onSaveAs={onSaveAs}
-                                onPrint={onPrint}
                             />
+                            {onFind && onReplace && onFindInFiles && (
+                                <MoreMenu onOpenFolder={onOpenFolder} onFind={onFind} onReplace={onReplace} onFindInFiles={onFindInFiles} onSaveAs={onSaveAs} onPrint={onPrint} />
+                            )}
                             {onToggleAI && (
                                 <button
                                     onClick={onToggleAI}
                                     aria-label="AI assistant"
                                     aria-pressed={aiActive}
                                     title="AI assistant"
-                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-[var(--radius-md)] transition-colors text-xs font-semibold tracking-wide ${aiActive
-                                        ? "bg-[var(--bg-hover)] text-[var(--accent)]"
-                                        : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                                        }`}
+                                    className={`chrome-btn flex items-center gap-1 px-2.5 h-8 text-xs font-semibold tracking-wide ${aiActive ? "chrome-btn-on !text-[var(--accent)]" : ""}`}
                                 >
                                     <span className={`material-symbols-outlined text-[15px]${aiIconAnimated ? " ai-shimmer" : ""}`} aria-hidden="true">auto_awesome</span>
                                     <span>AI</span>
@@ -241,26 +227,12 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                 {/* RLL-09 (#241): chrome always owns its width; the note name
                     yields first so a narrow desktop never loses Close. */}
                 <div className="flex shrink-0 items-center gap-1 no-drag">
-                    {hasFile && mode && onToggleMode && (
-                        // CHROME-01: the read/edit switch, in words, where a new
-                        // user looks first. The floating pill keeps Split.
-                        <button
-                            data-tour="mode"
-                            onClick={onToggleMode}
-                            aria-label={mode === "preview" ? "Edit this note" : "Back to reading"}
-                            title={`${mode === "preview" ? "Edit" : "Read"} (${formatShortcut("toggleMode")})`}
-                            className="btn-press flex items-center gap-1.5 h-7 px-2.5 mr-1 rounded-full border border-[var(--border)] bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold hover:border-[var(--accent)] transition-colors"
-                        >
-                            <span className="material-symbols-outlined text-[15px]" aria-hidden="true">{mode === "preview" ? "edit" : "visibility"}</span>
-                            <span className="hidden sm:inline">{mode === "preview" ? "Edit" : "Read"}</span>
-                        </button>
-                    )}
                     <SettingsMenu />
                     <div className="w-[1px] h-4 bg-[var(--border)] mx-1"></div>
                     <button
                         onClick={handleMinimize}
                         aria-label="Minimize"
-                        className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        className="chrome-btn flex items-center justify-center w-9 h-8"
                     >
                         <span className="material-symbols-outlined text-[18px]">remove</span>
                     </button>
@@ -268,14 +240,14 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                         onClick={handleMaximize}
                         aria-label={isFullscreen ? "Exit fullscreen" : "Maximize"}
                         title={isFullscreen ? "Exit fullscreen (F11)" : "Maximize"}
-                        className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        className="chrome-btn flex items-center justify-center w-9 h-8"
                     >
                         <span className="material-symbols-outlined text-[16px]">{isFullscreen ? "fullscreen_exit" : "crop_square"}</span>
                     </button>
                     <button
                         onClick={handleCloseClick}
                         aria-label="Close"
-                        className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--danger)] text-[var(--text-secondary)] hover:text-[var(--accent-text)] transition-colors"
+                        className="chrome-btn chrome-btn-danger flex items-center justify-center w-9 h-8"
                     >
                         <span className="material-symbols-outlined text-[18px]">close</span>
                     </button>

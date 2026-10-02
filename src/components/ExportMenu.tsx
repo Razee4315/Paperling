@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
-import { formatShortcut } from '../config/keybindings';
 import iconExportPdf from '../assets/mascot/icon-export-pdf.png';
 import iconPaperPlane from '../assets/mascot/icon-paper-plane.png';
 
@@ -22,15 +21,11 @@ interface ExportMenuProps {
     getExportHtml?: () => Promise<string>;
     onSuccess?: (format: string) => void;
     onError?: (format: string) => void;
-    /** Shown under the formats: the two other "get this note out of here"
-     *  actions, which had no home outside the command palette (CHROME-02). */
-    onSaveAs?: () => void;
-    onPrint?: () => void;
 }
 
 type ExportFormat = 'html' | 'pdf' | 'docx';
 
-export function ExportMenu({ fileName, getExportHtml, onSuccess, onError, onSaveAs, onPrint }: ExportMenuProps) {
+export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: ExportMenuProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const { theme, font, customFont, fontSize } = useTheme();
@@ -113,13 +108,9 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError, onSave
                 aria-label="Export document"
                 aria-expanded={isOpen}
                 aria-haspopup="true"
-                className={`btn-press flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-xs ${
-                    disabled
-                        // Muted color at full opacity rather than opacity-40 on top
-                        // of muted — keeps the disabled label readable (a11y).
-                        ? 'cursor-not-allowed text-[var(--text-muted)]'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
+                // Muted color at full opacity when disabled rather than a
+                // faded button — keeps the label readable (a11y).
+                className={`chrome-btn flex items-center gap-1 px-2 h-8 text-xs ${disabled ? 'cursor-not-allowed !text-[var(--text-muted)]' : ''}`}
                 title="Export document"
             >
                 {isExporting ? (
@@ -137,7 +128,7 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError, onSave
 
             {/* Simple Dropdown Menu */}
             {isOpen && !disabled && (
-                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label="Export formats" className="absolute left-0 top-full mt-1 w-52 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-[70] animate-fade-in-down">
+                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label="Export formats" className="absolute left-0 top-full mt-1 w-44 py-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-[70] animate-fade-in-down">
                     <button
                         role="menuitem"
                         onClick={() => handleExport('html')}
@@ -162,28 +153,6 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError, onSave
                         <span className="material-symbols-outlined text-[22px] w-6 text-center text-[var(--accent)]" aria-hidden="true">description</span>
                         <span>Word (.docx)</span>
                     </button>
-                    {(onPrint || onSaveAs) && <div className="h-px bg-[var(--border)]" role="separator" />}
-                    {onPrint && (
-                        <button
-                            role="menuitem"
-                            onClick={() => { setIsOpen(false); onPrint(); }}
-                            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--bg-hover)] transition-colors"
-                        >
-                            <span className="material-symbols-outlined text-[20px] w-6 text-center text-[var(--text-secondary)]" aria-hidden="true">print</span>
-                            <span>Print…</span>
-                        </button>
-                    )}
-                    {onSaveAs && (
-                        <button
-                            role="menuitem"
-                            onClick={() => { setIsOpen(false); onSaveAs(); }}
-                            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--bg-hover)] transition-colors"
-                        >
-                            <span className="material-symbols-outlined text-[20px] w-6 text-center text-[var(--text-secondary)]" aria-hidden="true">save_as</span>
-                            <span className="flex-1">Save As…</span>
-                            <kbd className="text-[11px] font-mono text-[var(--text-muted)]">{formatShortcut('saveAs')}</kbd>
-                        </button>
-                    )}
                 </div>
             )}
         </div>

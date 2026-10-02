@@ -2050,8 +2050,6 @@ function AppContent() {
             onSave={handleSaveFile}
             onSaveAs={handleSaveAs}
             onPrint={handlePrintAction}
-            mode={mode}
-            onToggleMode={handleToggleMode}
           />
         )
       )}

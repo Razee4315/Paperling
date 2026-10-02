@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { Children, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { useTheme, ACCENT_CHOICES, type Theme, type FontFamily, type FontSize } from "../context/ThemeContext";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { getInstalledFontFamilies } from "../utils/fontDiscovery";
@@ -97,6 +97,21 @@ interface ToggleRowProps {
     description: string;
     checked: boolean;
     onChange: (v: boolean) => void;
+}
+
+/** A titled card of setting rows. Renders nothing when the search filter has
+ *  hidden every row inside it. SET-06. */
+function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+    const rows = Children.toArray(children);
+    if (rows.length === 0) return null;
+    return (
+        <section>
+            <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">{title}</h3>
+            <div className="rounded-[var(--radius-lg)] border border-[var(--border)] divide-y divide-[var(--border-subtle)] overflow-hidden">
+                {rows}
+            </div>
+        </section>
+    );
 }
 
 function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
@@ -530,74 +545,83 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         )}
 
                         {section === "editor" && (
-                            <div className="rounded-[var(--radius-lg)] border border-[var(--border)] divide-y divide-[var(--border-subtle)] overflow-hidden">
-                                {/* Typewriter scrolling orbits a physical
-                                    keyboard's caret line; on touch it's a
-                                    solution without a problem. */}
-                                {matches("typewriter") && !IS_MOBILE && (
-                                    <ToggleRow label="Typewriter mode" description="Keep caret vertically centered" checked={typewriter}
-                                        onChange={(v) => { setTypewriterLocal(v); setTypewriterMode(v); fire("paperling:typewriter-toggle", v); }} />
-                                )}
-                                {/* Not offered on mobile: the toolbar is the
-                                    phone's only formatting surface, always on. */}
-                                {matches("toolbar") && !IS_MOBILE && (
-                                    <ToggleRow label="Show formatting toolbar" description="Toolbar above the editor" checked={toolbar}
-                                        onChange={(v) => { setToolbarLocal(v); setToolbarEnabled(v); fire("paperling:toolbar-toggle", v); }} />
-                                )}
-                                {matches("word wrap") && (
-                                    <ToggleRow label="Word wrap" description="Wrap long lines instead of horizontal scroll" checked={wordWrap}
-                                        onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
-                                )}
-                                {matches("live preview hide markdown symbols syntax wysiwyg") && (
-                                    <ToggleRow label="Hide Markdown symbols" description="In the editor, show # ** ` and link syntax only on the line you are editing" checked={livePreview}
-                                        onChange={(v) => { setLivePreviewLocal(v); setLivePreview(v); fire("paperling:live-preview-toggle", v); }} />
-                                )}
-                                {matches("spell check") && (
-                                    <ToggleRow label="Spell check" description="Underline misspelled words while you type" checked={spellCheck}
-                                        onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
-                                )}
-                                {matches("vim") && (
-                                    <ToggleRow label="Vim mode" description="Modal editing in the editor: h/j/k/l, modes, operators" checked={vimMode}
-                                        onChange={(v) => { setVimModeLocal(v); setVimMode(v); fire("paperling:vim-toggle", v); }} />
-                                )}
-                                {matches("autosave") && (
-                                    <ToggleRow label="Autosave" description="Save automatically a moment after you stop typing" checked={autoSave}
-                                        onChange={(v) => { setAutoSaveLocal(v); setAutoSave(v); fire("paperling:autosave-toggle", v); }} />
-                                )}
-                                {matches("open files in reader mode") && (
-                                    // No window event: App reads the flag live at each
-                                    // file open (same pattern as toggle-ai-panel).
-                                    <ToggleRow label="Open files in reader mode" description="Every file opens read-first; editing stays one click away" checked={openInReader}
-                                        onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
-                                )}
-                                {matches("reopen last session launch startup recovery") && (
-                                    <ToggleRow label="Reopen last session on launch" description="Restore saved tabs on startup. Unsaved work is always recovered" checked={reopenSession}
-                                        onChange={(v) => { setReopenSessionLocal(v); setReopenSession(v); fire("paperling:reopen-session-toggle", v); }} />
-                                )}
-                                {matches("readable line length preview width column") && (
-                                    <ToggleRow label="Readable line length" description="Center the reading column at a comfortable width (Obsidian-style). Off: the preview fills the window" checked={readableLength}
-                                        onChange={(v) => { setReadableLengthLocal(v); setReadableLineLength(v); fire("paperling:readable-toggle", v); }} />
-                                )}
-                                {matches("load remote images privacy badges") && (
-                                    <ToggleRow label="Load remote images" description="Show HTTPS images and badges. Image hosts can see your IP address" checked={remoteImages}
-                                        onChange={(v) => { setRemoteImagesLocal(v); setRemoteImages(v); fire("paperling:remote-images-toggle", v); }} />
-                                )}
-                                {matches("text direction right to left rtl ltr arabic hebrew persian urdu") && (
-                                    <DirectionRow value={textDirection}
-                                        onChange={(v) => {
-                                            setTextDirectionLocal(v);
-                                            setTextDirection(v);
-                                            window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: v } }));
-                                        }} />
-                                )}
-                                {matches("edit reader wysiwyg rich text") && (
-                                    <ToggleRow label="Edit text in Reader" description="Double-click rendered text to edit it in place. Tables, images, code blocks and callouts are edited in Code" checked={readerEditing}
-                                        onChange={(v) => { setReaderEditingLocal(v); setReaderEditing(v); fire("paperling:reader-editing-toggle", v); }} />
-                                )}
-                                {matches("zen mode") && (
-                                    <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}
-                                        onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
-                                )}
+                            // SET-06: fourteen switches in one undivided list were hard
+                            // to scan. Grouped by what they affect; a group whose rows
+                            // are all filtered out by the search disappears with them.
+                            <div className="space-y-6">
+                                <SettingsGroup title="Writing">
+                                    {/* Not offered on mobile: the toolbar is the
+                                        phone's only formatting surface, always on. */}
+                                    {matches("toolbar") && !IS_MOBILE && (
+                                        <ToggleRow label="Show formatting toolbar" description="Toolbar above the editor" checked={toolbar}
+                                            onChange={(v) => { setToolbarLocal(v); setToolbarEnabled(v); fire("paperling:toolbar-toggle", v); }} />
+                                    )}
+                                    {matches("live preview hide markdown symbols syntax wysiwyg") && (
+                                        <ToggleRow label="Hide Markdown symbols" description="In the editor, show # ** ` and link syntax only on the line you are editing" checked={livePreview}
+                                            onChange={(v) => { setLivePreviewLocal(v); setLivePreview(v); fire("paperling:live-preview-toggle", v); }} />
+                                    )}
+                                    {matches("spell check") && (
+                                        <ToggleRow label="Spell check" description="Underline misspelled words while you type" checked={spellCheck}
+                                            onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
+                                    )}
+                                    {matches("word wrap") && (
+                                        <ToggleRow label="Word wrap" description="Wrap long lines instead of horizontal scroll" checked={wordWrap}
+                                            onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
+                                    )}
+                                    {/* Typewriter scrolling orbits a physical
+                                        keyboard's caret line; on touch it's a
+                                        solution without a problem. */}
+                                    {matches("typewriter") && !IS_MOBILE && (
+                                        <ToggleRow label="Typewriter mode" description="Keep caret vertically centered" checked={typewriter}
+                                            onChange={(v) => { setTypewriterLocal(v); setTypewriterMode(v); fire("paperling:typewriter-toggle", v); }} />
+                                    )}
+                                    {matches("vim") && (
+                                        <ToggleRow label="Vim mode" description="Modal editing in the editor: h/j/k/l, modes, operators" checked={vimMode}
+                                            onChange={(v) => { setVimModeLocal(v); setVimMode(v); fire("paperling:vim-toggle", v); }} />
+                                    )}
+                                </SettingsGroup>
+                                <SettingsGroup title="Saving and files">
+                                    {matches("autosave") && (
+                                        <ToggleRow label="Autosave" description="Save automatically a moment after you stop typing" checked={autoSave}
+                                            onChange={(v) => { setAutoSaveLocal(v); setAutoSave(v); fire("paperling:autosave-toggle", v); }} />
+                                    )}
+                                    {matches("open files in reader mode") && (
+                                        // No window event: App reads the flag live at each
+                                        // file open (same pattern as toggle-ai-panel).
+                                        <ToggleRow label="Open files in reader mode" description="Every file opens read-first; editing stays one click away" checked={openInReader}
+                                            onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
+                                    )}
+                                    {matches("reopen last session launch startup recovery") && (
+                                        <ToggleRow label="Reopen last session on launch" description="Restore saved tabs on startup. Unsaved work is always recovered" checked={reopenSession}
+                                            onChange={(v) => { setReopenSessionLocal(v); setReopenSession(v); fire("paperling:reopen-session-toggle", v); }} />
+                                    )}
+                                </SettingsGroup>
+                                <SettingsGroup title="Reading">
+                                    {matches("readable line length preview width column") && (
+                                        <ToggleRow label="Readable line length" description="Center the reading column at a comfortable width (Obsidian-style). Off: the preview fills the window" checked={readableLength}
+                                            onChange={(v) => { setReadableLengthLocal(v); setReadableLineLength(v); fire("paperling:readable-toggle", v); }} />
+                                    )}
+                                    {matches("edit reader wysiwyg rich text") && (
+                                        <ToggleRow label="Edit text in Reader" description="Double-click rendered text to edit it in place. Tables, images, code blocks and callouts are edited in Code" checked={readerEditing}
+                                            onChange={(v) => { setReaderEditingLocal(v); setReaderEditing(v); fire("paperling:reader-editing-toggle", v); }} />
+                                    )}
+                                    {matches("load remote images privacy badges") && (
+                                        <ToggleRow label="Load remote images" description="Show HTTPS images and badges. Image hosts can see your IP address" checked={remoteImages}
+                                            onChange={(v) => { setRemoteImagesLocal(v); setRemoteImages(v); fire("paperling:remote-images-toggle", v); }} />
+                                    )}
+                                    {matches("text direction right to left rtl ltr arabic hebrew persian urdu") && (
+                                        <DirectionRow value={textDirection}
+                                            onChange={(v) => {
+                                                setTextDirectionLocal(v);
+                                                setTextDirection(v);
+                                                window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: v } }));
+                                            }} />
+                                    )}
+                                    {matches("zen mode") && (
+                                        <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}
+                                            onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
+                                    )}
+                                </SettingsGroup>
                             </div>
                         )}
 
