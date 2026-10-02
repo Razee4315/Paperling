@@ -93,6 +93,7 @@ Write a full markdown report in the repo (see `WAKEUP_REPORT.md` for the establi
 | Typecheck | `node node_modules/typescript/bin/tsc --noEmit` |
 | Build CI | GitHub Actions **Test Build** (`.github/workflows/test-build.yml`, `workflow_dispatch`, branch ref) → Windows msi/exe/portable-zip artifacts, 14-day retention. Windows only by default; add `-f macos=true` for the macOS dmg, and only when the owner asks for it |
 | Release CI | `release.yml` — owner-triggered only; agents never cut releases |
+| Release notes | The top `CHANGELOG.md` section becomes the release page and the in-app update dialog: keep it to a few lines, with the detail in `release-notes/vX.Y.Z.md` |
 | Branch naming | `fix/…` / `feat/…` + short topic (+ date for audit passes) |
 | Issue-tag registry | `EXT/TABS` (file/session), `FIND/GS` (search), `MMV` (mermaid viewer), `SHC` (shortcuts), `NAV/TOC` (navigation), `RLL` (layout), `SET` (settings), `PASTE`, `A11Y`, `ZEN`, `READ` (Reader editing), `DEFAULTS`, `CHROME` (title/status bar), `ZOOM`, `THEME`, `TOUR`, `MODE`, `LIVE` (live preview), `BOOT` |
 
