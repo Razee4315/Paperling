@@ -48,6 +48,7 @@ import { SlashMenu, type SlashCommand } from "./SlashMenu";
 import { AIBubble } from "./AIBubble";
 import { TableToolbar } from "./TableToolbar";
 import { pasteUrlOnSelection, pasteUrlAutolink, pasteTsvAsTable, htmlToMarkdown } from "../utils/smartPaste";
+import { livePreview as livePreviewExtension } from "../utils/livePreview";
 import { getAIEnabled, setTextDirection } from "../utils/persistence";
 import { createDirectionChord, type TextDirection } from "../utils/textDirection";
 import { textDirectionExtension } from "../utils/editorDirection";
@@ -76,6 +77,8 @@ interface CodeEditorProps {
     showToolbar?: boolean;
     wordWrap?: boolean;
     spellCheck?: boolean;
+    /** Hide Markdown symbols except on the line being edited. LIVE-01. */
+    livePreview?: boolean;
     /** Centre the text in a ~80-character column (Settings → Readable line
      *  length), matching the preview. Only applies while word wrap is on. */
     readableLineLength?: boolean;
@@ -273,6 +276,7 @@ function CodeEditorImpl({
     showToolbar,
     wordWrap = true,
     spellCheck = false,
+    livePreview = false,
     vimMode = false,
     readableLineLength = false,
     textDirection = "auto",
@@ -362,13 +366,14 @@ function CodeEditorImpl({
     // skipped, or it would throw away the exact position just restored.
     const restoredFromCacheRef = useRef(false);
     // Live setting values for rebuilding extensions on a restored state.
-    const liveSettingsRef = useRef({ wordWrap, spellCheck, vimMode, textDirection });
-    liveSettingsRef.current = { wordWrap, spellCheck, vimMode, textDirection };
+    const liveSettingsRef = useRef({ wordWrap, spellCheck, vimMode, textDirection, livePreview });
+    liveSettingsRef.current = { wordWrap, spellCheck, vimMode, textDirection, livePreview };
     const buildEditingKeymapRef = useRef<() => Extension>(() => []);
 
     // Reconfigurable extensions.
     const wrapCompRef = useRef(new Compartment());
     const spellCompRef = useRef(new Compartment());
+    const livePreviewCompRef = useRef(new Compartment());
     // Vim modal editing (issue #119) — toggled live from Settings.
     const vimCompRef = useRef(new Compartment());
     // Text direction (auto per line / forced RTL / forced LTR). BIDI-01.
@@ -470,6 +475,7 @@ function CodeEditorImpl({
 
         const wrapComp = wrapCompRef.current;
         const spellComp = spellCompRef.current;
+        const livePreviewComp = livePreviewCompRef.current;
         const vimComp = vimCompRef.current;
         const dirComp = dirCompRef.current;
         const mergeComp = mergeCompRef.current;
@@ -679,6 +685,7 @@ function CodeEditorImpl({
                     editorTheme,
                     wrapComp.of(wordWrap ? EditorView.lineWrapping : []),
                     spellComp.of(EditorView.contentAttributes.of(spellAttrs(spellCheck))),
+                    livePreviewComp.of(livePreviewExtension(livePreview)),
                     vimComp.of(vimMode ? vim() : []),
                     dirComp.of(textDirectionExtension(textDirection)),
                     mergeComp.of([]),
@@ -951,6 +958,7 @@ function CodeEditorImpl({
                     effects: [
                         wrapCompRef.current.reconfigure(live.wordWrap ? EditorView.lineWrapping : []),
                         spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(live.spellCheck))),
+                        livePreviewCompRef.current.reconfigure(livePreviewExtension(live.livePreview)),
                         vimCompRef.current.reconfigure(live.vimMode ? vim() : []),
                         dirCompRef.current.reconfigure(textDirectionExtension(live.textDirection)),
                         keymapCompRef.current.reconfigure(buildEditingKeymapRef.current()),
@@ -991,6 +999,9 @@ function CodeEditorImpl({
     useEffect(() => {
         viewRef.current?.dispatch({ effects: spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(spellCheck))) });
     }, [spellCheck]);
+    useEffect(() => {
+        viewRef.current?.dispatch({ effects: livePreviewCompRef.current.reconfigure(livePreviewExtension(livePreview)) });
+    }, [livePreview]);
     useEffect(() => {
         viewRef.current?.dispatch({ effects: vimCompRef.current.reconfigure(vimMode ? vim() : []) });
     }, [vimMode]);

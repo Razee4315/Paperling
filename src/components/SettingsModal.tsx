@@ -12,6 +12,7 @@ import {
     getAIEnabled, setAIEnabled,
     getWordWrap, setWordWrap,
     getSpellCheck, setSpellCheck,
+    getLivePreview, setLivePreview,
     getVimMode, setVimMode,
     getAutoSave, setAutoSave,
     getOpenInReader, setOpenInReader,
@@ -56,7 +57,7 @@ const sections: Array<{ id: Section; label: string; icon: string }> = [
 // nothing). SET-05.
 const SECTION_KEYWORDS: Record<Section, string> = {
     appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small",
-    editor: "typewriter toolbar word wrap spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
+    editor: "typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
     shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
     ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
     about: "about version update tour guide help license",
@@ -173,6 +174,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
     const [wordWrap, setWordWrapLocal] = useState(getWordWrap);
     const [spellCheck, setSpellCheckLocal] = useState(getSpellCheck);
+    const [livePreview, setLivePreviewLocal] = useState(getLivePreview);
     const [vimMode, setVimModeLocal] = useState(getVimMode);
     const [autoSave, setAutoSaveLocal] = useState(getAutoSave);
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
@@ -545,6 +547,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 {matches("word wrap") && (
                                     <ToggleRow label="Word wrap" description="Wrap long lines instead of horizontal scroll" checked={wordWrap}
                                         onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
+                                )}
+                                {matches("live preview hide markdown symbols syntax wysiwyg") && (
+                                    <ToggleRow label="Hide Markdown symbols" description="In the editor, show # ** ` and link syntax only on the line you are editing" checked={livePreview}
+                                        onChange={(v) => { setLivePreviewLocal(v); setLivePreview(v); fire("paperling:live-preview-toggle", v); }} />
                                 )}
                                 {matches("spell check") && (
                                     <ToggleRow label="Spell check" description="Underline misspelled words while you type" checked={spellCheck}

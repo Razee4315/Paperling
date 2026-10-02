@@ -170,6 +170,12 @@ export const setWordWrap = (v: boolean): void => safeSet(KEY_WORD_WRAP, v);
 export const getSpellCheck = (): boolean => safeGet<boolean>(KEY_SPELL_CHECK, true);
 export const setSpellCheck = (v: boolean): void => safeSet(KEY_SPELL_CHECK, v);
 
+// LIVE-01: hide Markdown symbols in the editor except on the line being
+// edited. Opt-in: it changes how every line of the editor looks.
+const KEY_LIVE_PREVIEW = "paperling:livePreview";
+export const getLivePreview = (): boolean => safeGet<boolean>(KEY_LIVE_PREVIEW, false);
+export const setLivePreview = (v: boolean): void => safeSet(KEY_LIVE_PREVIEW, v);
+
 // Optional vim modal editing (issue #119). Off by default: the app must stay
 // fully usable by people who have never touched vim.
 const KEY_VIM_MODE = "paperling:vimMode";

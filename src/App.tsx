@@ -96,6 +96,8 @@ import {
   initAIKey,
   getSavedViewMode,
   getSpellCheck,
+  getLivePreview,
+  setLivePreview,
   getVimMode,
   setVimMode,
   getSplitRatio,
@@ -204,6 +206,7 @@ function AppContent() {
   zenModeRef.current = zenMode;
   const zenToggleRef = useRef<() => void>(() => {});
   const [spellCheckEnabled, setSpellCheckEnabled] = usePersistedState<boolean>(getSpellCheck, setSpellCheck);
+  const [livePreviewEnabled, setLivePreviewEnabled] = usePersistedState<boolean>(getLivePreview, setLivePreview);
   // Readable line length: centered ~800px preview column (Obsidian-style
   // default ON). RLL-01.
   const [readableLineLength, setReadableLineLengthState] = usePersistedState<boolean>(getReadableLineLength, setReadableLineLength);
@@ -650,6 +653,7 @@ function AppContent() {
       ["paperling:toolbar-toggle", (e) => setToolbarVisible(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:wordwrap-toggle", (e) => setWordWrapEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:spellcheck-toggle", (e) => setSpellCheckEnabled(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:live-preview-toggle", (e) => setLivePreviewEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:vim-toggle", (e) => setVimModeEnabled(!!(e as CustomEvent).detail?.enabled)],
       // Settings → Editor toggle for Zen mode. Routed through the shared
       // toggle (a no-op when already in the desired state) so entering via
@@ -2230,6 +2234,7 @@ function AppContent() {
                 showToolbar={IS_MOBILE || toolbarVisible}
                 wordWrap={wordWrapEnabled}
                 spellCheck={spellCheckEnabled}
+                livePreview={livePreviewEnabled}
                 vimMode={vimModeEnabled}
                 readableLineLength={readableLineLength}
                 textDirection={textDirection}
