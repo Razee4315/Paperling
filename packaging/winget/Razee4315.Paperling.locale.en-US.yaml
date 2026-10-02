@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: Razee4315.Paperling
-PackageVersion: 1.0.51
+PackageVersion: 1.1.0
 PackageLocale: en-US
 Publisher: Saqlain Abbas
 PublisherUrl: https://github.com/Razee4315
@@ -31,6 +31,6 @@ Tags:
   - mermaid
   - productivity
   - writing
-ReleaseNotesUrl: https://github.com/Razee4315/Paperling/releases/tag/v1.0.51
+ReleaseNotesUrl: https://github.com/Razee4315/Paperling/releases/tag/v1.1.0
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
