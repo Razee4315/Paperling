@@ -49,15 +49,15 @@ const buildSteps = (): Step[] => [
     {
         id: "mode",
         target: "[data-tour='mode']",
-        // The phone's switch is in the bottom bar; the desktop's in the title bar.
-        placement: IS_MOBILE ? "above" : "below",
+        // Bottom bar on the phone, the floating switch on desktop: both sit low.
+        placement: "above",
         image: iconPencil,
         imageAlt: "A pencil",
         imageClass: "h-20",
         title: "Read it, or edit it",
         body: IS_MOBILE
             ? "Notes open ready to read. Tap Edit to change the text, and Read to come back."
-            : `Notes open ready to read. This button (${formatShortcut("toggleMode")}) switches to the editor and back. To fix a single sentence, just double-click it while reading.`,
+            : `Notes open ready to read. This switch (${formatShortcut("toggleMode")}) changes between reading, side by side, and the editor. To fix a single sentence, just double-click it while reading.`,
     },
     {
         id: "save",

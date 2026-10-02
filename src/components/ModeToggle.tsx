@@ -20,6 +20,8 @@ export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400, r
             style={{ right: rightPanelWidth ? `calc(${rightPanelWidth} + 2rem)` : aiPanelOpen ? `calc(min(${aiPanelWidth}px, 90vw) + 2rem)` : "2rem", transition: "right 0.15s ease" }}
             role="group"
             aria-label="View mode toggle"
+            // The welcome tour points here (TOUR-02).
+            data-tour="mode"
         >
             <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-full p-1.5 flex items-center shadow-2xl backdrop-blur-sm transition-colors animate-fade-in">
                 <button

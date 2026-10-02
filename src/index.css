@@ -1056,6 +1056,47 @@ html.touch ::-webkit-scrollbar {
 }
 
 /* Button press effect */
+/* CHROME-03: title-bar and other icon buttons. --bg-hover is tuned for
+   content surfaces and is almost the title bar's own colour in the light
+   themes, so hovering Minimize or Maximize showed nothing. A tint of the text
+   colour is visible on every theme, and the press-in gives the click weight. */
+.chrome-btn {
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  transition: background-color 0.12s ease-out, color 0.12s ease-out, transform 0.08s ease-out, opacity 0.12s ease-out;
+}
+
+.chrome-btn:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--text-primary) 11%, transparent);
+  color: var(--text-primary);
+}
+
+.chrome-btn:active:not(:disabled) {
+  background-color: color-mix(in srgb, var(--text-primary) 19%, transparent);
+  transform: scale(0.93);
+}
+
+/* Held open (a menu is showing) or toggled on. */
+.chrome-btn-on {
+  background-color: color-mix(in srgb, var(--text-primary) 11%, transparent);
+  color: var(--text-primary);
+}
+
+.chrome-btn-danger:hover:not(:disabled),
+.chrome-btn-danger:active:not(:disabled) {
+  background-color: var(--danger);
+  color: #fff;
+}
+
+.chrome-btn-remove:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.chrome-btn-remove:active:not(:disabled) {
+  background-color: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
 .btn-press {
   transition: transform 0.1s ease-out, box-shadow 0.1s ease-out;
 }

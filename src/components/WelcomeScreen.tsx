@@ -291,7 +291,7 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                                                 if (!isMissing) onOpenRecent(f.path);
                                             }}
                                             disabled={isMissing}
-                                            className={`btn-press w-full flex items-center gap-3 px-3 pr-9 py-2 rounded-[var(--radius-md)] transition-colors text-left ${isMissing ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--bg-hover)]"}`}
+                                            className={`btn-press w-full flex items-center gap-3 px-3 pr-9 py-2 rounded-[var(--radius-md)] transition-colors text-left ${isMissing ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--bg-hover)] group-hover:bg-[var(--bg-hover)]"}`}
                                             title={isMissing ? `${f.path} (missing)` : f.path}
                                         >
                                             <span className={`material-symbols-outlined text-[18px] shrink-0 ${f.pinned ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"}`}>
@@ -315,12 +315,14 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                                                 }
                                                 handleRemoveRecent(e, f.path);
                                             }}
-                                            className={`absolute right-2 top-1/2 -translate-y-1/2 focus-visible:opacity-100 w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--danger)] transition-opacity flex items-center justify-center ${
+                                            // CHROME-03: a real button under the pointer
+                                            // (tinted hover, press-in), not a static glyph.
+                                            className={`chrome-btn chrome-btn-remove absolute right-1.5 top-1/2 -translate-y-1/2 focus-visible:opacity-100 w-7 h-7 flex items-center justify-center ${
                                                 // A hover-only remove is unreachable on touch.
                                                 IS_MOBILE ? "opacity-100" : "opacity-0 group-hover:opacity-100"
                                             }`}
                                         >
-                                            <span className="material-symbols-outlined text-[14px]">close</span>
+                                            <span className="material-symbols-outlined text-[16px]">close</span>
                                         </button>
                                     </li>
                                     );
