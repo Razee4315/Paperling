@@ -196,7 +196,7 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                             Paperling
                         </h1>
                         <p className="text-sm text-[var(--text-secondary)]">
-                            A minimal markdown editor
+                            A no-setup Markdown reader and editor
                         </p>
                     </div>
     

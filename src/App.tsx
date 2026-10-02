@@ -96,6 +96,8 @@ import {
   initAIKey,
   getSavedViewMode,
   getSpellCheck,
+  getLivePreview,
+  setLivePreview,
   getVimMode,
   setVimMode,
   getSplitRatio,
@@ -118,7 +120,8 @@ import {
   getTextDirection,
   setTextDirection,
 } from "./utils/persistence";
-import { getAutoSave } from "./utils/persistence";
+import { getAutoSave, getOpenInReader } from "./utils/persistence";
+import { formatZoom } from "./utils/zoom";
 import { clearBufferBackups } from "./utils/bufferBackup";
 import { findAnchorLine, splitWikilinkTarget } from "./utils/wikilinkAnchor";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
@@ -168,7 +171,7 @@ const THEME_CHOICES: { id: Theme; label: string }[] = [
 ];
 
 function AppContent() {
-  const { theme, setTheme, font, fontSize, customFont } = useTheme();
+  const { theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom, font, fontSize, customFont } = useTheme();
 
   // Publishes --keyboard-inset (the on-screen keyboard's height) and keeps
   // focused fields visible. Desktop-safe: without a visualViewport the hook
@@ -203,6 +206,7 @@ function AppContent() {
   zenModeRef.current = zenMode;
   const zenToggleRef = useRef<() => void>(() => {});
   const [spellCheckEnabled, setSpellCheckEnabled] = usePersistedState<boolean>(getSpellCheck, setSpellCheck);
+  const [livePreviewEnabled, setLivePreviewEnabled] = usePersistedState<boolean>(getLivePreview, setLivePreview);
   // Readable line length: centered ~800px preview column (Obsidian-style
   // default ON). RLL-01.
   const [readableLineLength, setReadableLineLengthState] = usePersistedState<boolean>(getReadableLineLength, setReadableLineLength);
@@ -649,6 +653,7 @@ function AppContent() {
       ["paperling:toolbar-toggle", (e) => setToolbarVisible(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:wordwrap-toggle", (e) => setWordWrapEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:spellcheck-toggle", (e) => setSpellCheckEnabled(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:live-preview-toggle", (e) => setLivePreviewEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:vim-toggle", (e) => setVimModeEnabled(!!(e as CustomEvent).detail?.enabled)],
       // Settings → Editor toggle for Zen mode. Routed through the shared
       // toggle (a no-op when already in the desired state) so entering via
@@ -1161,6 +1166,34 @@ function AppContent() {
     };
   }, [loadFile]);
 
+  // MODE-02: with "Open files in reader" on, the view belongs to the note, not
+  // the window. The mode used to be one global value, so opening a new note
+  // (Code) and going back to the one being read left that one in Code too.
+  // Each tab remembers the view it was last in; switching to it restores that.
+  // With the setting off the mode stays global, as before, so people who work
+  // in Split everywhere are not bounced back to Reader on every tab switch.
+  // Layout effect: the restore lands before paint, so there is no flash of
+  // the wrong view.
+  const tabModesRef = useRef(new Map<string, ViewMode>());
+  const modeTabRef = useRef(activeTabId);
+  useLayoutEffect(() => {
+    const modes = tabModesRef.current;
+    if (modeTabRef.current !== activeTabId) {
+      modeTabRef.current = activeTabId;
+      const remembered = activeTabId ? modes.get(activeTabId) : undefined;
+      if (remembered && remembered !== mode && getOpenInReader()) {
+        setMode(remembered);
+        return;
+      }
+    }
+    if (activeTabId) modes.set(activeTabId, mode);
+    // Closed tabs drop out; ids are never reused.
+    if (modes.size > tabs.length) {
+      const open = new Set(tabs.map((tab) => tab.id));
+      for (const id of modes.keys()) if (!open.has(id)) modes.delete(id);
+    }
+  }, [activeTabId, mode, setMode, tabs]);
+
   // Toggle between preview and code (skips split — split has its own shortcut)
   const handleToggleMode = useCallback(() => {
     setMode((prev) => (prev === "code" ? "preview" : "code"));
@@ -1364,6 +1397,7 @@ function AppContent() {
     handleOpenFile, handleSaveFile, handleSaveAs, handleNewFile,
     handleToggleMode, handleToggleSplit, handleToggleFileExplorer, handleToggleTOC,
     toggleFullscreen, toggleZen: handleToggleZen,
+    zoomBy, resetZoom,
     openCheatsheet: () => setShowCheatsheet(true),
     openPalette: () => { setPaletteSeed(undefined); setShowPalette(true); },
     openGotoLine: () => { setPaletteSeed(":"); setShowPalette(true); },
@@ -1477,7 +1511,21 @@ function AppContent() {
     }
   }, [customFont, fileName, font, fontSize, getExportHtml, showToast]);
 
-  // Open find / find-and-replace from the Edit menu and command palette. In
+  // ZOOM-01: say the level whenever it changes, since the shortcut and the
+  // wheel have no other visible readout. Skips the initial mount.
+  const shownZoomRef = useRef(zoom);
+  useEffect(() => {
+    if (shownZoomRef.current === zoom) return;
+    shownZoomRef.current = zoom;
+    showToast(`Zoom ${formatZoom(zoom)}`, "info");
+  }, [zoom, showToast]);
+
+  // Stable identities for the memoised TitleBar: inline arrows here made it
+  // re-render on every keystroke.
+  const handlePrintAction = useCallback(() => { void handlePrint(); }, [handlePrint]);
+  const handleShowSearch = useCallback(() => setShowSearch(true), []);
+
+  // Open find / find-and-replace from the Find menu and command palette. In
   // reader mode "find" uses the preview find bar; "replace" only applies to the
   // editor, so from reader mode we switch to code mode first. The editor listens
   // for these events (CodeEditor's paperling:open-find / paperling:open-replace).
@@ -1614,6 +1662,23 @@ function AppContent() {
         icon: "code",
         run: () => setMode("code"),
       });
+      items.push(
+        { id: "view.zoomIn", label: "Zoom in", hint: formatShortcut("zoomIn"), section: "View", icon: "zoom_in", keywords: "bigger larger text size", run: () => zoomBy(1) },
+        { id: "view.zoomOut", label: "Zoom out", hint: formatShortcut("zoomOut"), section: "View", icon: "zoom_out", keywords: "smaller text size", run: () => zoomBy(-1) },
+        { id: "view.zoomReset", label: "Reset zoom", hint: formatShortcut("zoomReset"), section: "View", icon: "search", keywords: "100% actual size text", run: resetZoom },
+      );
+      items.push({
+        id: "edit.reader",
+        label: "Edit in place (Reader)",
+        section: "View",
+        icon: "edit_note",
+        keywords: "wysiwyg rich text edit reader in place double click",
+        run: () => {
+          setMode("preview");
+          // The Reader has to be mounted and showing this note before a session can start.
+          window.setTimeout(() => window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")), 50);
+        },
+      });
       items.push({
         id: "view.split",
         label: "Toggle Split view",
@@ -1740,10 +1805,18 @@ function AppContent() {
     // === Theme === switch directly from the palette. The welcome tour tells
     // users themes live here, and it makes the four themes discoverable without
     // opening Settings. The active theme is marked and skipped as a no-op.
+    items.push({
+      id: "theme.system",
+      label: followSystem ? "Theme: follow system (current)" : "Theme: follow system light / dark",
+      section: "Theme",
+      icon: "brightness_auto",
+      keywords: "theme auto automatic system os dark light night",
+      run: () => setFollowSystem(true),
+    });
     for (const t of THEME_CHOICES) {
       items.push({
         id: `theme.${t.id}`,
-        label: theme === t.id ? `Theme: ${t.label} (current)` : `Change theme to ${t.label}`,
+        label: !followSystem && theme === t.id ? `Theme: ${t.label} (current)` : `Change theme to ${t.label}`,
         section: "Theme",
         icon: "palette",
         keywords: "theme color appearance dark light paper dracula graphite nord midnight",
@@ -1820,7 +1893,7 @@ function AppContent() {
     handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
     loadFile, filePath, hasFile, showToast, closeTab, handlePrint,
-    typewriterModeEnabled, toolbarVisible, aiEnabled,
+    typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
 
@@ -1973,7 +2046,12 @@ function AppContent() {
             onToggleFullscreen={toggleFullscreen}
             onFind={openFind}
             onReplace={openReplace}
-            onFindInFiles={() => setShowSearch(true)}
+            onFindInFiles={handleShowSearch}
+            onSave={handleSaveFile}
+            onSaveAs={handleSaveAs}
+            onPrint={handlePrintAction}
+            mode={mode}
+            onToggleMode={handleToggleMode}
           />
         )
       )}
@@ -2156,6 +2234,7 @@ function AppContent() {
                 showToolbar={IS_MOBILE || toolbarVisible}
                 wordWrap={wordWrapEnabled}
                 spellCheck={spellCheckEnabled}
+                livePreview={livePreviewEnabled}
                 vimMode={vimModeEnabled}
                 readableLineLength={readableLineLength}
                 textDirection={textDirection}
@@ -2294,6 +2373,7 @@ function AppContent() {
             <StatusBar
               isSaved={!isDirty}
               savePulse={savePulse}
+              onSave={handleSaveFile}
               lineNumber={mode === "preview" ? previewLine : cursorPosition.line}
               columnNumber={cursorPosition.col}
               mode={mode}

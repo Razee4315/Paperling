@@ -4,6 +4,8 @@ Scope: not another feature audit. This one asks which handful of things a normal
 
 Method: a fresh profile (cleared storage) in the browser build at `?fakefs=1`, walked as a first-time user: welcome screen, tour, new note, typing, switching modes, closing with unsaved work, opening existing files, menus, settings. Each finding below was either seen live or read in the code at the line given. Native-only behaviour (installer, file association, real dialogs) was read in code and config, not run.
 
+> **Status, 2026-10-02:** implemented on `feat/core-flow-2026-10-02`. Findings 1 to 11 are done, plus zoom, follow-system theme, per-note view mode and an opt-in live preview in the editor. Two things were deliberately not done: a custom right-click menu (the webview's own menu already has cut/copy/paste and spelling suggestions, which a custom one would remove) and registering `.txt` with the OS (Paperling should not offer to take over plain text files). Table and image editing in Reader remains future work. Line numbers below refer to the code as it was when audited.
+
 ## TL;DR
 
 | # | Finding | Type | Effort |

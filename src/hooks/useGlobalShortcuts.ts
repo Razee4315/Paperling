@@ -12,6 +12,9 @@ export interface ShortcutHandlers {
     handleToggleSplit: () => void;
     /** Toggle Zen mode (F9). Works with or without a file open. */
     toggleZen: () => void;
+    /** Step the text zoom up or down / back to 100%. ZOOM-01. */
+    zoomBy: (direction: 1 | -1) => void;
+    resetZoom: () => void;
     /** Toggle OS fullscreen (F11). Cross-platform via the Tauri window API. */
     toggleFullscreen: () => void;
     handleToggleFileExplorer: () => void;
@@ -89,6 +92,17 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
             if (matchesBinding(e, "fullscreen")) {
                 e.preventDefault();
                 s.toggleFullscreen();
+                return;
+            }
+            // mod+= / mod+- / mod+0 - text zoom. No file needed. ZOOM-01.
+            if (matchesBinding(e, "zoomIn") || matchesBinding(e, "zoomOut")) {
+                e.preventDefault();
+                s.zoomBy(matchesBinding(e, "zoomIn") ? 1 : -1);
+                return;
+            }
+            if (matchesBinding(e, "zoomReset")) {
+                e.preventDefault();
+                s.resetZoom();
                 return;
             }
             // mod+Shift+E - Toggle file explorer

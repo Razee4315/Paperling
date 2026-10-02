@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { getInstalledFontFamilies } from '../utils/fontDiscovery';
 import { useTheme, Theme, FontFamily, FontSize } from '../context/ThemeContext';
+import { formatZoom, ZOOM_LEVELS } from '../utils/zoom';
+import { formatShortcut } from '../config/keybindings';
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
 
 const themes: { id: Theme; name: string; colors: [string, string] }[] = [
@@ -30,7 +32,7 @@ const fontSizes: { id: FontSize; name: string; size: string }[] = [
 
 export function SettingsMenu() {
     const [isOpen, setIsOpen] = useState(false);
-    const { theme, setTheme, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
+    const { theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
     // Lazily-discovered installed font families for the custom-font input
     // (SET-03): probed on first focus, cached per session, filtered natively
     // by the datalist.
@@ -70,6 +72,7 @@ export function SettingsMenu() {
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 aria-label="Settings"
+                data-tour="settings"
                 aria-expanded={isOpen}
                 aria-haspopup="true"
                 className="btn-press flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
@@ -90,12 +93,28 @@ export function SettingsMenu() {
                             Theme
                         </div>
                         <div className="grid grid-cols-4 gap-2">
+                            {/* THEME-01: follows the OS light/dark setting. */}
+                            <button
+                                onClick={() => setFollowSystem(true)}
+                                aria-pressed={followSystem}
+                                className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg transition-all ${followSystem
+                                    ? 'ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]'
+                                    : 'hover:bg-[var(--bg-hover)]'
+                                    }`}
+                                title="Match the system's light or dark setting"
+                            >
+                                <div className="w-10 h-10 rounded-lg overflow-hidden border border-[var(--border)] flex shadow-sm">
+                                    <div className="w-1/2 h-full" style={{ backgroundColor: '#f5f0e6' }}></div>
+                                    <div className="w-1/2 h-full" style={{ backgroundColor: '#1c1917' }}></div>
+                                </div>
+                                <span className="text-[11px] font-medium" style={{ color: 'var(--text-primary)' }}>System</span>
+                            </button>
                             {themes.map((t) => (
                                 <button
                                     key={t.id}
                                     onClick={() => setTheme(t.id)}
-                                    aria-pressed={theme === t.id}
-                                    className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg transition-all ${theme === t.id
+                                    aria-pressed={!followSystem && theme === t.id}
+                                    className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-lg transition-all ${!followSystem && theme === t.id
                                         ? 'ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]'
                                         : 'hover:bg-[var(--bg-hover)]'
                                         }`}
@@ -186,6 +205,37 @@ export function SettingsMenu() {
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* Zoom (ZOOM-01): the mouse path for Ctrl +/-. Multiplies the size above. */}
+                    <div className="px-4 pb-4 flex items-center gap-2">
+                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex-1">Zoom</span>
+                        <button
+                            onClick={() => zoomBy(-1)}
+                            disabled={zoom <= ZOOM_LEVELS[0]}
+                            aria-label="Zoom out"
+                            title={`Zoom out (${formatShortcut('zoomOut')})`}
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:text-[var(--text-muted)] disabled:hover:bg-transparent"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">remove</span>
+                        </button>
+                        <button
+                            onClick={resetZoom}
+                            aria-label={`Zoom ${formatZoom(zoom)}. Reset to 100%`}
+                            title={`Reset zoom (${formatShortcut('zoomReset')})`}
+                            className="min-w-[3.5rem] h-8 px-2 rounded-lg text-sm tabular-nums text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                        >
+                            {formatZoom(zoom)}
+                        </button>
+                        <button
+                            onClick={() => zoomBy(1)}
+                            disabled={zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
+                            aria-label="Zoom in"
+                            title={`Zoom in (${formatShortcut('zoomIn')})`}
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:text-[var(--text-muted)] disabled:hover:bg-transparent"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">add</span>
+                        </button>
                     </div>
 
                     {/* More settings — opens the full settings modal (AI, editor toggles, about). */}

@@ -1,3 +1,32 @@
+# Core flow — branch `feat/core-flow-2026-10-02`
+
+From `CORE-FLOW-AUDIT.md`. Checked live in the browser build; the native items (installer, file association, real window) need the Test Build.
+
+## A fresh install (delete the app's data first, or use a new Windows user)
+
+- [ ] On a dark-mode desktop the first window is dark (Graphite); on a light one it is Paper. Flip the OS setting with the app open: it follows (THEME-01).
+- [ ] The tour's steps are: Read or edit, Saved for you, Make it yours, Everything else, Done. Each card points at the right control (TOUR-02).
+- [ ] Open a `.md`: it opens in Reader with no toolbar strip. The title bar shows New, Open, Save, Find, Export and an **Edit** button (CHROME-01).
+- [ ] Press **Edit**: the editor opens with the formatting toolbar, misspelled words are underlined, and the button now says **Read** (DEFAULTS-01).
+- [ ] Type in a saved file and stop: within two seconds the status bar says Saved and the file on disk has the text (autosave on).
+- [ ] New note, type, then click **Unsaved** in the status bar or **Save** in the title bar: the Save dialog opens with a name taken from the first heading (CHROME-02).
+- [ ] Export → **Print…** opens the print dialog; Export → **Save As…** asks for a new name (CHROME-02).
+
+## An existing install (update over your current one)
+
+- [ ] Theme, autosave (still off unless you had it on), toolbar, spell check and "Open files in reader" are exactly as before the update (DEFAULTS-01 pin).
+
+## Reading and editing
+
+- [ ] In Reader, single clicks and text selection do nothing unusual. **Double-click** a sentence: it becomes editable and a toolbar appears. Escape once leaves the block, Escape again removes the toolbar (READ-06).
+- [ ] With "Open files in reader" on: read note A, create a new note (opens in the editor), go back to A: A is still in Reader, and the new note is still in the editor (MODE-02).
+- [ ] `Ctrl +` / `Ctrl -` / `Ctrl 0` and `Ctrl`+wheel change the text size in Reader and in the editor; a toast names the level; it survives a restart; Settings menu → Zoom shows the same value (ZOOM-01).
+- [ ] Settings → Editor → **Hide Markdown symbols**: in the editor, headings are larger with no `#`, bold has no `**`, links show only their text. Put the caret on such a line: the symbols come back. Typing and undo behave normally (LIVE-01).
+
+## Files
+
+- [ ] Double-click `README.MD` (upper-case extension) and a `.mdx` file in Explorer/Finder: each opens in Paperling (BOOT-04, FILES-10; needs the installer).
+
 # GitHub issues — branch `fix/github-issues-2026-09-30`
 
 Latest verification: [2026-10-01 recheck](FIXES-RECHECK-2026-10-01.md) covers all 18 issues plus READ-03. Five additional frontend regressions were corrected and checked with TypeScript and the real browser on port 5279. No test suite, build or manually dispatched GitHub Action ran during this recheck. Written regression cases were not executed. Earlier Test Build artifacts in `GITHUB-ISSUES-REPORT.md` do not contain these later changes. These boxes remain unchecked for repeatable owner/native verification.

@@ -28,8 +28,17 @@ struct LaunchFile {
 
 struct CliFile(Mutex<LaunchFile>);
 
+/// Markdown under its common extensions, compared case-insensitively. A
+/// double-clicked `README.MD` (common on Windows) used to be ignored, so the
+/// app opened the last session instead of the file. BOOT-04. Plain `.txt` is
+/// deliberately absent: Paperling is not registered for it.
+const LAUNCH_EXTENSIONS: [&str; 5] = ["md", "markdown", "mdown", "mkd", "mdx"];
+
 fn is_markdown(path: &str) -> bool {
-    path.ends_with(".md") || path.ends_with(".markdown")
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| LAUNCH_EXTENSIONS.iter().any(|known| ext.eq_ignore_ascii_case(known)))
 }
 
 /// First markdown path among the process arguments (skipping argv[0]).
@@ -264,6 +273,11 @@ mod tests {
     fn md_arg_skips_argv0_and_finds_markdown() {
         assert_eq!(md_arg(&v(&["paperling.exe", "C:\\notes\\a.md"])), Some("C:\\notes\\a.md".into()));
         assert_eq!(md_arg(&v(&["paperling.exe", "C:\\notes\\b.markdown"])), Some("C:\\notes\\b.markdown".into()));
+        // BOOT-04: extension case and the other Markdown extensions.
+        assert_eq!(md_arg(&v(&["paperling.exe", "README.MD"])), Some("README.MD".into()));
+        assert_eq!(md_arg(&v(&["paperling.exe", "page.mdx"])), Some("page.mdx".into()));
+        assert_eq!(md_arg(&v(&["paperling.exe", "notes.mdown"])), Some("notes.mdown".into()));
+        assert_eq!(md_arg(&v(&["paperling.exe", "notes.md.bak"])), None);
     }
 
     #[test]

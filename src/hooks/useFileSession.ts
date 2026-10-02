@@ -36,6 +36,7 @@ import {
 } from "../utils/tabsModel";
 import { loadBufferBackups, saveBufferBackups } from "../utils/bufferBackup";
 import { dirOf, joinPath, lastUsedDirectory, suggestFileName } from "../utils/saveName";
+import { DOCUMENT_EXTENSIONS } from "../utils/documentPaths";
 
 interface FileData {
   path: string;
@@ -692,7 +693,7 @@ export function useFileSession({
       // Plain-text files open too (rendered as markdown). TABS-11 / TXT-01.
       const selected = await open({
         multiple: true,
-        filters: [{ name: "Markdown & text", extensions: ["md", "markdown", "txt", "text"] }],
+        filters: [{ name: "Markdown & text", extensions: [...DOCUMENT_EXTENSIONS] }],
         // Start next to the open note (or the last one used), not wherever
         // the OS dialog was last. SAVE-05.
         defaultPath: dirOf(filePathRef.current) ?? lastUsedDirectory(getRecentFiles()) ?? undefined,

@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import mascotWave from "../assets/mascot/mascot-wave.png";
 import iconPalette from "../assets/mascot/icon-command-palette.png";
-import iconFolder from "../assets/mascot/icon-folder.png";
-import iconBook from "../assets/mascot/icon-book.png";
+import iconPencil from "../assets/mascot/icon-pencil.png";
+import iconCheck from "../assets/mascot/icon-check-badge.png";
+import iconSwatches from "../assets/mascot/icon-theme-swatches.png";
 import mascotRocket from "../assets/mascot/mascot-rocket.png";
+import { formatShortcut } from "../config/keybindings";
+import { getAutoSave } from "../utils/persistence";
+import { IS_MOBILE } from "../utils/platform";
 
 interface TourProps {
     /** Called when the tour finishes or is skipped. Caller persists the done flag. */
@@ -26,7 +30,13 @@ interface Step {
     body: string;
 }
 
-const STEPS: Step[] = [
+// TOUR-02: the tour used to spend its three middle steps on Files, Outline
+// and the command palette, and never showed how to switch between reading and
+// editing or how saving works — the two things every user does. Those are the
+// tour now; the long tail gets one closing line and the interactive guide.
+// Built per run so shortcuts match the platform and the saving step describes
+// what this profile actually does.
+const buildSteps = (): Step[] => [
     {
         id: "welcome",
         placement: "center",
@@ -37,33 +47,56 @@ const STEPS: Step[] = [
         body: "I'm the paperling this app is named after. Want a quick look around? It takes about 15 seconds, and you can replay it anytime from the command palette.",
     },
     {
-        id: "explorer",
-        target: "[data-tour='file-explorer']",
-        placement: "above",
-        image: iconFolder,
-        imageAlt: "A folder of paper files",
+        id: "mode",
+        target: "[data-tour='mode']",
+        // The phone's switch is in the bottom bar; the desktop's in the title bar.
+        placement: IS_MOBILE ? "above" : "below",
+        image: iconPencil,
+        imageAlt: "A pencil",
         imageClass: "h-20",
-        title: "Your folder, one click away",
-        body: "This opens the file explorer. It lists every markdown file next to the one you're editing, so you can jump between notes without leaving Paperling. (Ctrl+Shift+E)",
+        title: "Read it, or edit it",
+        body: IS_MOBILE
+            ? "Notes open ready to read. Tap Edit to change the text, and Read to come back."
+            : `Notes open ready to read. This button (${formatShortcut("toggleMode")}) switches to the editor and back. To fix a single sentence, just double-click it while reading.`,
     },
     {
-        id: "toc",
-        target: "[data-tour='toc']",
+        id: "save",
+        target: "[data-tour='save']",
         placement: "above",
-        image: iconBook,
-        imageAlt: "An open book outline",
+        image: iconCheck,
+        imageAlt: "A check mark badge",
         imageClass: "h-20",
-        title: "Outline of your doc",
-        body: "This is the table of contents. Every heading you write shows up here, and it tracks where you are as you scroll. Click any heading to jump straight to it. (Ctrl+Shift+O)",
+        title: getAutoSave() ? "Saved for you" : "Saving",
+        body: getAutoSave()
+            ? IS_MOBILE
+                ? "Paperling saves a moment after you stop typing. A brand-new note asks once where it should live."
+                : "Paperling saves a moment after you stop typing, and this light shows it. A brand-new note asks once where it should live."
+            : IS_MOBILE
+                ? "The dot next to the note's name shows unsaved changes. Save is in the menu; Autosave can be turned on in Settings."
+                : `This light shows whether your changes are saved. Click it, press Save, or use ${formatShortcut("save")}. Autosave can be turned on in Settings.`,
     },
     {
-        id: "palette",
+        id: "look",
+        target: "[data-tour='settings']",
+        placement: "below",
+        image: iconSwatches,
+        imageAlt: "Theme colour swatches",
+        imageClass: "h-20",
+        title: "Make it yours",
+        body: IS_MOBILE
+            ? "Theme, font and text size are in Settings, in the menu at the top left."
+            : `Theme, font and text size live here. ${formatShortcut("zoomIn")} and ${formatShortcut("zoomOut")} zoom the text any time.`,
+    },
+    {
+        id: "more",
         placement: "center",
         image: iconPalette,
         imageAlt: "Command palette illustration",
         imageClass: "h-24",
-        title: "One box for everything",
-        body: "Press Ctrl+P after the tour to open the command palette. Files, views, themes, AI: it's all in there.",
+        title: "Everything else is one box away",
+        body: IS_MOBILE
+            ? "Files and the outline are in the bottom bar. Search, export and the rest are behind the magnifier at the top."
+            : `Files, the outline, search across notes, export and the rest are in the command palette: ${formatShortcut("palette")}.`,
     },
     {
         id: "done",
@@ -85,6 +118,7 @@ const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min)
 interface SpotRect { left: number; top: number; width: number; height: number }
 
 export function Tour({ onClose, onOpenTutorial }: TourProps) {
+    const [STEPS] = useState(buildSteps);
     const [stepIndex, setStepIndex] = useState(0);
     const [rect, setRect] = useState<SpotRect | null>(null);
     const [cardPos, setCardPos] = useState<{ left: number; top: number } | null>(null);

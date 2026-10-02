@@ -3,7 +3,7 @@ import type { MouseEvent } from "react";
 import { Window } from "@tauri-apps/api/window";
 import { SettingsMenu } from "./SettingsMenu";
 import { ExportMenu } from "./ExportMenu";
-import { EditMenu } from "./EditMenu";
+import { FindMenu } from "./FindMenu";
 import { formatShortcut } from "../config/keybindings";
 import { getAIIconAnimation } from "../utils/persistence";
 
@@ -21,13 +21,21 @@ interface TitleBarProps {
     aiActive?: boolean;
     isFullscreen?: boolean;
     onToggleFullscreen?: () => void;
-    /** Edit-menu actions: open find / find-and-replace / cross-file search. */
+    /** Find-menu actions: open find / find-and-replace / cross-file search. */
     onFind?: () => void;
     onReplace?: () => void;
     onFindInFiles?: () => void;
+    /** Save the active note. Rendered as a button so saving never depends on
+     *  knowing Ctrl+S (CHROME-02). */
+    onSave?: () => void;
+    onSaveAs?: () => void;
+    onPrint?: () => void;
+    /** Current view, for the Read / Edit switch (CHROME-01). */
+    mode?: "preview" | "code" | "split";
+    onToggleMode?: () => void;
 }
 
-function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles }: TitleBarProps) {
+function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles, onSave, onSaveAs, onPrint, mode, onToggleMode }: TitleBarProps) {
     // Whether the AI button's icon shimmers. Some users prefer it plain (#111).
     // Held locally and refreshed from the Settings event rather than threaded
     // down from App, since nothing else on the way needs to know about it.
@@ -141,7 +149,7 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                         )}
                         {/* Always laid out, only shown when dirty: appearing
                             and disappearing it pushed the whole toolbar
-                            (New / Open / Edit / Export) ~60px sideways on the
+                            (New / Open / Save / Find / Export) ~60px sideways on the
                             first keystroke and back on every save. TITLE-02. */}
                         {fileName && (
                             <span
@@ -182,14 +190,33 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                                 <span className="material-symbols-outlined text-[16px]">folder_open</span>
                                 <span className="hidden sm:inline">Open</span>
                             </button>
+                            {onSave && (
+                                // Stays in the layout and only dims when there is
+                                // nothing to save, so the row never shifts (TITLE-02).
+                                <button
+                                    onClick={onSave}
+                                    disabled={!isDirty}
+                                    aria-label="Save"
+                                    className={`flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] transition-colors text-xs ${isDirty
+                                        ? "text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                                        : "text-[var(--text-muted)] cursor-default"
+                                        }`}
+                                    title={isDirty ? `Save (${formatShortcut("save")})` : "All changes saved"}
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">save</span>
+                                    <span className="hidden sm:inline">Save</span>
+                                </button>
+                            )}
                             {onFind && onReplace && onFindInFiles && (
-                                <EditMenu onFind={onFind} onReplace={onReplace} onFindInFiles={onFindInFiles} />
+                                <FindMenu onFind={onFind} onReplace={onReplace} onFindInFiles={onFindInFiles} />
                             )}
                             <ExportMenu
                                 fileName={fileName || 'document.md'}
                                 getExportHtml={getExportHtml}
                                 onSuccess={onExportSuccess}
                                 onError={onExportError}
+                                onSaveAs={onSaveAs}
+                                onPrint={onPrint}
                             />
                             {onToggleAI && (
                                 <button
@@ -214,6 +241,20 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                 {/* RLL-09 (#241): chrome always owns its width; the note name
                     yields first so a narrow desktop never loses Close. */}
                 <div className="flex shrink-0 items-center gap-1 no-drag">
+                    {hasFile && mode && onToggleMode && (
+                        // CHROME-01: the read/edit switch, in words, where a new
+                        // user looks first. The floating pill keeps Split.
+                        <button
+                            data-tour="mode"
+                            onClick={onToggleMode}
+                            aria-label={mode === "preview" ? "Edit this note" : "Back to reading"}
+                            title={`${mode === "preview" ? "Edit" : "Read"} (${formatShortcut("toggleMode")})`}
+                            className="btn-press flex items-center gap-1.5 h-7 px-2.5 mr-1 rounded-full border border-[var(--border)] bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold hover:border-[var(--accent)] transition-colors"
+                        >
+                            <span className="material-symbols-outlined text-[15px]" aria-hidden="true">{mode === "preview" ? "edit" : "visibility"}</span>
+                            <span className="hidden sm:inline">{mode === "preview" ? "Edit" : "Read"}</span>
+                        </button>
+                    )}
                     <SettingsMenu />
                     <div className="w-[1px] h-4 bg-[var(--border)] mx-1"></div>
                     <button

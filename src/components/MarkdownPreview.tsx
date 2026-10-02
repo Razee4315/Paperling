@@ -1,4 +1,5 @@
 import { useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState, useTransition, memo, createContext, useContext } from "react";
+import { flushSync } from "react-dom";
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkFlexibleMarkers from "remark-flexible-markers";
@@ -18,7 +19,7 @@ import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
 import { wikilinkLabel } from "../utils/wikilinkAnchor";
 import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
 import { splitMarkdownBlocks } from "../utils/markdownBlocks";
-import { getRemoteImages, getReaderEditing, setReaderEditing } from "../utils/persistence";
+import { getRemoteImages, getReaderEditing } from "../utils/persistence";
 import { useReaderEditor } from "../hooks/useReaderEditor";
 import { matchesBinding } from "../config/keybindings";
 
@@ -494,17 +495,19 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
 
     if (error) {
         return (
-            <div className="my-4 p-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-sm">
+            // Spans, not divs: an image sits inside its paragraph, and a <div>
+            // in a <p> is invalid HTML that React warns about on every render.
+            <span className="block my-4 p-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-sm">
                 Failed to load image: {src}
-            </div>
+            </span>
         );
     }
 
     if (!imageSrc) {
         return (
-            <div className="my-4 p-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-secondary)] animate-pulse">
-                <div className="h-32 bg-[var(--bg-tertiary)] rounded"></div>
-            </div>
+            <span className="block my-4 p-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-secondary)] animate-pulse">
+                <span className="block h-32 bg-[var(--bg-tertiary)] rounded"></span>
+            </span>
         );
     }
 
@@ -873,7 +876,15 @@ function MarkdownPreviewImpl({
     const shownKeyRef = useRef(docKey);
     const restoredScrollRef = useRef(false);
     const [zoomImage, setZoomImage] = useState<{ src: string; alt: string } | null>(null);
-    const [readerEditing, setReaderEditingLocal] = useState(getReaderEditing);
+    // READ-06: Reader editing is a session, not a mode. The setting only says
+    // whether the double-click gesture is allowed; a session starts on that
+    // double-click (or the palette command) and ends on "Stop editing", Escape,
+    // a tab switch or leaving Reader. Outside a session the Reader has no
+    // editing chrome at all, and a single click never makes text editable.
+    const [readerAllowed, setReaderAllowed] = useState(getReaderEditing);
+    const [readerSession, setReaderSession] = useState(false);
+    const canEditInReader = readerAllowed && !!allowReaderEditing && !!onContentChange;
+    const readerEditing = readerSession && canEditInReader;
     const [readerLink, setReaderLink] = useState<string | null>(null);
     const [readerLinkError, setReaderLinkError] = useState("");
 
@@ -893,7 +904,7 @@ function MarkdownPreviewImpl({
 
     const renderedContentRef = useRef(content);
     const reader = useReaderEditor({
-        enabled: readerEditing && !!allowReaderEditing && !!onContentChange,
+        enabled: readerEditing,
         docKey, content: liveContent ?? content, contentRef, renderedContentRef, mainRef,
         onChange: onContentChange, onRendered,
     });
@@ -905,10 +916,25 @@ function MarkdownPreviewImpl({
     const readerFrozenRef = useRef(false);
     readerFrozenRef.current = reader.frozen;
     useEffect(() => {
-        const refresh = () => setReaderEditingLocal(getReaderEditing());
+        const refresh = () => setReaderAllowed(getReaderEditing());
+        const start = () => setReaderSession(true);
         window.addEventListener("paperling:reader-editing-toggle", refresh);
-        return () => window.removeEventListener("paperling:reader-editing-toggle", refresh);
+        window.addEventListener("paperling:reader-edit-start", start);
+        return () => {
+            window.removeEventListener("paperling:reader-editing-toggle", refresh);
+            window.removeEventListener("paperling:reader-edit-start", start);
+        };
     }, []);
+    // A session belongs to one note in one view.
+    useEffect(() => { setReaderSession(false); }, [docKey, canEditInReader]);
+    const stopReaderEditing = () => { reader.finish(); setReaderSession(false); };
+    const startReaderEditing = (target: HTMLElement, point: { x: number; y: number }) => {
+        if (!canEditInReader) return;
+        // The hook reads `enabled` from the latest render, so the session has
+        // to be committed before the block under the pointer can activate.
+        if (!readerSession) flushSync(() => setReaderSession(true));
+        reader.begin(target, point);
+    };
 
     // Listen for zoom requests from LocalImage clicks
     useEffect(() => {
@@ -1216,10 +1242,10 @@ function MarkdownPreviewImpl({
     const blocks = useMemo(() => splitMarkdownBlocks(renderedBody), [renderedBody]);
     useLayoutEffect(() => {
         mainRef.current?.querySelectorAll<HTMLElement>("[data-source-line]").forEach((element) => {
-            if (readerEditing && allowReaderEditing) element.setAttribute("tabindex", "0");
+            if (readerEditing) element.setAttribute("tabindex", "0");
             else element.removeAttribute("tabindex");
         });
-    }, [readerEditing, allowReaderEditing, renderedBody, readerRevision]);
+    }, [readerEditing, renderedBody, readerRevision]);
 
     // Unique heading ids across blocks, before paint so anchors and exports
     // never see duplicates. NAV-02.
@@ -1490,22 +1516,19 @@ function MarkdownPreviewImpl({
                 onKeyDown={(event) => {
                     if (reader.active && !(event.target as HTMLElement).closest("input,textarea,select") && matchesBinding(event.nativeEvent, "link")) {
                         event.preventDefault(); openReaderLink();
+                    } else if (readerEditing && !reader.active && event.key === "Escape") {
+                        // First Escape leaves the block (the hook), the next one the session.
+                        event.preventDefault(); stopReaderEditing();
                     } else reader.keyDown(event);
                 }}
                 className="flex-1 overflow-y-auto bg-[var(--bg-primary)] transition-colors outline-none"
             >
-                {allowReaderEditing && onContentChange && <div className="reader-edit-toolbar sticky top-0 z-10 px-4 py-2 bg-[var(--bg-primary)] border-b border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] flex flex-wrap gap-2 items-center">
-                    <button aria-pressed={readerEditing} onClick={() => {
-                        const enabled = !readerEditing;
-                        setReaderEditing(enabled);
-                        window.dispatchEvent(new CustomEvent("paperling:reader-editing-toggle", { detail: { enabled } }));
-                    }}>{readerEditing ? "Stop editing Reader" : "Edit Reader"}</button>
-                    {readerEditing && !editingBlock && <span>Click text to edit.</span>}
-                    {readerEditing && <>
-                        <button aria-label="Reader undo" disabled={!reader.canUndo} onMouseDown={(event) => event.preventDefault()} onClick={() => reader.undo()}>Undo</button>
-                        <button aria-label="Reader redo" disabled={!reader.canRedo} onMouseDown={(event) => event.preventDefault()} onClick={() => reader.undo(true)}>Redo</button>
-                        <button onClick={reader.appendParagraph}>Add paragraph</button>
-                    </>}
+                {readerEditing && <div className="reader-edit-toolbar sticky top-0 z-10 px-4 py-2 bg-[var(--bg-primary)] border-b border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] flex flex-wrap gap-2 items-center">
+                    <button onClick={stopReaderEditing} title="Stop editing (Esc)">Stop editing</button>
+                    {!editingBlock && <span>Click text to edit.</span>}
+                    <button aria-label="Reader undo" disabled={!reader.canUndo} onMouseDown={(event) => event.preventDefault()} onClick={() => reader.undo()}>Undo</button>
+                    <button aria-label="Reader redo" disabled={!reader.canRedo} onMouseDown={(event) => event.preventDefault()} onClick={() => reader.undo(true)}>Redo</button>
+                    <button onClick={reader.appendParagraph}>Add paragraph</button>
                     {editingBlock && <>
                         {reader.styleOptions.length > 0 && <select aria-label="Reader text style" disabled={reader.styleOptions.length === 1} value={reader.active!.element.tagName} onChange={(event) => reader.style(event.target.value)}>
                             {reader.styleOptions.map((tag) => <option key={tag} value={tag}>{tag === "P" ? "Paragraph" : tag === "UL" ? "Bulleted list" : tag === "OL" ? "Numbered list" : tag === "BLOCKQUOTE" ? "Quote" : `Heading ${tag[1]}`}</option>)}
@@ -1546,7 +1569,7 @@ function MarkdownPreviewImpl({
                         ref={markdownBodyRef}
                         dir={textDirection === "auto" ? undefined : textDirection}
                         onPointerDown={(event) => reader.begin(event.target as HTMLElement, { x: event.clientX, y: event.clientY })}
-                        onDoubleClick={(event) => reader.begin(event.target as HTMLElement)}
+                        onDoubleClick={(event) => startReaderEditing(event.target as HTMLElement, { x: event.clientX, y: event.clientY })}
                         onFocus={(event) => reader.begin(event.target as HTMLElement)}
                         onInput={() => reader.write()}
                         onPaste={(event) => {

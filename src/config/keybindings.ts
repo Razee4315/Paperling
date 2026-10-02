@@ -55,6 +55,9 @@ export const BINDINGS = {
     gotoLine: { key: "g", mod: true },
     settings: { key: ",", mod: true },
     fullscreen: { key: "F11" },
+    zoomIn: { key: "=", mod: true },
+    zoomOut: { key: "-", mod: true },
+    zoomReset: { key: "0", mod: true },
     cheatsheet: { key: "?" },
 
     // Tab cycling — literal Ctrl on ALL platforms (⌘Tab is the OS app-switcher).
@@ -92,6 +95,8 @@ export type BindingId = keyof typeof BINDINGS;
 export const ALIASES: Partial<Record<BindingId, Binding[]>> = {
     closeTab: [{ key: "F4", mod: true }],
     palette: [{ key: "F1" }],
+    // Ctrl with the "+" on the same key (Shift+=) or on the numpad.
+    zoomIn: [{ key: "+", mod: true }],
 };
 
 /** Is the primary modifier (Cmd on Mac, Ctrl elsewhere) the one pressed here? */

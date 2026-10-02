@@ -12,6 +12,7 @@ import {
     getAIEnabled, setAIEnabled,
     getWordWrap, setWordWrap,
     getSpellCheck, setSpellCheck,
+    getLivePreview, setLivePreview,
     getVimMode, setVimMode,
     getAutoSave, setAutoSave,
     getOpenInReader, setOpenInReader,
@@ -56,7 +57,7 @@ const sections: Array<{ id: Section; label: string; icon: string }> = [
 // nothing). SET-05.
 const SECTION_KEYWORDS: Record<Section, string> = {
     appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small",
-    editor: "typewriter toolbar word wrap spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
+    editor: "typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
     shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
     ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
     about: "about version update tour guide help license",
@@ -167,12 +168,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
     const [section, setSection] = useState<Section>("appearance");
     const [filter, setFilter] = useState("");
-    const { theme, setTheme, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
+    const { theme, setTheme, followSystem, setFollowSystem, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
 
     const [typewriter, setTypewriterLocal] = useState(getTypewriterMode);
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
     const [wordWrap, setWordWrapLocal] = useState(getWordWrap);
     const [spellCheck, setSpellCheckLocal] = useState(getSpellCheck);
+    const [livePreview, setLivePreviewLocal] = useState(getLivePreview);
     const [vimMode, setVimModeLocal] = useState(getVimMode);
     const [autoSave, setAutoSaveLocal] = useState(getAutoSave);
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
@@ -382,12 +384,28 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     <section>
                                         <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Theme</h3>
                                         <div className="grid grid-cols-4 gap-2">
+                                            {/* THEME-01: follows the OS light/dark setting. */}
+                                            <button
+                                                onClick={() => setFollowSystem(true)}
+                                                aria-pressed={followSystem}
+                                                className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${followSystem
+                                                    ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
+                                                    : "hover:bg-[var(--bg-hover)]"
+                                                    }`}
+                                                title="Match the system's light or dark setting"
+                                            >
+                                                <div className="w-12 h-12 rounded-[var(--radius-md)] overflow-hidden border border-[var(--border)] flex">
+                                                    <div className="w-1/2 h-full" style={{ backgroundColor: "#f5f0e6" }}></div>
+                                                    <div className="w-1/2 h-full" style={{ backgroundColor: "#1c1917" }}></div>
+                                                </div>
+                                                <span className="text-[11px] text-[var(--text-primary)]">System</span>
+                                            </button>
                                             {themes.map((t) => (
                                                 <button
                                                     key={t.id}
                                                     onClick={() => setTheme(t.id)}
-                                                    aria-pressed={theme === t.id}
-                                                    className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${theme === t.id
+                                                    aria-pressed={!followSystem && theme === t.id}
+                                                    className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${!followSystem && theme === t.id
                                                         ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
                                                         : "hover:bg-[var(--bg-hover)]"
                                                         }`}
@@ -530,6 +548,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     <ToggleRow label="Word wrap" description="Wrap long lines instead of horizontal scroll" checked={wordWrap}
                                         onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
                                 )}
+                                {matches("live preview hide markdown symbols syntax wysiwyg") && (
+                                    <ToggleRow label="Hide Markdown symbols" description="In the editor, show # ** ` and link syntax only on the line you are editing" checked={livePreview}
+                                        onChange={(v) => { setLivePreviewLocal(v); setLivePreview(v); fire("paperling:live-preview-toggle", v); }} />
+                                )}
                                 {matches("spell check") && (
                                     <ToggleRow label="Spell check" description="Underline misspelled words while you type" checked={spellCheck}
                                         onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
@@ -569,7 +591,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         }} />
                                 )}
                                 {matches("edit reader wysiwyg rich text") && (
-                                    <ToggleRow label="Edit text in Reader" description="Click rendered text to edit it. Tables, images, code blocks and callouts are edited in Code" checked={readerEditing}
+                                    <ToggleRow label="Edit text in Reader" description="Double-click rendered text to edit it in place. Tables, images, code blocks and callouts are edited in Code" checked={readerEditing}
                                         onChange={(v) => { setReaderEditingLocal(v); setReaderEditing(v); fire("paperling:reader-editing-toggle", v); }} />
                                 )}
                                 {matches("zen mode") && (
@@ -751,7 +773,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="text-[11px]">A minimal markdown editor</div>
+                                        <div className="text-[11px]">A no-setup Markdown reader and editor</div>
                                     </div>
                                 </div>
                                 <p>Built with Tauri + React + TypeScript.</p>

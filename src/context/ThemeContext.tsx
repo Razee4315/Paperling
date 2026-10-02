@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { ensureFontLoaded } from '../fonts';
 import { getFontStack, sanitizeCustomFontFamily } from '../utils/fontFamily';
+import { parseZoom, stepZoom, ZOOM_DEFAULT } from '../utils/zoom';
 
 export type Theme = 'dark' | 'light' | 'paper' | 'dracula' | 'graphite' | 'nord' | 'midnight';
 
@@ -33,8 +34,17 @@ export type FontFamily = 'inter' | 'merriweather' | 'lora' | 'source-serif' | 'f
 export type FontSize = 'small' | 'medium' | 'large' | 'xlarge';
 
 interface ThemeContextType {
+    /** The theme on screen. While following the system this is the resolved one. */
     theme: Theme;
+    /** Pick a theme explicitly; this stops following the system. */
     setTheme: (theme: Theme) => void;
+    /** THEME-01: match the OS light/dark setting, live. */
+    followSystem: boolean;
+    setFollowSystem: (follow: boolean) => void;
+    /** ZOOM-01: multiplier on the reading and editing text size. */
+    zoom: number;
+    zoomBy: (direction: 1 | -1) => void;
+    resetZoom: () => void;
     accent: AccentId;
     setAccent: (accent: AccentId) => void;
     font: FontFamily;
@@ -48,6 +58,18 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const THEME_STORAGE_KEY = 'paperling-theme';
+const ZOOM_STORAGE_KEY = 'paperling-zoom';
+/** Stored in place of a theme id while the app follows the OS (THEME-01). */
+const SYSTEM_THEME = 'system';
+const DARK_QUERY = '(prefers-color-scheme: dark)';
+
+/** The brand pair used while following the system: Paper by day, its warm
+ *  dark sibling by night. (Must mirror the pre-paint script in index.html.) */
+export const systemTheme = (dark: boolean): Theme => (dark ? 'graphite' : 'paper');
+
+// jsdom and very old webviews have no matchMedia; treat them as light.
+const systemPrefersDark = (): boolean =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(DARK_QUERY).matches;
 const ACCENT_STORAGE_KEY = 'paperling-accent';
 const FONT_STORAGE_KEY = 'paperling-font';
 const CUSTOM_FONT_STORAGE_KEY = 'paperling-custom-font';
@@ -66,15 +88,22 @@ function getValidated<T extends string>(key: string, validValues: T[], fallback:
     return fallback;
 }
 
-/** Theme to start with: a previously saved choice wins; otherwise Paper —
- *  the brand default for first runs (must mirror the inline pre-paint script
- *  in index.html). */
+/** A saved theme wins. With nothing saved (a first run) or "system" saved, the
+ *  app follows the OS: a cream window on a dark desktop at night was the first
+ *  thing a new user saw. Existing profiles are pinned to Paper by
+ *  persistence.ts so an update never changes their look. THEME-01. (Must
+ *  mirror the inline pre-paint script in index.html.) */
+function getInitialFollowSystem(): boolean {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    return stored === null || stored === SYSTEM_THEME;
+}
+
 function getInitialTheme(): Theme {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
     if (stored && VALID_THEMES.includes(stored as Theme)) {
         return stored as Theme;
     }
-    return 'paper';
+    return systemTheme(systemPrefersDark());
 }
 
 function getInitialAccent(): AccentId {
@@ -120,6 +149,8 @@ export function applyAccentVars(accent: AccentId, el: HTMLElement): boolean {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
     const [theme, setThemeState] = useState<Theme>(getInitialTheme);
+    const [followSystem, setFollowSystemState] = useState<boolean>(getInitialFollowSystem);
+    const [zoom, setZoomState] = useState<number>(() => parseZoom(localStorage.getItem(ZOOM_STORAGE_KEY)));
 
     const [accent, setAccentState] = useState<AccentId>(getInitialAccent);
 
@@ -136,9 +167,65 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     );
 
     const setTheme = (newTheme: Theme) => {
+        setFollowSystemState(false);
         setThemeState(newTheme);
         localStorage.setItem(THEME_STORAGE_KEY, newTheme);
     };
+
+    const setFollowSystem = (follow: boolean) => {
+        setFollowSystemState(follow);
+        if (follow) setThemeState(systemTheme(systemPrefersDark()));
+        // Turning it off keeps what is on screen as the explicit choice.
+        localStorage.setItem(THEME_STORAGE_KEY, follow ? SYSTEM_THEME : theme);
+    };
+
+    // Track the OS setting live while following it (sunset auto-switch, or the
+    // user flipping dark mode with the app open).
+    useEffect(() => {
+        if (!followSystem || typeof window.matchMedia !== 'function') return;
+        const query = window.matchMedia(DARK_QUERY);
+        const sync = () => setThemeState(systemTheme(query.matches));
+        sync();
+        query.addEventListener('change', sync);
+        return () => query.removeEventListener('change', sync);
+    }, [followSystem]);
+
+    const zoomBy = useCallback((direction: 1 | -1) => {
+        setZoomState((current) => {
+            const next = stepZoom(current, direction);
+            localStorage.setItem(ZOOM_STORAGE_KEY, String(next));
+            return next;
+        });
+    }, []);
+    const resetZoom = useCallback(() => {
+        setZoomState(ZOOM_DEFAULT);
+        localStorage.setItem(ZOOM_STORAGE_KEY, String(ZOOM_DEFAULT));
+    }, []);
+
+    // Ctrl/Cmd + wheel zooms, like every browser and reader. A trackpad pinch
+    // arrives as a burst of small ctrl+wheel events, so steps are rate-limited
+    // instead of one per event. Not passive: the webview's own page zoom must
+    // not run underneath.
+    useEffect(() => {
+        let last = 0;
+        const onWheel = (event: WheelEvent) => {
+            // defaultPrevented: the diagram viewer owns ctrl+wheel inside itself.
+            if (!(event.ctrlKey || event.metaKey) || event.defaultPrevented || event.deltaY === 0) return;
+            event.preventDefault();
+            const now = performance.now();
+            if (now - last < 90) return;
+            last = now;
+            zoomBy(event.deltaY < 0 ? 1 : -1);
+        };
+        window.addEventListener('wheel', onWheel, { passive: false });
+        return () => window.removeEventListener('wheel', onWheel);
+    }, [zoomBy]);
+
+    useEffect(() => {
+        document.documentElement.style.setProperty('--zoom', String(zoom));
+        // CodeMirror caches line heights; a resize makes it measure again.
+        window.dispatchEvent(new Event('resize'));
+    }, [zoom]);
 
     const setAccent = (newAccent: AccentId) => {
         setAccentState(newAccent);
@@ -176,7 +263,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }, [theme, font, fontSize, customFont, accent]);
 
     return (
-        <ThemeContext.Provider value={{ theme, setTheme, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize }}>
+        <ThemeContext.Provider value={{ theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize }}>
             {children}
         </ThemeContext.Provider>
     );

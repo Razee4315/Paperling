@@ -11,7 +11,7 @@ describe("workspace paths (#227)", () => {
         expect(parentDirectory("/notes/sub/file.md")).toBe("/notes/sub");
     });
     it("accepts every supported note suffix, including uppercase and text", () => {
-        for (const path of ["C:/notes/NOTE.MD", "/a.markdown", "/a.txt", "/a.TEXT"]) expect(isDocumentPath(path)).toBe(true);
+        for (const path of ["C:/notes/NOTE.MD", "/a.markdown", "/a.txt", "/a.TEXT", "/a.mdx", "/a.Mdown", "/a.mkd"]) expect(isDocumentPath(path)).toBe(true);
         for (const path of ["/a.md.exe", "/folder", "/image.png"]) expect(isDocumentPath(path)).toBe(false);
     });
     it("keeps root navigation inside a complete path segment", () => {

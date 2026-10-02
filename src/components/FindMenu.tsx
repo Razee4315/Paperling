@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
 import { formatShortcut } from '../config/keybindings';
 
-interface EditMenuProps {
+interface FindMenuProps {
     /** Open the find bar in the current view (editor or reader). */
     onFind: () => void;
     /** Open find-and-replace (editor). */
@@ -11,7 +11,7 @@ interface EditMenuProps {
     onFindInFiles: () => void;
 }
 
-interface EditMenuItem {
+interface FindMenuItem {
     label: string;
     icon: string;
     shortcut: string;
@@ -19,13 +19,15 @@ interface EditMenuItem {
 }
 
 /**
- * The "Edit" dropdown in the title bar — the non-keyboard home for Find,
- * Find & Replace, and Find in Files. Mirrors the ExportMenu/SettingsMenu
+ * The "Find" dropdown in the title bar — the non-keyboard home for Find,
+ * Find & Replace, and Find in Files. It used to be labelled "Edit" with a
+ * pencil, which read as "start editing this note" and then offered search
+ * (CHROME-01). Mirrors the ExportMenu/SettingsMenu
  * dropdown pattern (useDropdownKeyboard + outside-click/Escape close). The
  * shortcut labels come from the central keybinding config, so they show ⌘F/⌘H
  * on macOS and Ctrl+F/Ctrl+H elsewhere, matching what actually fires.
  */
-export function EditMenu({ onFind, onReplace, onFindInFiles }: EditMenuProps) {
+export function FindMenu({ onFind, onReplace, onFindInFiles }: FindMenuProps) {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
@@ -55,7 +57,7 @@ export function EditMenu({ onFind, onReplace, onFindInFiles }: EditMenuProps) {
         action();
     };
 
-    const items: EditMenuItem[] = [
+    const items: FindMenuItem[] = [
         { label: 'Find', icon: 'search', shortcut: formatShortcut('find'), action: onFind },
         { label: 'Find and Replace', icon: 'find_replace', shortcut: formatShortcut('replace'), action: onReplace },
         { label: 'Find in Files…', icon: 'manage_search', shortcut: formatShortcut('searchInFolder'), action: onFindInFiles },
@@ -65,14 +67,14 @@ export function EditMenu({ onFind, onReplace, onFindInFiles }: EditMenuProps) {
         <div ref={menuRef} className="relative no-drag">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                aria-label="Edit menu"
+                aria-label="Find menu"
                 aria-expanded={isOpen}
                 aria-haspopup="true"
                 className="btn-press flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                title="Edit"
+                title="Find"
             >
-                <span className="material-symbols-outlined text-[16px]">edit</span>
-                <span className="hidden sm:inline">Edit</span>
+                <span className="material-symbols-outlined text-[16px]">search</span>
+                <span className="hidden sm:inline">Find</span>
             </button>
 
             {isOpen && (
@@ -80,7 +82,7 @@ export function EditMenu({ onFind, onReplace, onFindInFiles }: EditMenuProps) {
                     ref={panelRef}
                     onKeyDown={onMenuKeyDown}
                     role="menu"
-                    aria-label="Edit"
+                    aria-label="Find"
                     className="absolute left-0 top-full mt-1 w-56 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-[70] animate-fade-in-down"
                 >
                     {items.map((it) => (

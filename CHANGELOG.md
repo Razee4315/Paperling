@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Saving is visible.** The title bar has a Save button, the status bar's "Unsaved" is clickable, and Export also offers Print and Save As. New installs autosave a moment after you stop typing (files that already have a name; a new note still asks where to live).
+- **Notes open ready to read.** New installs open files in Reader, and each tab remembers its own view, so putting one note into the editor no longer flips the others.
+- **Edit / Read button** in the title bar, in words. The old "Edit" menu, which only held search, is now "Find".
+- **New installs get the formatting toolbar and spell check on**, and follow the system's light or dark setting (Paper by day, Graphite by night). Pick "System" among the themes to turn that on yourself.
+- **The welcome tour** now covers reading and editing, saving, and appearance.
+- Existing installs keep autosave, reader-first opening, the toolbar, spell check and theme exactly as they were; everything above can be changed in Settings.
+
 ### Added
 
-- **Edit in Reader** (optional, Settings → Editor): click rendered paragraphs, headings, lists, task lists and quotes to edit them in place. Wikilinks, tags, highlights and inline math are kept exactly as written; tables, images, code blocks and callouts are still edited in Code (#213).
+- **Zoom**: `Ctrl +`, `Ctrl -`, `Ctrl 0` and `Ctrl`+wheel zoom the text (50% to 300%), also in the settings menu.
+- **Double-click to edit in Reader**: double-click a sentence to fix it in place; Escape or "Stop editing" leaves. No toolbar until you do.
+- **Hide Markdown symbols** (optional, Settings → Editor): in the editor, `#`, `**`, backticks and link syntax show only on the line you are editing.
+- `.mdown`, `.mkd` and `.mdx` files open like `.md`; a double-clicked `README.MD` (upper-case extension) now opens.
+- **Edit in Reader**: rendered paragraphs, headings, lists, task lists and quotes can be edited in place. Wikilinks, tags, highlights and inline math are kept exactly as written; tables, images, code blocks and callouts are still edited in Code (#213).
 - **Open folder**: from the title bar, welcome screen, Files panel, command palette, or by dropping a folder on the window. The folder stays the Files root and the search scope (#227).
 - **Outline next to Files**: Files docks on the left, Outline and Backlinks on the right, both open at once (#226).
 - **Edit a sent AI message and regenerate** the latest reply (#230).

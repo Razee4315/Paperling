@@ -7,6 +7,7 @@ import {
     getWordWrap,
     migrateLegacyKeys, getLastFile,
     getOpenInReader, setOpenInReader,
+    getAutoSave, getToolbarEnabled, getSpellCheck, pinLegacyDefaults,
     getZenMode, setZenMode,
     getAIHistoryTurns, setAIHistoryTurns, AI_HISTORY_TURNS_DEFAULT, AI_HISTORY_TURNS_MAX,
 } from "./persistence";
@@ -113,14 +114,42 @@ describe("pinned recent files", () => {
 });
 
 describe("open in reader", () => {
-    it("defaults off and round-trips", () => {
-        expect(getOpenInReader()).toBe(false);
-        setOpenInReader(true);
+    it("defaults on and round-trips", () => {
         expect(getOpenInReader()).toBe(true);
+        setOpenInReader(false);
+        expect(getOpenInReader()).toBe(false);
     });
     it("treats a malformed stored value as the default", () => {
         localStorage.setItem("paperling:openInReader", "{not json");
-        expect(getOpenInReader()).toBe(false);
+        expect(getOpenInReader()).toBe(true);
+    });
+});
+
+describe("new-install defaults (DEFAULTS-01)", () => {
+    const defaults = () => [getAutoSave(), getOpenInReader(), getToolbarEnabled(), getSpellCheck()];
+    it("gives a fresh profile autosave, reader-first opening, the toolbar and spell check", () => {
+        pinLegacyDefaults(false);
+        expect(defaults()).toEqual([true, true, true, true]);
+    });
+    it("keeps an existing profile on the behaviour it had, without touching explicit choices", () => {
+        localStorage.setItem("paperling-theme", "nord");
+        localStorage.setItem("paperling:spellCheck", "true");
+        pinLegacyDefaults(false);
+        expect(defaults()).toEqual([false, false, false, true]);
+    });
+    it("pins Paper for an existing profile that never chose a theme, so it does not start following the OS (THEME-01)", () => {
+        localStorage.setItem("paperling:recentFiles", "[]");
+        pinLegacyDefaults(false);
+        expect(localStorage.getItem("paperling-theme")).toBe("paper");
+        localStorage.clear();
+        pinLegacyDefaults(false);
+        expect(localStorage.getItem("paperling-theme")).toBeNull();
+    });
+    it("pins only once, so a later reset to defaults is not overridden", () => {
+        pinLegacyDefaults(false);
+        localStorage.setItem("paperling:recentFiles", "[]");
+        pinLegacyDefaults(false);
+        expect(defaults()).toEqual([true, true, true, true]);
     });
 });
 
