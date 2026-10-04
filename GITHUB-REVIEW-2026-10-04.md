@@ -107,7 +107,9 @@ All PRs except #260 report base `0126648628fcfd8e5260a1cfa59c62bf44e09350`; #260
 - Complete rerun: `node node_modules/vitest/vitest.mjs run --maxWorkers=1` passed **73 files / 692 tests** in 48.71 seconds. The initial failures were not reproduced serially; their root cause has not been established.
 - Browser: real frontend at port 5194 with the existing fake Tauri backend and Mac platform override; inspected screenshot and command dispatch. Native macOS behavior remains unverified.
 - PR validation uses the actual GitHub CI logs at the recorded heads, not local production builds or a claim that each PR was checked out locally.
-- No production build ran locally. No new binary is necessary for this documentation-only review; existing PR build results are linked above.
+- No production build ran locally. Per the repository hand-off workflow, Windows Test Build [37209686092](https://github.com/Razee4315/Paperling/actions/runs/37209686092) was dispatched on review commit `9a63121`. It produced [paperling-windows-x64-test](https://github.com/Razee4315/Paperling/actions/runs/37209686092/artifacts/11305959855), expiring **2026-10-18 14:43 UTC**. It contains unchanged main application code plus the review documents, not fixes for the issues or upgrades from the reviewed PRs. macOS was not requested and was skipped.
+
+The Windows Test Build completed successfully. Its downloadable artifact contains the MSI/EXE/portable test packages; it is not a release and does not update the updater manifest.
 
 ## Existing strengths and order of work
 
