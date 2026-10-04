@@ -302,3 +302,16 @@ Latest verification: [2026-10-01 recheck](FIXES-RECHECK-2026-10-01.md) covers al
 - [ ] CI/test-build green on GitHub Actions
 - [ ] 511/511 unit tests pass locally (`bun run test`)
 - [ ] Full details for every change: `WAKEUP_REPORT.md` (§ "Implementation Status")
+# GitHub review — 2026-10-04
+
+Evidence and PR verdicts: [review report](GITHUB-REVIEW-2026-10-04.md). This pass verifies existing behavior; it does not implement the reported fixes.
+
+- [x] Check all two open issues and six open PRs, including their CI results.
+- [x] Run TypeScript and the full frontend suite: 692 tests passed with one worker. Record the initial parallel-run failures separately in the report.
+- [x] In the browser's development backend with Mac platform detection, verify that Maximize requests maximize, Control+Command+F does nothing, and F11 requests fullscreen.
+- [ ] On a real Mac, verify fullscreen enter/exit creates/leaves a Space and restores window geometry; test the Dock, menu bar and native Escape behavior after a fix for #262.
+- [ ] Refresh #247 against current main and rerun checks before merging; align Node runtime/types before accepting #245.
+- [ ] Repair #260 and require green Windows x64 and ARM builds.
+- [ ] Repair #249 and verify editor search/selection plus math and chemistry rendering.
+- [ ] Repair #246 and #244 and require the complete website check/build/output-verification workflow.
+- [ ] Test install and update through published Scoop/Homebrew channels; independently verify Nix, apt and F-Droid publication for #212.
