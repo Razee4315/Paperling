@@ -1,3 +1,18 @@
+# PR verification — branch `fix/pr-review-2026-10-05`
+
+Review: [PR-REVIEW-2026-10-05.md](PR-REVIEW-2026-10-05.md). The Windows [test artifact](https://github.com/Razee4315/Paperling/actions/runs/37314535285/artifacts/11347073311) contains PR #263 at `ed2fce6` and expires 2026-10-19 13:19 UTC. Its build passed, but the review found file-safety failures: use disposable copies for these checks. The unchecked items require a repaired implementation and native acceptance.
+
+- [ ] In two tabs, drag the first tab right and the second left. Verify order, selected file and contents, including macOS and an overflowing tab strip.
+- [x] On desktop, the tab context menu offers Move left/right; clicking Move left changes order and keeps the selected file (browser).
+- [x] With a clean note open, change its disk text while Paperling stays visible. It refreshes without a reload toast (browser fake disk).
+- [x] With an already-dirty note and autosave disabled, change its disk text. The conflict dialog appears and local edits remain intact (browser fake disk).
+- [ ] Type during a slow automatic reload. Every keystroke remains, and any incompatible disk content produces a conflict. **Currently fails in hook and browser reproductions.**
+- [ ] With autosave enabled, arrange an external edit while a save's pre-write check is pending. Disk text must stay intact until Keep my version is explicitly chosen. **Currently fails in the hook reproduction.**
+- [ ] Switch from note A to B while A's disk check is pending. B stays selected and neither note loses text. **Currently fails in the hook reproduction.**
+- [ ] Edit a background note externally, then select it. It refreshes if clean; if dirty, autosave stays paused and the conflict is shown.
+- [ ] Repeat the safe cases with actual files in the Windows Test Build and native macOS app after repairing the races.
+- [ ] Before merging dependency updates, refresh CI: #244/#246 website build, #249 desktop/Android typechecking and editor behavior, #260 Windows x64/ARM compilation. #245/#247 existing checks pass; recheck if their integration context changes.
+
 # Core flow — branch `feat/core-flow-2026-10-02`
 
 From `CORE-FLOW-AUDIT.md`. Checked live in the browser build; the native items (installer, file association, real window) need the Test Build.

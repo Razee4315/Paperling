@@ -1,0 +1,114 @@
+
+ RUN  v5.0.0 C:/Users/Saqlain/Desktop/Other/Paperling-pr263-review
+
+ ❯ src/hooks/pr263.reload-race.review.test.ts (3 tests | 3 failed) 84ms
+   × preserves an edit typed while the interval reload read is pending 58ms
+   × does not complete an in-flight autosave guard after interval conflict without consent 14ms
+   × does not reactivate a tab when its interval stat returns after a tab switch 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/hooks/pr263.reload-race.review.test.ts > preserves an edit typed while the interval reload read is pending
+AssertionError: expected 'external edit' to be 'my edit while read is pending' // Object.is equality
+
+Expected: "my edit while read is pending"
+Received: "external edit"
+
+ ❯ src/hooks/pr263.reload-race.review.test.ts:25:34
+     23|   act(() => result.current.setContent('my edit while read is pending')…
+     24|   await act(async () => {release(file('C:/a.md', 'external edit', 20))…
+     25|   expect(result.current.content).toBe('my edit while read is pending');
+       |                                  ^
+     26| });
+     27| it('does not complete an in-flight autosave guard after interval confl…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/hooks/pr263.reload-race.review.test.ts > does not complete an in-flight autosave guard after interval conflict without consent
+AssertionError: expected "vi.fn()" to not be called with arguments: [ 'save_file', …(1) ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+-   "save_file",
++   "read_file",
+    {
+-     "content": "my dirty edit",
+      "path": "C:/a.md",
+    },
+  ]
+
+  2nd vi.fn() call:
+
+  [
+-   "save_file",
++   "get_file_info",
+    {
+-     "content": "my dirty edit",
+      "path": "C:/a.md",
+    },
+  ]
+
+  3rd vi.fn() call:
+
+  [
+-   "save_file",
++   "get_file_info",
+    {
+-     "content": "my dirty edit",
+      "path": "C:/a.md",
+    },
+  ]
+
+  4th vi.fn() call:
+
+  [
+-   "save_file",
++   "get_file_info",
+    {
+-     "content": "my dirty edit",
+      "path": "C:/a.md",
+    },
+  ]
+
+  5th vi.fn() call:
+
+Compared values have no visual difference.
+
+
+Number of calls: 5
+
+ ❯ src/hooks/pr263.reload-race.review.test.ts:41:22
+     39|   expect(result.current.conflictPrompt).not.toBeNull();
+     40|   await act(async () => {release({modified: 20});});
+     41|   expect(invoke).not.toHaveBeenCalledWith('save_file', {path: 'C:/a.md…
+       |                      ^
+     42| });
+     43| it('does not reactivate a tab when its interval stat returns after a t…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/hooks/pr263.reload-race.review.test.ts > does not reactivate a tab when its interval stat returns after a tab switch
+AssertionError: expected 'C:/a.md' to be 'C:/b.md' // Object.is equality
+
+Expected: "C:/b.md"
+Received: "C:/a.md"
+
+ ❯ src/hooks/pr263.reload-race.review.test.ts:54:35
+     52|   act(() => result.current.activateTab(b));
+     53|   await act(async () => {release({modified: 20});});
+     54|   expect(result.current.filePath).toBe('C:/b.md');
+       |                                   ^
+     55| });
+     56|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  18:11:42
+   Duration  2.48s (environment 69%, setup 19%, worker 4%, import 4%, tests 4%)
+
