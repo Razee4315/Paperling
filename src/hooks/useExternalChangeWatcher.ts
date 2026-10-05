@@ -1,5 +1,6 @@
 import { useEffect, type RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { subscribeExternalChecks, type ExternalCheckTrigger } from "../utils/externalCheck";
 
 export interface UseExternalChangeWatcherOptions {
   /** Path of the open file, or null. Read live via ref (listener mounts once). */
@@ -14,15 +15,16 @@ export interface UseExternalChangeWatcherOptions {
   isReviewActiveRef: RefObject<boolean>;
   /** Reload the file from disk (used when the buffer is clean). */
   reload: (path: string) => Promise<void>;
-  /** Called after a silent reload of a clean buffer. */
-  onReloaded: () => void;
+  /** Called after a silent reload of a clean buffer, with what triggered it. */
+  onReloaded: (trigger: ExternalCheckTrigger) => void;
   /** Called when the file changed on disk but the buffer is dirty. */
   onConflict: () => void;
 }
 
 /**
  * Detect the open file changing underneath us (sync tools, another editor). On
- * window focus, stat the file: if it's newer than what we last wrote and the
+ * window focus, and on an interval while the window is visible (EXT-07), stat
+ * the file: if it's newer than what we last wrote and the
  * buffer is clean, reload silently; if the buffer is dirty, warn that saving will
  * overwrite. EXT-01.
  *
@@ -41,7 +43,7 @@ export function useExternalChangeWatcher({
 }: UseExternalChangeWatcherOptions): void {
   useEffect(() => {
     let checking = false;
-    const checkExternalChange = async () => {
+    const checkExternalChange = async (trigger: ExternalCheckTrigger) => {
       const path = filePathRef.current;
       // Bail before claiming the `checking` slot so an early return can never
       // strand it set (that would silently kill detection for the session).
@@ -55,7 +57,7 @@ export function useExternalChangeWatcher({
           knownMtimeRef.current = info.modified;
           if (contentRef.current === originalContentRef.current) {
             await reload(path);
-            onReloaded();
+            onReloaded(trigger);
           } else {
             onConflict();
           }
@@ -66,7 +68,6 @@ export function useExternalChangeWatcher({
         checking = false;
       }
     };
-    window.addEventListener("focus", checkExternalChange);
-    return () => window.removeEventListener("focus", checkExternalChange);
+    return subscribeExternalChecks((trigger) => void checkExternalChange(trigger));
   }, [filePathRef, contentRef, originalContentRef, knownMtimeRef, isReviewActiveRef, reload, onReloaded, onConflict]);
 }
