@@ -1,0 +1,75 @@
+import { act, cleanup, renderHook } from '@testing-library/react';
+import { afterEach, expect, it, vi, type Mock } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
+import { useFileSession } from './useFileSession';
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
+afterEach(() => { cleanup(); vi.useRealTimers(); localStorage.clear(); });
+const file = (path: string, content = 'original', modified = 10) => ({path, name: path.slice(3), content, modified, size: content.length, line_count: 1});
+function setup(autoSaveEnabled = false) {
+  vi.useFakeTimers();
+  (invoke as Mock).mockReset().mockImplementation(async (cmd: string, args: {path: string}) => cmd === 'read_file' ? file(args.path) : {modified: 10});
+  const options = {currentLine: 1, autoSaveEnabled, isReviewActive: false, clearReview: vi.fn(), setMode: vi.fn(), showToast: vi.fn(), restoreOnMount: false};
+  return renderHook(() => useFileSession(options));
+}
+it('preserves an edit typed while the interval reload read is pending', async () => {
+  const {result} = setup();
+  await act(() => result.current.loadFile('C:/a.md'));
+  let release!: (value: ReturnType<typeof file>) => void;
+  const pending = new Promise<ReturnType<typeof file>>(resolve => {release = resolve;});
+  (invoke as Mock).mockImplementation(async (cmd: string) => cmd === 'read_file' ? pending : {modified: 20});
+  await act(() => vi.advanceTimersByTimeAsync(1500));
+  expect(invoke).toHaveBeenCalledWith('read_file', {path: 'C:/a.md'});
+  act(() => result.current.setContent('my edit while read is pending'));
+  await act(async () => {release(file('C:/a.md', 'external edit', 20));});
+  expect(result.current.content).toBe('my edit while read is pending');
+});
+it('does not complete an in-flight autosave guard after interval conflict without consent', async () => {
+  const {result} = setup(true);
+  await act(() => result.current.loadFile('C:/a.md'));
+  await act(() => vi.advanceTimersByTimeAsync(1490));
+  act(() => result.current.setContent('my dirty edit'));
+  await act(() => vi.advanceTimersByTimeAsync(10));
+  let release!: (value: {modified: number}) => void;
+  const pending = new Promise<{modified: number}>(resolve => {release = resolve;});
+  (invoke as Mock).mockImplementation(async (cmd: string) => cmd === 'get_file_info' ? pending : 30);
+  await act(() => vi.advanceTimersByTimeAsync(1490));
+  (invoke as Mock).mockImplementation(async (cmd: string) => cmd === 'get_file_info' ? {modified: 20} : 30);
+  await act(() => vi.advanceTimersByTimeAsync(10));
+  expect(result.current.conflictPrompt).not.toBeNull();
+  await act(async () => {release({modified: 20});});
+  expect(invoke).not.toHaveBeenCalledWith('save_file', {path: 'C:/a.md', content: 'my dirty edit'});
+});
+it('does not reactivate a tab when its interval stat returns after a tab switch', async () => {
+  const {result} = setup();
+  await act(() => result.current.loadFile('C:/b.md'));
+  const b = result.current.activeTabId!;
+  await act(() => result.current.loadFile('C:/a.md'));
+  let release!: (value: {modified: number}) => void;
+  const pending = new Promise<{modified: number}>(resolve => {release = resolve;});
+  (invoke as Mock).mockImplementation(async (cmd: string, args: {path: string}) => cmd === 'read_file' ? file(args.path, 'external edit', 20) : args.path === 'C:/a.md' ? pending : {modified: 10});
+  await act(() => vi.advanceTimersByTimeAsync(1500));
+  act(() => result.current.activateTab(b));
+  await act(async () => {release({modified: 20});});
+  expect(result.current.filePath).toBe('C:/b.md');
+});
+
+it('preserves edits when a background reload returns after switch-edit-switch', async () => {
+  const {result} = setup();
+  await act(() => result.current.loadFile('C:/a.md'));
+  const a = result.current.activeTabId!;
+  await act(() => result.current.loadFile('C:/b.md'));
+  const b = result.current.activeTabId!;
+  let release!: (value: ReturnType<typeof file>) => void;
+  const pending = new Promise<ReturnType<typeof file>>(resolve => {release = resolve;});
+  (invoke as Mock).mockImplementation(async (cmd: string, args: {path: string}) =>
+    cmd === 'read_file' ? pending : {modified: args.path === 'C:/a.md' ? 20 : 10});
+  await act(() => vi.advanceTimersByTimeAsync(1500));
+  expect(invoke).toHaveBeenCalledWith('read_file', {path: 'C:/a.md'});
+  act(() => result.current.activateTab(a));
+  act(() => result.current.setContent('my new alpha edits'));
+  act(() => result.current.activateTab(b));
+  await act(async () => {release(file('C:/a.md', 'external alpha', 20));});
+  act(() => result.current.activateTab(a));
+  expect(result.current.content).toBe('my new alpha edits');
+});

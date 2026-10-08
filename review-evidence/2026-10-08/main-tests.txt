@@ -1,0 +1,9 @@
+
+ RUN  v5.0.0 C:/Users/Saqlain/Desktop/Other/Paperling
+
+
+ Test Files  73 passed (73)
+      Tests  692 passed (692)
+   Start at  23:51:16
+   Duration  74.58s (tests 53%, setup 15%, import 14%, worker 8%, environment 8%, transform 1%)
+

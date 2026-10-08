@@ -1,0 +1,5 @@
+import { createLocalImageCache } from 'file:///C:/Users/Saqlain/Desktop/Other/Paperling-review266/src/utils/localImageCache.ts';
+let version=1, created=0, revoked=0, reads=0;
+const load=createLocalImageCache({stat:async()=>version,read:async()=>{reads++;return new ArrayBuffer(1)},createUrl:()=>`blob:${++created}`,revokeUrl:()=>revoked++});
+await load('C:/notes','diagram.svg','image/svg+xml');
+for(let i=1;i<=3;i++){version++;await Promise.all(Array.from({length:50},()=>load('C:/notes','diagram.svg','image/svg+xml')));console.log(JSON.stringify({refresh:i,reads,created,revoked,orphaned:created-revoked-1}));}

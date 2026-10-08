@@ -1,3 +1,23 @@
+# PR review — 2026-10-08
+
+Review verdicts and exact heads: [PR-REVIEW-2026-10-08.md](PR-REVIEW-2026-10-08.md). These are acceptance checks for repaired PRs, not claims that the current rejected heads pass. Use disposable copies for file-safety checks.
+
+- [ ] #263: type while an external-file reload is pending; every new edit survives and any conflict waits for your choice.
+- [ ] #263: trigger an external change while autosave is checking the file; neither version is overwritten while the conflict dialog is open.
+- [ ] #263: switch tabs during a delayed file check; Paperling stays on the tab you selected.
+- [ ] #263: while a background tab reloads, visit it, edit, then leave it; those edits survive when the read completes.
+- [ ] #266: display the same local image twice, rewrite the image externally, and return to Paperling; both copies refresh without accumulating duplicate reads/blob URLs across repeated cycles.
+- [ ] #266: briefly make the replacement image unreadable; the last good picture stays visible, and a later refresh recovers.
+- [ ] #263: on a real macOS build, drag tabs both ways and cancel a drag outside the strip; ordering, selection and window dragging remain predictable.
+- [ ] #265: after dependency repairs, test edit/undo/find, math, chemistry and HTML/PDF exports; desktop, Android and Nix checks all pass.
+- [ ] #260: after dependency repairs, verify Windows x64/ARM builds and native PDF export; no incompatible Windows/WebView bindings remain.
+- [ ] #244/#246: full website check/tests/build/verification pass with a supported Astro/Vite/compiler combination; inspect homepage and comparison pages.
+- [ ] #264: after merging, website deployment remains green. Keep future Node API usage compatible with the Node 24 runtime.
+
+Older #251/#243/#215/#116/#13 functionality is already incorporated; do not reopen those patches. No PR was merged during this review.
+
+---
+
 # Core flow — branch `feat/core-flow-2026-10-02`
 
 From `CORE-FLOW-AUDIT.md`. Checked live in the browser build; the native items (installer, file association, real window) need the Test Build.

@@ -1,0 +1,31 @@
+import {chromium} from 'playwright-core';
+const browser=await chromium.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true});
+const page=await browser.newPage({viewport:{width:1280,height:800}});
+await page.goto('http://localhost:5289/?fakefs=1&raf=1',{timeout:60000});
+await page.waitForSelector('button',{timeout:60000});
+await page.evaluate(async()=>{
+ const {setTourDone}=await import('/src/utils/persistence.ts'); setTourDone(true);
+ window.__fakefs.write('C:\\Notes\\Images.md','# Image refresh review\n\n![diagram](diagram.svg)\n\n![same diagram](diagram.svg)');
+ window.__fakefs.nextOpen=['C:\\Notes\\Images.md'];
+ window.__reviewVersion=1; window.__reviewReads=0;
+ const invoke=window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);
+ window.__TAURI_INTERNALS__.invoke=async(cmd,args,...rest)=>{
+  if(cmd==='get_file_info'&&args.path.endsWith('diagram.svg')) return {modified:window.__reviewVersion};
+  if(cmd==='read_image_file') {window.__reviewReads++; return new TextEncoder().encode(`<svg xmlns="http://www.w3.org/2000/svg" width="240" height="100"><rect width="240" height="100" fill="${window.__reviewVersion===1?'#4d79ff':'#22bb88'}"/><text x="15" y="55" fill="white" font-size="24">Version ${window.__reviewVersion}</text></svg>`).buffer;}
+  return invoke(cmd,args,...rest);
+ };
+});
+await page.getByRole('button',{name:/Open File/}).click();
+await page.waitForSelector('img[alt="diagram"]');
+await page.waitForFunction(()=>document.querySelector('img[alt="diagram"]')?.naturalWidth>0);
+console.log('before',await page.locator('body').innerText());
+console.log('reads-before',await page.evaluate(()=>window.__reviewReads));
+await page.screenshot({path:process.env.TEMP+'/paperling-pr266-before.png'});
+const old=await page.locator('img[alt="diagram"]').getAttribute('src');
+await page.evaluate(()=>{window.__reviewVersion=2; window.dispatchEvent(new Event('focus'));});
+await page.waitForFunction(old=>document.querySelector('img[alt="diagram"]')?.getAttribute('src')!==old,old);
+await page.waitForFunction(()=>document.querySelector('img[alt="diagram"]')?.naturalWidth>0);
+console.log('reads-after',await page.evaluate(()=>window.__reviewReads));
+await page.screenshot({path:process.env.TEMP+'/paperling-pr266-after.png'});
+await browser.close();
+
