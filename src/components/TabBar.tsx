@@ -28,16 +28,62 @@ interface TabBarProps {
 // activate.
 const LONG_PRESS_MS = 500;
 const LONG_PRESS_MOVE_PX = 10;
+// Mouse travel before a press on a tab becomes a reorder drag, so an ordinary
+// click with a slight wobble still just selects the tab. TABS-24.
+const DRAG_START_PX = 5;
+
+/**
+ * Horizontal offset for a tab that isn't being dragged: tabs between the
+ * drag's origin and its current slot slide one dragged-tab width toward the
+ * origin, opening a gap where the tab will land, like a browser tab strip.
+ * TABS-24.
+ */
+export function tabShiftFor(index: number, from: number, over: number, width: number): number {
+    if (from < over && index > from && index <= over) return -width;
+    if (from > over && index >= over && index < from) return width;
+    return 0;
+}
+
+/**
+ * Index of the tab under clientX, from the tabs' left/right edges in strip
+ * order. Past either end it clamps to the first or last tab. TABS-24.
+ */
+export function tabIndexAtX(rects: ReadonlyArray<{ left: number; right: number }>, x: number): number {
+    if (rects.length === 0) return -1;
+    for (let i = 0; i < rects.length; i++) {
+        if (x < rects[i].right) return i;
+    }
+    return rects.length - 1;
+}
 
 function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, onContextMenu }: TabBarProps) {
     const listRef = useRef<HTMLDivElement>(null);
     const tabRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const [dragIndex, setDragIndex] = useState<number | null>(null);
     const [overIndex, setOverIndex] = useState<number | null>(null);
+    // How far the dragged tab has followed the pointer, in px.
+    const [dragDx, setDragDx] = useState(0);
+    // True for the frame after a drop, so tabs snap into their new DOM order
+    // instead of animating out of their old shifted positions.
+    const [settling, setSettling] = useState(false);
     const longPressRef = useRef<{ timer: number; x: number; y: number; fired: boolean } | null>(null);
     // Set when a long-press fires; consumed by the next click. pointerup runs
     // BEFORE click, so the click can't read the (already cleared) press state.
     const suppressClickRef = useRef(false);
+    // Desktop reorder drag. Tracked with pointer events, not HTML5
+    // drag-and-drop: Tauri's native file-drop handler (dragDropEnabled, which
+    // opening a dropped .md depends on) swallows in-page drag events in the
+    // macOS webview, so `draggable` tabs never moved there. TABS-24.
+    // `rects` is the strip's layout at drag start: once tabs are transformed,
+    // live bounding rects would chase their own animation.
+    const mouseDragRef = useRef<{
+        pointerId: number;
+        from: number;
+        x: number;
+        started: boolean;
+        over: number;
+        rects: { left: number; right: number }[];
+    } | null>(null);
 
     // Keep the active tab scrolled into view when it changes (e.g. Ctrl+Tab to a
     // tab that's currently off-screen in an overflowing bar). TABS-13.
@@ -63,8 +109,13 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
     // Touch-only: a held tab opens the same context menu a right-click does on
     // desktop. HTML5 drag-and-drop never fires on touch, so this is the phone's
     // route to the reorder actions ("Move left/right" in the menu).
-    const onPointerDown = (e: React.PointerEvent, id: string) => {
-        if (e.pointerType !== "touch" || !onContextMenu) return;
+    const onPointerDown = (e: React.PointerEvent, id: string, index: number) => {
+        if (e.pointerType !== "touch") {
+            if (e.button !== 0 || !onReorder) return;
+            mouseDragRef.current = { pointerId: e.pointerId, from: index, x: e.clientX, started: false, over: index, rects: [] };
+            return;
+        }
+        if (!onContextMenu) return;
         clearLongPress();
         const startX = e.clientX;
         const startY = e.clientY;
@@ -78,11 +129,59 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
         longPressRef.current = state;
     };
     const onPointerMove = (e: React.PointerEvent) => {
+        const drag = mouseDragRef.current;
+        if (drag && drag.pointerId === e.pointerId) {
+            if (!drag.started) {
+                if (Math.abs(e.clientX - drag.x) < DRAG_START_PX) return;
+                drag.started = true;
+                drag.rects = tabs.map((t) => {
+                    const r = tabRefs.current.get(t.id)?.getBoundingClientRect();
+                    return { left: r?.left ?? 0, right: r?.right ?? 0 };
+                });
+                // Keep receiving moves when the pointer leaves the tab.
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                setDragIndex(drag.from);
+                setOverIndex(drag.from);
+            }
+            const { rects, from } = drag;
+            const origin = rects[from];
+            // The tab follows the pointer but stays within the strip.
+            const dx = Math.min(
+                Math.max(e.clientX - drag.x, rects[0].left - origin.left),
+                rects[rects.length - 1].right - origin.right,
+            );
+            setDragDx(dx);
+            // Its slot is wherever its centre now sits.
+            const over = tabIndexAtX(rects, (origin.left + origin.right) / 2 + dx);
+            if (over !== drag.over) {
+                drag.over = over;
+                setOverIndex(over);
+            }
+            return;
+        }
         const st = longPressRef.current;
         if (!st || st.fired) return;
         if (Math.abs(e.clientX - st.x) > LONG_PRESS_MOVE_PX || Math.abs(e.clientY - st.y) > LONG_PRESS_MOVE_PX) {
             clearLongPress();
         }
+    };
+
+    const endMouseDrag = (e: React.PointerEvent, commit: boolean) => {
+        const drag = mouseDragRef.current;
+        if (!drag || drag.pointerId !== e.pointerId) return;
+        mouseDragRef.current = null;
+        if (!drag.started) return;
+        // The click that follows the release must not also select the tab. If
+        // no click comes (released off the strip), drop the flag after this
+        // task so it can't swallow the next real click.
+        suppressClickRef.current = true;
+        window.setTimeout(() => { suppressClickRef.current = false; }, 0);
+        if (commit && drag.over >= 0 && drag.over !== drag.from) onReorder?.(drag.from, drag.over);
+        setDragIndex(null);
+        setOverIndex(null);
+        setDragDx(0);
+        setSettling(true);
+        window.requestAnimationFrame(() => setSettling(false));
     };
 
     // Roving-tabindex keyboard navigation across the tablist. TABS-14.
@@ -127,7 +226,13 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
         >
             {tabs.map((tab, index) => {
                 const isActive = tab.id === activeId;
-                const isDropTarget = overIndex === index && dragIndex !== null && dragIndex !== index;
+                const isDragged = dragIndex === index;
+                let offset = 0;
+                if (isDragged) offset = dragDx;
+                else if (dragIndex !== null && overIndex !== null) {
+                    const r = mouseDragRef.current?.rects[dragIndex];
+                    offset = tabShiftFor(index, dragIndex, overIndex, r ? r.right - r.left : 0);
+                }
                 return (
                     <div
                         key={tab.id}
@@ -140,17 +245,13 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                         tabIndex={isActive ? 0 : -1}
                         title={tab.name}
                         aria-label={tab.dirty ? `${tab.name} (unsaved changes)` : tab.name}
-                        // HTML5 drag-and-drop does not fire on touch at all —
-                        // not degraded, absent. Reordering on a phone goes
-                        // through the long-press menu instead, so the
-                        // draggable attribute (which also fights touch
-                        // scrolling when present) is desktop-only.
-                        draggable={!!onReorder && !IS_TOUCH}
+                        // Reordering on a phone goes through the long-press
+                        // menu; desktop drags with pointer events (TABS-24).
                         onKeyDown={(e) => onKeyDown(e, index)}
-                        onPointerDown={(e) => onPointerDown(e, tab.id)}
+                        onPointerDown={(e) => onPointerDown(e, tab.id, index)}
                         onPointerMove={onPointerMove}
-                        onPointerUp={clearLongPress}
-                        onPointerCancel={clearLongPress}
+                        onPointerUp={(e) => { endMouseDrag(e, true); clearLongPress(); }}
+                        onPointerCancel={(e) => { endMouseDrag(e, false); clearLongPress(); }}
                         onClick={() => {
                             // Swallow the tap that follows a fired long-press.
                             if (suppressClickRef.current) {
@@ -166,25 +267,6 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                             // navigation of the strip keeps focus. FOCUS-01.
                             window.dispatchEvent(new CustomEvent("paperling:focus-document"));
                         }}
-                        onDragStart={(e) => {
-                            setDragIndex(index);
-                            e.dataTransfer.effectAllowed = "move";
-                            // Firefox requires data to be set for a drag to start.
-                            e.dataTransfer.setData("text/plain", tab.id);
-                        }}
-                        onDragOver={(e) => {
-                            if (dragIndex === null) return;
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = "move";
-                            if (overIndex !== index) setOverIndex(index);
-                        }}
-                        onDrop={(e) => {
-                            e.preventDefault();
-                            if (dragIndex !== null && dragIndex !== index) onReorder?.(dragIndex, index);
-                            setDragIndex(null);
-                            setOverIndex(null);
-                        }}
-                        onDragEnd={() => { setDragIndex(null); setOverIndex(null); }}
                         onMouseDown={(e) => {
                             // Middle-click closes, like a browser.
                             if (e.button === 1) { e.preventDefault(); onClose(tab.id); }
@@ -194,11 +276,21 @@ function TabBarImpl({ tabs, activeId, onSelect, onClose, onNewTab, onReorder, on
                             e.preventDefault();
                             onContextMenu(tab.id, e.clientX, e.clientY);
                         }}
-                        className={`group/tab relative flex items-center gap-2 pl-3 pr-2 shrink-0 min-w-[110px] max-w-[200px] cursor-pointer border-r border-[var(--border)] transition-colors outline-none ${
+                        className={`group/tab relative flex items-center gap-2 pl-3 pr-2 shrink-0 min-w-[110px] max-w-[200px] ${isDragged ? "cursor-grabbing z-10 shadow-md bg-[var(--bg-primary)]" : "cursor-pointer"} border-r border-[var(--border)] outline-none ${
                             isActive
                                 ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
                                 : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-                        } ${isDropTarget ? "ring-1 ring-inset ring-[var(--accent)]" : ""}`}
+                        }`}
+                        style={{
+                            transform: offset ? `translateX(${offset}px)` : undefined,
+                            // The dragged tab tracks the pointer 1:1; the others
+                            // glide aside. Nothing animates on the drop frame.
+                            transition: isDragged || settling
+                                ? "none"
+                                : dragIndex !== null
+                                    ? "transform 150ms ease"
+                                    : "background-color 150ms, color 150ms",
+                        }}
                     >
                         {/* Active-tab top accent */}
                         {isActive && <span className="absolute left-0 top-0 h-[2px] w-full bg-[var(--accent)]" aria-hidden="true" />}
