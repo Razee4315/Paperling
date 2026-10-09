@@ -54,7 +54,9 @@ export const BINDINGS = {
     palette: { key: "p", mod: true },
     gotoLine: { key: "g", mod: true },
     settings: { key: ",", mod: true },
-    fullscreen: { key: "F11" },
+    // F11 everywhere but macOS, which keeps F11 for Show Desktop and uses
+    // ⌃⌘F for fullscreen in every app. FULLSCREEN-02 (#262).
+    fullscreen: isMac ? { key: "f", mod: true, ctrl: true } : { key: "F11" },
     zoomIn: { key: "=", mod: true },
     zoomOut: { key: "-", mod: true },
     zoomReset: { key: "0", mod: true },
@@ -239,7 +241,13 @@ function matchesOne(e: KeyboardEvent, b: Binding): boolean {
     // Primary/secondary modifier resolution.
     const secondaryDown = isMac ? e.ctrlKey : e.metaKey;
     if (b.mod) {
-        if (!isModPressed(e) || secondaryDown) return false;
+        if (!isModPressed(e)) return false;
+        // On macOS a binding can ask for a literal Ctrl on top of ⌘ (⌃⌘F, and
+        // anything the recorder captures with both held): then both must be
+        // down. It used to be rejected outright, so such a combo could be
+        // recorded and displayed but never fired. Everywhere else `mod` IS
+        // Ctrl, and the secondary (the OS key) must stay up. SHC-11.
+        if (secondaryDown !== (isMac && !!b.ctrl)) return false;
     } else if (b.ctrl) {
         if (!e.ctrlKey || e.metaKey) return false;
     } else {

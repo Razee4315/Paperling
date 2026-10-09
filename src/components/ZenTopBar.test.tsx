@@ -22,6 +22,8 @@ vi.mock("@tauri-apps/api/window", () => ({
 const platform = vi.hoisted(() => ({
     IS_MOBILE: false,
     IS_TOUCH: false,
+    MAC_WINDOW: false,
+    MAC_LIGHTS_INSET: 86,
 }));
 vi.mock("../utils/platform", () => platform);
 
@@ -31,6 +33,7 @@ afterEach(() => {
     cleanup();
     platform.IS_MOBILE = false;
     platform.IS_TOUCH = false;
+    platform.MAC_WINDOW = false;
     win.startDragging.mockClear();
 });
 
@@ -141,5 +144,27 @@ describe("ZenTopBar on a touchscreen desktop (ZEN-05)", () => {
         renderBar();
         fireEvent.mouseDown(screen.getByRole("toolbar", { name: "Zen mode top bar" }), { button: 0 });
         expect(win.startDragging).not.toHaveBeenCalled();
+    });
+});
+
+describe("ZenTopBar on a native macOS window (CHROME-05)", () => {
+    it("leaves the window buttons to the system, and its own start clear of them", () => {
+        platform.MAC_WINDOW = true;
+        renderBar();
+        // macOS draws close / minimize / fullscreen at the top left itself.
+        expect(screen.queryByLabelText("Minimize")).toBeNull();
+        expect(screen.queryByLabelText("Maximize")).toBeNull();
+        expect(screen.queryByLabelText("Close")).toBeNull();
+        expect(screen.getByLabelText("Exit Zen mode")).toBeInTheDocument();
+        expect(screen.getByRole("toolbar", { name: "Zen mode top bar", hidden: true })).toHaveStyle({ paddingLeft: "86px" });
+    });
+
+    it("needs no room for them in fullscreen, and still drags the window", () => {
+        platform.MAC_WINDOW = true;
+        renderBar({ isFullscreen: true });
+        const bar = screen.getByRole("toolbar", { name: "Zen mode top bar", hidden: true });
+        expect(bar.style.paddingLeft).toBe("");
+        fireEvent.mouseDown(bar, { button: 0, detail: 1 });
+        expect(win.startDragging).toHaveBeenCalledTimes(1);
     });
 });

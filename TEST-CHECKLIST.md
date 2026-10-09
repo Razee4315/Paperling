@@ -1,3 +1,19 @@
+# macOS window — branch `fix/macos-native-window-2026-10-09`
+
+Issue #262. Built and run on a Mac (macOS 26.5, Apple silicon, debug build); the items marked **seen** were checked there in the running app, the rest need a person at a Mac because they are drawn by macOS itself or need a real pointer.
+
+- [x] **seen** The title bar has no minimize / maximize / close buttons of its own at the right, and its content starts 86px in, clear of the system's buttons (CHROME-05).
+- [x] **seen** `⌃⌘F` enters fullscreen: the window takes the whole display (1512 × 949 on a 1512 × 982 screen with a notch) and the title bar's left inset closes up. `⌃⌘F` again leaves it. Find does not open (FULLSCREEN-02).
+- [x] **seen** Leaving fullscreen without the app (what the green button and View → Exit Full Screen do) puts the inset back, and the next `⌃⌘F` enters fullscreen again instead of doing nothing.
+- [x] **seen** Zen mode (`F9`): the reveal bar has no window buttons and starts clear of the system's.
+- [x] **seen** A file opened the Finder way (`open -a Paperling note.md`, name with a space) still opens.
+- [ ] The red, yellow and green buttons sit at the top left, centred on the title bar, and work: close asks about unsaved changes, yellow minimizes, green goes fullscreen.
+- [ ] In fullscreen the menu bar and the Dock are hidden; moving the pointer to the top edge shows the menu bar and the three buttons.
+- [ ] Dragging the title bar moves the window; double-clicking it zooms the window.
+- [ ] Settings → Shortcuts and the `?` cheatsheet show `⌃⌘F` for fullscreen; rebinding it works, including to another `⌃⌘` combination (SHC-11).
+- [ ] Quit in fullscreen and reopen: the window comes back as a large normal window, not fullscreen (known, see the pull request).
+- [ ] Windows and Linux are unchanged: the three buttons are still at the right, `F11` still toggles fullscreen.
+
 # Core flow — branch `feat/core-flow-2026-10-02`
 
 From `CORE-FLOW-AUDIT.md`. Checked live in the browser build; the native items (installer, file association, real window) need the Test Build.

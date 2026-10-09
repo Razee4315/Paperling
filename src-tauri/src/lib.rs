@@ -147,8 +147,12 @@ pub fn run() {
     //   FULLSCREEN  useFullscreen tracks fullscreen in a ref because
     //               isFullscreen() lies on frameless windows (FULLSCREEN-01).
     //               Reopening fullscreen behind its back desyncs the title bar
-    //               and eats the first F11 press.
-    //   DECORATIONS meaningless for a window that is always decorations:false.
+    //               and eats the first F11 press. (macOS asks the window
+    //               instead, FULLSCREEN-02; a launch straight into
+    //               fullscreen is still not something we restore.)
+    //   DECORATIONS not ours to restore: the window is frameless everywhere
+    //               but macOS, where tauri.macos.conf.json gives it the
+    //               system's title-bar buttons.
     //
     // Filtered to "main" as well, because the plugin manages EVERY window and
     // PDF export spins up its own (pdf.rs, label "pdf-export-{seq}"). Those are

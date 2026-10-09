@@ -6,6 +6,7 @@ import { ExportMenu } from "./ExportMenu";
 import { MoreMenu } from "./MoreMenu";
 import { formatShortcut } from "../config/keybindings";
 import { getAIIconAnimation } from "../utils/persistence";
+import { MAC_LIGHTS_INSET, MAC_WINDOW } from "../utils/platform";
 
 interface TitleBarProps {
     fileName?: string;
@@ -126,6 +127,9 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
             <header
                 onMouseDown={handleTitleBarMouseDown}
                 className="h-12 shrink-0 flex items-center justify-between px-4 bg-[var(--bg-titlebar)] border-b border-[var(--border)] no-select drag-region transition-colors"
+                // macOS draws its window buttons over the left end of this bar;
+                // a fullscreen window has none to make room for. CHROME-05.
+                style={MAC_WINDOW && !isFullscreen ? { paddingLeft: MAC_LIGHTS_INSET } : undefined}
             >
                 {/* Left: Icon & Title */}
                 <div className="flex flex-1 min-w-0 items-center gap-1 sm:gap-3 no-drag">
@@ -228,29 +232,37 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                     yields first so a narrow desktop never loses Close. */}
                 <div className="flex shrink-0 items-center gap-1 no-drag">
                     <SettingsMenu />
-                    <div className="w-[1px] h-4 bg-[var(--border)] mx-1"></div>
-                    <button
-                        onClick={handleMinimize}
-                        aria-label="Minimize"
-                        className="chrome-btn flex items-center justify-center w-9 h-8"
-                    >
-                        <span className="material-symbols-outlined text-[18px]">remove</span>
-                    </button>
-                    <button
-                        onClick={handleMaximize}
-                        aria-label={isFullscreen ? "Exit fullscreen" : "Maximize"}
-                        title={isFullscreen ? "Exit fullscreen (F11)" : "Maximize"}
-                        className="chrome-btn flex items-center justify-center w-9 h-8"
-                    >
-                        <span className="material-symbols-outlined text-[16px]">{isFullscreen ? "fullscreen_exit" : "crop_square"}</span>
-                    </button>
-                    <button
-                        onClick={handleCloseClick}
-                        aria-label="Close"
-                        className="chrome-btn chrome-btn-danger flex items-center justify-center w-9 h-8"
-                    >
-                        <span className="material-symbols-outlined text-[18px]">close</span>
-                    </button>
+                    {/* The frameless window (Windows, Linux) gets its buttons
+                        from us. On macOS the system draws its own at the left,
+                        and a second set here was the only one users saw: no
+                        green button, so no way into fullscreen. CHROME-05 (#262). */}
+                    {!MAC_WINDOW && (
+                        <>
+                            <div className="w-[1px] h-4 bg-[var(--border)] mx-1"></div>
+                            <button
+                                onClick={handleMinimize}
+                                aria-label="Minimize"
+                                className="chrome-btn flex items-center justify-center w-9 h-8"
+                            >
+                                <span className="material-symbols-outlined text-[18px]">remove</span>
+                            </button>
+                            <button
+                                onClick={handleMaximize}
+                                aria-label={isFullscreen ? "Exit fullscreen" : "Maximize"}
+                                title={isFullscreen ? `Exit fullscreen (${formatShortcut("fullscreen")})` : "Maximize"}
+                                className="chrome-btn flex items-center justify-center w-9 h-8"
+                            >
+                                <span className="material-symbols-outlined text-[16px]">{isFullscreen ? "fullscreen_exit" : "crop_square"}</span>
+                            </button>
+                            <button
+                                onClick={handleCloseClick}
+                                aria-label="Close"
+                                className="chrome-btn chrome-btn-danger flex items-center justify-center w-9 h-8"
+                            >
+                                <span className="material-symbols-outlined text-[18px]">close</span>
+                            </button>
+                        </>
+                    )}
                 </div>
             </header>
         </>

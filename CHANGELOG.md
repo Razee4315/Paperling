@@ -11,6 +11,8 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 ## [Unreleased]
 
+- **macOS: a real Mac window.** The red, yellow and green buttons are back, at the left of the title bar, and the green one (or `⌃⌘F`) takes Paperling into true fullscreen, with the menu bar and the Dock out of the way (#262).
+
 ## [1.1.0] - 2026-10-02
 
 Paperling 1.1 is about the basics: reading, editing and saving feel right from the first minute.
