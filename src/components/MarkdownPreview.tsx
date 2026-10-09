@@ -14,6 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseFrontmatter, serializeFrontmatter, type FrontmatterValue } from "../utils/frontmatter";
 import { IS_MOBILE } from "../utils/platform";
+import { writeCleanSelection } from "../utils/previewCopy";
 import { lineToOffset, offsetToLine, type AnchorList, type Scroller } from "../utils/scrollSync";
 import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
 import { wikilinkLabel } from "../utils/wikilinkAnchor";
@@ -1572,6 +1573,11 @@ function MarkdownPreviewImpl({
                         onDoubleClick={(event) => startReaderEditing(event.target as HTMLElement, { x: event.clientX, y: event.clientY })}
                         onFocus={(event) => reader.begin(event.target as HTMLElement)}
                         onInput={() => reader.write()}
+                        // Copy without the icon-font text of heading/code
+                        // controls ("Headlinelink"). COPY-01.
+                        onCopy={(event) => {
+                            if (writeCleanSelection(window.getSelection(), event.currentTarget, event.clipboardData)) event.preventDefault();
+                        }}
                         onPaste={(event) => {
                             if (!reader.active) return;
                             event.preventDefault();
