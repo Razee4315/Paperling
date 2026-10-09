@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectMobileDevice, type MobileSignals } from "./platform";
+import { detectMacWindow, detectMobileDevice, type MobileSignals } from "./platform";
 
 const base: MobileSignals = {
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0",
@@ -83,5 +83,27 @@ describe("detectMobileDevice", () => {
     it("treats an empty UA defensively (falls through to pointer checks)", () => {
         expect(detectMobileDevice(signal({ userAgent: "", maxTouchPoints: 0, coarsePointer: false }))).toBe(false);
         expect(detectMobileDevice(signal({ userAgent: "", maxTouchPoints: 5, coarsePointer: true }))).toBe(true);
+    });
+});
+
+describe("detectMacWindow (CHROME-05)", () => {
+    const mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+
+    it("is the desktop app on a Mac", () => {
+        expect(detectMacWindow({ tauri: true, mobile: false, userAgent: mac })).toBe(true);
+    });
+
+    it("is not a browser on a Mac: there the page has no window of its own", () => {
+        expect(detectMacWindow({ tauri: false, mobile: false, userAgent: mac })).toBe(false);
+    });
+
+    it("is not an iPad, which also says Macintosh but runs the phone shell", () => {
+        expect(detectMacWindow({ tauri: true, mobile: true, userAgent: mac })).toBe(false);
+    });
+
+    it("is not Windows or Linux, where the window stays frameless", () => {
+        expect(detectMacWindow({ tauri: true, mobile: false, userAgent: base.userAgent })).toBe(false);
+        expect(detectMacWindow({ tauri: true, mobile: false, userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15" })).toBe(false);
+        expect(detectMacWindow({ tauri: true, mobile: false, userAgent: "" })).toBe(false);
     });
 });

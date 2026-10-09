@@ -85,10 +85,11 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
                 return;
             }
             // F11 - Toggle fullscreen. The universal fullscreen key on Windows
-            // and Linux. macOS reserves F11 for Show Desktop, where users
-            // fullscreen via the green title-bar button; the underlying Tauri
-            // setFullscreen drives the same window state either way. No file
-            // needed — works on the welcome screen too. FULLSCREEN-01.
+            // and Linux. macOS reserves F11 for Show Desktop, so the binding
+            // there is ⌃⌘F (FULLSCREEN-02), next to the green title-bar button;
+            // the underlying Tauri setFullscreen drives the same window state
+            // either way. No file needed — works on the welcome screen too.
+            // FULLSCREEN-01.
             if (matchesBinding(e, "fullscreen")) {
                 e.preventDefault();
                 s.toggleFullscreen();

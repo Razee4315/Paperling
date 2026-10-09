@@ -5,7 +5,8 @@ import { Window } from "@tauri-apps/api/window";
 // there the bar renders IN FLOW (always visible, exit chip only, padded below
 // the system status bar). Desktop keeps the hover-reveal overlay with the
 // window controls and the frameless-window drag handle. ZEN-02 / MOBILE-ZEN.
-import { IS_MOBILE, IS_TOUCH } from "../utils/platform";
+import { IS_MOBILE, IS_TOUCH, MAC_LIGHTS_INSET, MAC_WINDOW } from "../utils/platform";
+import { formatShortcut } from "../config/keybindings";
 
 interface ZenTopBarProps {
     isFullscreen?: boolean;
@@ -114,7 +115,12 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
             <div
                 role="toolbar"
                 aria-label="Zen mode top bar"
-                style={{ paddingTop: "var(--safe-area-top, 0px)" }}
+                // macOS keeps its window buttons at the top left even in zen;
+                // the bar's own controls start clear of them. CHROME-05.
+                style={{
+                    paddingTop: "var(--safe-area-top, 0px)",
+                    ...(MAC_WINDOW && !isFullscreen ? { paddingLeft: MAC_LIGHTS_INSET } : {}),
+                }}
                 className={IS_TOUCH
                     ? "relative min-h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)] border-b border-[var(--border)]"
                     : `absolute top-0 inset-x-0 h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)]/95 backdrop-blur-sm border-b border-[var(--border)] transition-all duration-150 delay-150 group-hover/zenbar:delay-0 ${peeking ? "visible opacity-100 translate-y-0 pointer-events-auto" : "invisible opacity-0 -translate-y-1 pointer-events-none"} group-hover/zenbar:visible group-hover/zenbar:opacity-100 group-hover/zenbar:translate-y-0 group-hover/zenbar:pointer-events-auto group-focus-within/zenbar:delay-0 group-focus-within/zenbar:visible group-focus-within/zenbar:opacity-100 group-focus-within/zenbar:translate-y-0 group-focus-within/zenbar:pointer-events-auto`}
@@ -166,7 +172,8 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                         </button>
                     )}
                 </div>
-                {!IS_MOBILE && (
+                {/* macOS draws the window's buttons itself. CHROME-05 (#262). */}
+                {!IS_MOBILE && !MAC_WINDOW && (
                     <div className="flex items-center gap-1">
                         <button
                             onClick={handleMinimize}
@@ -178,7 +185,7 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                         <button
                             onClick={handleMaximize}
                             aria-label={isFullscreen ? "Exit fullscreen" : "Maximize"}
-                            title={isFullscreen ? "Exit fullscreen (F11)" : "Maximize"}
+                            title={isFullscreen ? `Exit fullscreen (${formatShortcut("fullscreen")})` : "Maximize"}
                             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[16px]">{isFullscreen ? "fullscreen_exit" : "crop_square"}</span>

@@ -95,6 +95,46 @@ function computeIsMobile(): boolean {
  */
 export const IS_MOBILE: boolean = computeIsMobile();
 
+/**
+ * Pure decision: is this the desktop app on a Mac? There the window is a
+ * native one (`tauri.macos.conf.json`): macOS draws the red/yellow/green
+ * buttons over the left end of our title bar and owns fullscreen, so the app
+ * must not draw window buttons of its own and its bars leave room for the
+ * system's. iPadOS also says "Macintosh", which is why the phone-shell verdict
+ * is an input. CHROME-05 (#262).
+ */
+export function detectMacWindow(s: { tauri: boolean; mobile: boolean; userAgent: string }): boolean {
+    return s.tauri && !s.mobile && /macintosh|mac os x/i.test(s.userAgent || "");
+}
+
+function macWindowOverride(): boolean | null {
+    try {
+        const value = new URLSearchParams(window.location.search).get("macwindow");
+        if (value === "1" || value === "true") return true;
+        if (value === "0" || value === "false") return false;
+    } catch {
+        /* parse failure just means "no override" */
+    }
+    return null;
+}
+
+/**
+ * Boot-time verdict, immutable like `IS_MOBILE`. `?macwindow=1` shows the Mac
+ * layout (no window buttons, room for the traffic lights) in a desktop browser,
+ * the same way `?mobile=1` shows the phone shell.
+ */
+export const MAC_WINDOW: boolean =
+    typeof window !== "undefined" && typeof navigator !== "undefined"
+        ? (macWindowOverride() ?? detectMacWindow({ tauri: isTauri(), mobile: IS_MOBILE, userAgent: navigator.userAgent }))
+        : false;
+
+/**
+ * Width the bars keep clear at their left for the traffic lights: the buttons
+ * end 77px in (17px inset, three 14px buttons 23px apart; see
+ * `trafficLightPosition` in tauri.macos.conf.json), plus a little air.
+ */
+export const MAC_LIGHTS_INSET = 86;
+
 /** Coarse-pointer touch device (drives hover-reveal fixes); computed once. */
 export const IS_TOUCH: boolean =
     typeof window !== "undefined" &&
