@@ -26,8 +26,14 @@ const OPAQUE = /^(FencedCode|CodeBlock|HTMLBlock|Table|CommentBlock)$/;
  * What to hide and which lines are headings between `from` and `to`. Pure, so
  * it can be tested without a view; the plugin calls it for the visible ranges
  * only, so a long note costs what is on screen.
+ *
+ * `tree` defaults to the state's current parse. Tests pass the result of
+ * ensureSyntaxTree: that parses further but does not update what
+ * syntaxTree(state) returns, so on a slow CI runner the state still held the
+ * partial tree from its first ~20 ms of parsing and the test saw only the
+ * opening heading. LIVE-02.
  */
-export function livePreviewMarks(state: EditorState, from: number, to: number): LivePreviewMarks {
+export function livePreviewMarks(state: EditorState, from: number, to: number, tree: ReturnType<typeof syntaxTree> = syntaxTree(state)): LivePreviewMarks {
     const doc = state.doc;
     // Lines being worked on keep their syntax.
     const active = state.selection.ranges.map((range) => [doc.lineAt(range.from).number, doc.lineAt(range.to).number] as const);
@@ -39,7 +45,7 @@ export function livePreviewMarks(state: EditorState, from: number, to: number): 
     const headings: LivePreviewMarks["headings"] = [];
     const hide = (start: number, end: number) => { if (end > start && !isActive(start)) hidden.push({ from: start, to: end }); };
 
-    syntaxTree(state).iterate({
+    tree.iterate({
         from,
         to,
         enter(node) {
