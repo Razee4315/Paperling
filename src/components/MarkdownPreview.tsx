@@ -14,6 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseFrontmatter, serializeFrontmatter, type FrontmatterValue } from "../utils/frontmatter";
 import { IS_MOBILE } from "../utils/platform";
+import { createLocalImageCache } from "../utils/localImageCache";
 import { lineToOffset, offsetToLine, type AnchorList, type Scroller } from "../utils/scrollSync";
 import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
 import { wikilinkLabel } from "../utils/wikilinkAnchor";
@@ -355,41 +356,21 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
     'bmp': 'image/bmp'
 };
 
-// Module-level shared cache for local image blobs. Without this, a doc that
-// references the same image 50 times reads the file 50 times and creates 50
-// independent ObjectURLs. With it, repeat references hit memory.
-//
-// LRU eviction at CACHE_CAP entries: the Map preserves insertion order, so we
-// re-insert on hit (move to end) and evict from the front when full. Evicted
-// URLs are revoked so the image data can be GC'd.
-const LOCAL_IMAGE_CACHE = new Map<string, string>();
-const LOCAL_IMAGE_CACHE_CAP = 100;
-
-async function getCachedLocalImageUrl(baseDir: string, relPath: string, mimeType: string): Promise<string> {
-    const cacheKey = `${baseDir}\u0000${relPath}`;
-    const hit = LOCAL_IMAGE_CACHE.get(cacheKey);
-    if (hit !== undefined) {
-        // Move-to-end so this entry is now most-recently-used.
-        LOCAL_IMAGE_CACHE.delete(cacheKey);
-        LOCAL_IMAGE_CACHE.set(cacheKey, hit);
-        return hit;
-    }
-    // Read via the validated Rust command (containment + symlink-safe) instead of
-    // the broad plugin-fs readFile. Returns an ArrayBuffer (tauri::ipc::Response).
-    const buf = await invoke<ArrayBuffer>("read_image_file", { baseDir, relPath });
-    const blob = new Blob([buf], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    LOCAL_IMAGE_CACHE.set(cacheKey, url);
-    if (LOCAL_IMAGE_CACHE.size > LOCAL_IMAGE_CACHE_CAP) {
-        const oldestKey = LOCAL_IMAGE_CACHE.keys().next().value;
-        if (oldestKey !== undefined) {
-            const oldUrl = LOCAL_IMAGE_CACHE.get(oldestKey);
-            if (oldUrl) URL.revokeObjectURL(oldUrl);
-            LOCAL_IMAGE_CACHE.delete(oldestKey);
-        }
-    }
-    return url;
-}
+// Module-level shared cache for local image blobs, revalidated by mtime so an
+// image rewritten on disk shows its new version. See localImageCache. IMG-04.
+const getCachedLocalImageUrl = createLocalImageCache({
+    stat: (path) =>
+        invoke<{ modified: number }>("get_file_info", { path }).then(
+            (info) => info.modified,
+            () => null,
+        ),
+    // Read via the validated Rust command (containment + symlink-safe) instead
+    // of the broad plugin-fs readFile. Returns an ArrayBuffer
+    // (tauri::ipc::Response).
+    read: (baseDir, relPath) => invoke<ArrayBuffer>("read_image_file", { baseDir, relPath }),
+    createUrl: (blob) => URL.createObjectURL(blob),
+    revokeUrl: (url) => URL.revokeObjectURL(url),
+});
 
 /**
  * Reject paths that would escape the markdown file's directory or name an
@@ -422,9 +403,27 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
         return () => window.removeEventListener("paperling:remote-images-toggle", onToggle);
     }, []);
 
+    // Bumped on window focus so local images re-check their file, matching
+    // the document's own focus-time external-change check. IMG-04.
+    const [refreshTick, setRefreshTick] = useState(0);
     useEffect(() => {
-        setImageSrc("");
-        setError(false);
+        const onFocus = () => setRefreshTick((n) => n + 1);
+        window.addEventListener("focus", onFocus);
+        return () => window.removeEventListener("focus", onFocus);
+    }, []);
+
+    // Only a different image (or base folder) clears what is shown; a refresh
+    // keeps the current picture up until the re-checked one is ready, so a
+    // focus doesn't flash every image back to its loading skeleton.
+    const shownKeyRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        const shownKey = `${baseDir}\u0000${src}\u0000${blocked}`;
+        if (shownKeyRef.current !== shownKey) {
+            shownKeyRef.current = shownKey;
+            setImageSrc("");
+            setError(false);
+        }
         if (!src || blocked) return;
 
         // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
@@ -482,7 +481,7 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             // Don't revoke the URL — the cache owns it. Cache eviction handles
             // revocation when the entry is pushed out by LRU pressure.
         };
-    }, [src, baseDir, blocked]);
+    }, [src, baseDir, blocked, refreshTick]);
 
     // IMG-03 (#224): HTTPS is permitted by CSP, with a per-image opt-in when
     // automatic loading is off. Plain HTTP remains blocked in every build.
