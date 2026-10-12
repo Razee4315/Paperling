@@ -2,7 +2,7 @@
 
 > **For any AI coding agent (ZCode, Claude, Cursor, …) working on Paperling.**
 > Follow this fully. Don't ask the owner to repeat these rules — this file IS the instructions.
-> Generic copy of this workflow lives at `Desktop/AI-WORKFLOW.md` on the owner's machine; this is the Paperling instance. Last updated: 2026-09-22.
+> Generic copy of this workflow lives at `Desktop/AI-WORKFLOW.md` on the owner's machine; this is the Paperling instance. Last updated: 2026-10-12.
 
 ---
 
@@ -25,7 +25,7 @@ The deliverable is **done, verified, committed work** — not a plan, not snippe
 3. Look with an **expert eye**: find what a normal user would ignore but an expert never would. Benchmark against **Obsidian, Typora, VS Code, MarkText**. Cover UX, keyboard/shortcuts, a11y, performance on large docs, and missing table-stakes features.
 
 ### Phase 2 — Report (when asked)
-Write a full markdown report in the repo (see `WAKEUP_REPORT.md` for the established format):
+Write a full markdown report, but **not in the repo**: post it as a GitHub issue or in the PR description, or hand it over in chat. Use this format:
 - **TL;DR table first** — top issues ranked, with type and effort estimate.
 - Every finding: **severity (P0 data-loss/security → P3 polish) + exact `file:line` + code snippet + WHY it hurts the user + concrete fix**.
 - What's already good (so future work doesn't rework it — e.g. the sanitize pipeline, atomic saves, theme architecture).
@@ -38,12 +38,12 @@ Write a full markdown report in the repo (see `WAKEUP_REPORT.md` for the establi
 3. Every fix gets a **regression test** when testable (`vitest`, colocated `*.test.ts(x)`). The full suite must pass before every commit.
 4. **Verify twice**: in code (tsc + tests) AND live (run the app, click the actual flow, screenshot proof). If you fixed it but didn't watch it work, it's not done. Frontend-only verification happens in a browser at the vite dev port; mobile shell via `?mobile=1` + narrow viewport.
 5. **No Rust toolchain on the owner's machine.** If a fix needs new `src-tauri` commands, do NOT blind-land unverifiable Rust. Document it precisely in the report as deferred (with the exact commands to add and where), and let CI compile-verify in a follow-up.
-6. Update `TEST-CHECKLIST.md` / report as part of the work.
+6. Keep the PR description up to date with what was done, what was verified, and what was deferred.
 
 ### Phase 4 — Build & hand-off
 - **Never run production builds locally.** Push the branch and dispatch the **Test Build** workflow (`.github/workflows/test-build.yml`, `workflow_dispatch`) via the GitHub API. Artifacts only — no release, no version bump, no updater manifest.
 - Monitor the run until it completes; report the artifact link and expiry.
-- Deliver a **manual verification checklist** (`TEST-CHECKLIST.md`): checkbox-per-feature, ordered by what the owner will notice first, plain language.
+- Deliver a **manual verification checklist** in the PR description (or as a PR comment once it's merged): checkbox-per-feature, ordered by what the owner will notice first, plain language.
 
 ---
 
@@ -67,6 +67,7 @@ Write a full markdown report in the repo (see `WAKEUP_REPORT.md` for the establi
 6. **AskUserQuestion is a last resort** — only real scope changes the owner must decide.
 7. **Security is not optional**: keep the `rehypeRaw → rehypeSanitize` order and schema strict, validate file paths (`isUnsafeRelativePath`, `read_image_file` containment), never log/leak API keys (OS keychain via `persistence.ts`).
 8. **Line endings**: repo works cross-platform; don't "fix" CRLF warnings, and never commit formatting churn.
+9. **Keep the repo clean.** Audit reports, review notes, test checklists, plans and proof screenshots do not get committed: they go in PR descriptions, comments or issues. The repo holds the app, the docs site, packaging, CI, and the standing project docs (README, CHANGELOG, CONTRIBUTING, SECURITY, ROADMAP, AGENTS).
 
 ---
 
