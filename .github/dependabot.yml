@@ -28,6 +28,15 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: chore(deps)
+    # katex is pinned on purpose. rehype-katex renders with its own
+    # `katex ^0.16` dependency, while the app imports katex's CSS and the
+    # mhchem extension (which patches `../katex.mjs`, the top-level copy). A
+    # 0.17+ top-level katex splits them: formulas render with 0.16 against
+    # newer CSS, and \ce chemistry stops working. Lift this together with a
+    # rehype-katex release that accepts the newer line.
+    ignore:
+      - dependency-name: katex
+        versions: [">=0.17.0"]
     groups:
       frontend:
         patterns:
@@ -45,6 +54,12 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: chore(deps)
+    # `astro check` needs TypeScript's programmatic API, which the native
+    # TypeScript 7 compiler does not ship yet (#246 failed on exactly that).
+    # Lift once @astrojs/check supports 7.x.
+    ignore:
+      - dependency-name: typescript
+        versions: [">=7.0.0"]
     groups:
       docs:
         patterns:
