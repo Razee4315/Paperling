@@ -24,7 +24,7 @@
     "js-yaml": "^4.2.0",
     "tar": "^7.5.16",
     "undici": "^7.28.0",
-    "vite": "^7.3.2"
+    "vite": "^8.0.13"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",

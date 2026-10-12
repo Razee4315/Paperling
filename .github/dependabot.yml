@@ -54,6 +54,12 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: chore(deps)
+    # `astro check` needs TypeScript's programmatic API, which the native
+    # TypeScript 7 compiler does not ship yet (#246 failed on exactly that).
+    # Lift once @astrojs/check supports 7.x.
+    ignore:
+      - dependency-name: typescript
+        versions: [">=7.0.0"]
     groups:
       docs:
         patterns:
