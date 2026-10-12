@@ -11,6 +11,12 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 ## [Unreleased]
 
+- **Notes refresh on their own.** A note changed by another program (a terminal, a sync tool, an agent) updates within a couple of seconds while Paperling is on screen, not only when you click back into it (#263).
+- **Drag tabs on macOS** to reorder them; Move left / Move right are in the tab menu everywhere (#263).
+- **Images refresh** when the file changes on disk (#266), and **copying from Reader** no longer pastes icon names like "link" (#267).
+
+Thanks to @leewaichong for all three.
+
 ## [1.1.1] - 2026-10-09
 
 - **macOS: a real Mac window.** The red, yellow and green buttons are back, at the left of the title bar, and the green one (or `⌃⌘F`) takes Paperling into true fullscreen, with the menu bar and the Dock out of the way (#262).

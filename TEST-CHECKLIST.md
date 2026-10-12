@@ -1,3 +1,16 @@
+# Contributor PRs #263, #266, #267 + follow-ups — branch `claude/focused-rubin-g1dn2g`
+
+Checked live in the browser build: tab drag reorders (the tab follows the pointer, the others slide aside, a click still just selects) and copying from Reader leaves out icon text. The rest needs the Test Build, since it touches real files on disk.
+
+- [ ] Open a note, leave Paperling visible, and change the file from another program (or `echo "x" >> note.md`). Within about two seconds the note shows the change, without clicking into Paperling and without a toast (EXT-07).
+- [ ] Do the same while the note has unsaved edits: the "changed on disk" dialog appears once, and nothing is overwritten (EXT-01/02).
+- [ ] With autosave on, type steadily in a saved note for a minute. No "changed on disk" dialog or error toast ever appears from Paperling's own saves (EXT-08).
+- [ ] Open two notes, edit the background one's file from another program, then switch to it: it shows the new text (TABS-06).
+- [ ] macOS: drag a tab left and right; it lands where you drop it. Right-click a tab: Move left / Move right work (TABS-24).
+- [ ] Embed an image (`![](diagram.svg)`) several times, change the image file on disk, switch away and back: every copy shows the new picture (IMG-04/05).
+- [ ] In Reader, select a heading and a list below it, copy, and paste into Word or Outlook: no "link" after the heading, and the bullets and bold survive (COPY-01).
+- [ ] Formulas still render, including chemistry (`$\ce{H2O}$`), and the editor, search and Vim mode behave as before after the dependency updates.
+
 # macOS window — branch `fix/macos-native-window-2026-10-09`
 
 Issue #262. Built and run on a Mac (macOS 26.5, Apple silicon, debug build); the items marked **seen** were checked there in the running app, the rest need a person at a Mac because they are drawn by macOS itself or need a real pointer.
