@@ -1,7 +1,7 @@
 {
   "name": "paperling",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.1.0",
   "type": "module",
   "license": "Apache-2.0",
   "scripts": {
@@ -38,7 +38,7 @@
     "@tauri-apps/plugin-updater": "^2.13.1",
     "@turbodocx/html-to-docx": "^1.23.1",
     "buffer": "^6.0.3",
-    "katex": "0.19.0",
+    "katex": "0.16.45",
     "material-symbols": "^0.47.6",
     "mermaid": "^12.1.0",
     "react": "^19.3.0",
@@ -72,8 +72,8 @@
   },
   "overrides": {
     "@babel/core": "^7.29.6",
-    "@codemirror/state": "^6.7.4",
-    "@codemirror/view": "^6.43.7",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
     "dompurify": "^3.4.12",
     "picomatch": "^4.0.4",
     "postcss": "^8.5.18",
