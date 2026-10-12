@@ -1,3 +1,33 @@
+# ⬆️ Upstream upgrade to v1.1.1 (branch `chore/upstream-sync-1.1.1`)
+
+*The fork now tracks upstream as a real fork: a one-time graft gave it a common ancestor, so the 1.0.51 → 1.1.1 upgrade merges like any other branch and the Chinese UI is kept on top. 747 passing tests. Process + playbook: `UPSTREAM.md`.*
+
+## What came in from upstream (1.1.0 / 1.1.1)
+- [ ] **Edit in Reader:** double-click a sentence in Reader mode to fix it in place.
+- [ ] **Save button** in the title bar, and **autosave** on for fresh installs.
+- [ ] **Zoom:** `Ctrl +`, `Ctrl -`, `Ctrl 0`, and `Ctrl` + mouse wheel; also the quick gear menu's 缩放 row.
+- [ ] **Open a folder** (Files + Outline side by side), and the **Reopen last session on launch** option.
+- [ ] **Theme = System** follows Windows' light/dark setting (now the default swatch in both theme grids).
+- [ ] **Light remote images** and **Edit text in Reader** toggles exist under Settings → 编辑器 → 阅读.
+
+## The Chinese UI survived the merge (the fork's whole point)
+- [ ] Settings → **编辑器** shows the new groups **写作 / 保存与文件 / 阅读** with every new switch labelled in Chinese (隐藏 Markdown 标记, 启动时恢复上次会话, 在阅读模式中编辑文字, 加载远程图片, …).
+- [ ] Settings → **外观**: the theme grid has a **跟随系统** swatch first, then the translated theme names.
+- [ ] The **gear quick menu** is Chinese: 主题 / 字体 / 文字大小 / 缩放 / 全部设置, including the 此电脑上的字体… option.
+- [ ] The **title bar** is Chinese: 新建 / 打开 / 保存 (**所有更改已保存** when clean) / AI, and the tooltips carry the shortcuts.
+- [ ] Settings → **快捷键** and the **?** cheatsheet are still fully Chinese (now including 放大 / 缩小 / 重置缩放).
+- [ ] Switch 简体中文 ⇄ English live and back: nothing stays stuck in the old language.
+
+## Nothing else broke
+- [ ] `git merge upstream/main` reports **Already up to date** (the histories are joined).
+- [ ] `node node_modules/typescript/bin/tsc --noEmit` is clean and `node node_modules/vitest/vitest.mjs run` is green (747).
+- [ ] macOS-only items (the red/yellow/green window buttons, `⌃⌘F` fullscreen, the CHROME-05 inset) need a real Mac — tracked in the upstream section below.
+
+## Next upgrade
+- [ ] Read `UPSTREAM.md`, then run `bash scripts/upstream-sync.sh`; it fetches, branches and merges, and stops for you to resolve conflicts and run the tests.
+
+---
+
 # ✅ Shortcuts settings + the "?" cheatsheet speak Chinese (branch `fix/i18n-shortcuts-2026-09-29`)
 
 *The dictionary already had every `shortcuts.*` string — the hint, 全部恢复默认, every row name and group heading — but `ShortcutSettings.tsx` and `ShortcutCheatsheet.tsx` still hard-coded English, so those translations were dead and both screens stayed English while the rest of the app followed the language setting. Both now read the dictionary (same entries as each other, so a command can never be named two different things). 648 passing tests. Details: I18N-01.*
