@@ -35,6 +35,7 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
             setError(null);
             setBusy(null);
             abortRef.current?.abort();
+            abortRef.current = null;
         }
     }, [anchor]);
 
@@ -80,13 +81,15 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
         setError(null);
         setResult(null);
         try {
-            const out = await runAIAction(action, selectedText, config, ctrl.signal);
-            setResult(out);
+            const out = await runAIAction(action, selectedText, config, ctrl.signal, (delta) => {
+                if (!ctrl.signal.aborted) setResult((previous) => ((previous ?? "") + delta).slice(0, 200_000));
+            });
+            if (!ctrl.signal.aborted) setResult(out);
         } catch (e) {
             if ((e as Error).name === "AbortError") return;
             setError((e as Error).message);
         } finally {
-            setBusy(null);
+            if (abortRef.current === ctrl) { setBusy(null); abortRef.current = null; }
         }
     };
 
@@ -112,6 +115,7 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
                         onClick={() => run(a.id)}
                         disabled={busy !== null}
                         title={a.label}
+                        aria-label={a.label}
                         className={`flex items-center gap-1 px-2 py-1 text-xs rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 ${busy === a.id ? "bg-[var(--bg-hover)]" : ""}`}
                     >
                         <span className={`material-symbols-outlined text-[14px] ${busy === a.id ? "animate-spin" : ""}`}>
@@ -129,6 +133,7 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
                 </button>
             </div>
 
+            {busy && <button onClick={() => abortRef.current?.abort()} aria-label="Stop generating" className="px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">Stop generating</button>}
             {error && (
                 <div className="px-3 py-2 text-xs text-[var(--danger)] bg-[var(--danger)]/10">
                     {error}
@@ -143,12 +148,14 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
                     </div>
                     <div className="flex gap-1 mt-2 justify-end">
                         <button
+                            disabled={busy !== null}
                             onClick={() => onInsert(result)}
                             className="px-2 py-1 text-xs rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
                         >
                             Insert below
                         </button>
                         <button
+                            disabled={busy !== null}
                             onClick={() => onReplace(result)}
                             className="px-2 py-1 text-xs rounded-[var(--radius-sm)] bg-[var(--accent)] text-[var(--accent-text)] hover:opacity-90"
                         >

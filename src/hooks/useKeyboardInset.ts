@@ -37,6 +37,9 @@ export function useKeyboardInset(): void {
             // Consumers key off this class to yield space to the IME (e.g. the
             // mobile bottom nav hides while composing).
             root.classList.toggle("kb-open", keyboardOpen);
+            // IME-02: CodeMirror's whole contenteditable can span hundreds of
+            // lines; scrollIntoView on that element doesn't reveal its caret.
+            window.dispatchEvent(new Event("paperling:keyboard-resize"));
         };
 
         const revealFocusedField = () => {
@@ -47,6 +50,10 @@ export function useKeyboardInset(): void {
                 const active = document.activeElement;
                 if (!(active instanceof HTMLElement)) return;
                 if (!/(input|textarea)/i.test(active.tagName) && !active.isContentEditable) return;
+                if (active.closest(".cm-editor")) {
+                    window.dispatchEvent(new Event("paperling:keyboard-resize"));
+                    return;
+                }
                 active.scrollIntoView({ block: "nearest" });
                 // `scrollIntoView` walks every scrollable ancestor including
                 // the root; on an exactly-sized shell the surplus would scroll

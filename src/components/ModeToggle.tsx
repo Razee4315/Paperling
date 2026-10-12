@@ -9,19 +9,22 @@ interface ModeToggleProps {
     aiPanelOpen?: boolean;
     /** The panel's current width in px; it is user-resizable (#111). */
     aiPanelWidth?: number;
+    rightPanelWidth?: string;
 }
 
 const buttonBase =
     "btn-press flex items-center gap-2 px-3 py-2 rounded-full transition-all duration-200";
 
-export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400 }: ModeToggleProps) {
+export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400, rightPanelWidth }: ModeToggleProps) {
     const { t } = useI18n();
     return (
         <div
             className="fixed bottom-8 z-50"
-            style={{ right: aiPanelOpen ? `calc(min(${aiPanelWidth}px, 90vw) + 2rem)` : "2rem", transition: "right 0.15s ease" }}
+            style={{ right: rightPanelWidth ? `calc(${rightPanelWidth} + 2rem)` : aiPanelOpen ? `calc(min(${aiPanelWidth}px, 90vw) + 2rem)` : "2rem", transition: "right 0.15s ease" }}
             role="group"
             aria-label={t("modeToggle.group")}
+            // The welcome tour points here (TOUR-02).
+            data-tour="mode"
         >
             <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-full p-1.5 flex items-center shadow-2xl backdrop-blur-sm transition-colors animate-fade-in">
                 <button
@@ -30,7 +33,7 @@ export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400 }:
                     aria-pressed={mode === "preview"}
                     title={t("modeToggle.readerTitle")}
                     className={`${buttonBase} ${mode === "preview"
-                        ? "bg-[var(--accent)] text-[var(--accent-text)] shadow-md"
+                        ? "bg-[var(--bg-hover)] text-[var(--text-primary)] ring-1 ring-[var(--accent)]"
                         : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         }`}
                 >
@@ -44,7 +47,7 @@ export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400 }:
                     aria-pressed={mode === "split"}
                     title={t("modeToggle.splitTitle")}
                     className={`${buttonBase} ${mode === "split"
-                        ? "bg-[var(--accent)] text-[var(--accent-text)] shadow-md"
+                        ? "bg-[var(--bg-hover)] text-[var(--text-primary)] ring-1 ring-[var(--accent)]"
                         : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         }`}
                 >
@@ -58,7 +61,7 @@ export function ModeToggle({ mode, onSetMode, aiPanelOpen, aiPanelWidth = 400 }:
                     aria-pressed={mode === "code"}
                     title={t("modeToggle.codeTitle")}
                     className={`${buttonBase} ${mode === "code"
-                        ? "bg-[var(--accent)] text-[var(--accent-text)] shadow-md"
+                        ? "bg-[var(--bg-hover)] text-[var(--text-primary)] ring-1 ring-[var(--accent)]"
                         : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         }`}
                 >

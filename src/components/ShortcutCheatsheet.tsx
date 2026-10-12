@@ -65,6 +65,10 @@ const groups: ShortcutGroup[] = [
             { keys: formatShortcut("toggleSplit"), descKey: "shortcuts.item.toggleSplit" },
             { keys: formatShortcut("zenMode"), descKey: "shortcuts.desc.zenLong" },
             { keys: formatShortcut("fullscreen"), descKey: "shortcuts.desc.fullscreenLong" },
+            // Zoom landed upstream in 1.1.1; keep the labels in the dictionary
+            // so the cheatsheet and Settings → Shortcuts agree (I18N-01).
+            { keys: `${formatShortcut("zoomIn")} / ${formatShortcut("zoomOut")}`, descKey: "shortcuts.desc.zoomText" },
+            { keys: formatShortcut("zoomReset"), descKey: "shortcuts.item.zoomReset" },
             { keys: formatShortcut("toggleFileExplorer"), descKey: "shortcuts.desc.toggleExplorerLong" },
             { keys: formatShortcut("searchInFolder"), descKey: "shortcuts.desc.searchAcrossLong" },
             { keys: formatShortcut("toggleTOC"), descKey: "shortcuts.desc.toggleOutlineLong" },

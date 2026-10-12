@@ -108,7 +108,11 @@ const ACTIVITY_BODY = `\
           or WindowInsetsCompat.Type.displayCutout()
           or WindowInsetsCompat.Type.navigationBars()
       )
-      v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+      // IME-01 (#252): consuming these insets hides them from the WebView.
+      // Reserve the keyboard here too so its viewport actually shrinks; CSS
+      // measures zero overlay inset on this path and never subtracts twice.
+      val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+      v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
       WindowInsetsCompat.CONSUMED
     }
   }
@@ -171,7 +175,8 @@ const ACTIVITY_BODY = `\
     if (web == null) return false
     val url = web.url ?: return false
     if (url == "about:blank") return true
-    return url.startsWith("https://tauri.localhost") || url.startsWith("http://tauri.localhost")
+    val uri = Uri.parse(url)
+    return (uri.scheme == "https" || uri.scheme == "http") && uri.host == "tauri.localhost"
   }
 
   // ==== Web <-> native bridge ====
@@ -222,15 +227,26 @@ const ACTIVITY_BODY = `\
       fun openDocument() {
         // Origin re-check at entry: a page that navigated away after attach
         // must not be able to drive native actions.
-        if (!isAppOrigin(findWebView(window.decorView))) return
-        runOnUiThread { launchDocumentPicker() }
+        // SAF-01 (#253/#254): JavascriptInterface runs on a bridge thread.
+        // Reading WebView.url there throws before the action can run. Both
+        // hierarchy lookup and origin validation belong on the UI thread.
+        runOnUiThread {
+          if (isAppOrigin(findWebView(window.decorView))) {
+            try { launchDocumentPicker() } catch (e: Exception) {
+              reportPickerError(e.message ?: "Could not open the system file picker")
+            }
+          }
+        }
       }
 
       @android.webkit.JavascriptInterface
-      fun saveToDownloads(name: String, content: String, mime: String) {
-        // Runs on the JS bridge thread — do the IO here, report on the UI one.
-        if (!isAppOrigin(findWebView(window.decorView))) return
-        performSaveToDownloads(name, content, mime)
+      fun saveToDownloads(name: String, content: String, mime: String, requestId: String) {
+        runOnUiThread {
+          if (isAppOrigin(findWebView(window.decorView))) {
+            // Validate on UI, write off UI, deliver the result back on UI.
+            Thread { performSaveToDownloads(name, content, mime, requestId) }.start()
+          }
+        }
       }
     }, "PaperlingAndroid")
     // Only pages loaded after addJavascriptInterface see it. If the app page
@@ -282,13 +298,18 @@ const ACTIVITY_BODY = `\
     startActivityForResult(intent, requestOpenDocument)
   }
 
+  private fun reportPickerError(message: String) {
+    webviewEval("window.dispatchEvent(new CustomEvent('paperling:device-file-error', {detail: {message: " +
+      JSONObject.quote(message) + "}}))")
+  }
+
   // "Save to Downloads": write into the shared Downloads collection via
   // MediaStore (no storage permission needed for the app's own inserts on
   // API 29+), then mirror the bytes into the app cache so the note has a real
   // path the Rust file commands can read (reopen, recents, autosave).
   // mime carries the file's type so exported HTML (unlike notes) opens in a
   // browser; anything blank or odd falls back to text/markdown.
-  private fun performSaveToDownloads(rawName: String, content: String, rawMime: String) {
+  private fun performSaveToDownloads(rawName: String, content: String, rawMime: String, requestId: String) {
     try {
       if (android.os.Build.VERSION.SDK_INT < 29) throw IllegalStateException("Needs Android 10+")
       val safe = rawName.replace(Regex("[/\\\\\\\\:*?\\"<>|]"), "_")
@@ -304,17 +325,15 @@ const ACTIVITY_BODY = `\
         out.write(content.toByteArray(Charsets.UTF_8))
       } ?: throw IllegalStateException("Could not open the Downloads entry for writing")
       val actualName = queryDisplayName(uri) ?: safe
-      val dir = File(cacheDir, "open")
-      dir.mkdirs()
-      val cache = File(dir, actualName)
+      val cache = File(workingDirFor(uri), actualName)
       cache.writeText(content, Charsets.UTF_8)
       val js = "window.__paperlingOnSaveResult && window.__paperlingOnSaveResult(true, " +
-        JSONObject.quote(cache.absolutePath) + ", " + JSONObject.quote(actualName) + ")"
+        JSONObject.quote(cache.absolutePath) + ", " + JSONObject.quote(actualName) + ", " + JSONObject.quote(requestId) + ")"
       runOnUiThread { webviewEval(js) }
     } catch (e: Exception) {
       android.util.Log.e("Paperling", "Save to Downloads failed", e)
       val js = "window.__paperlingOnSaveResult && window.__paperlingOnSaveResult(false, " +
-        JSONObject.quote(e.message ?: "Save failed") + ", null)"
+        JSONObject.quote(e.message ?: "Save failed") + ", null, " + JSONObject.quote(requestId) + ")"
       runOnUiThread { webviewEval(js) }
     }
   }
@@ -330,12 +349,7 @@ const ACTIVITY_BODY = `\
     try {
       val name = queryDisplayName(uri) ?: "picked.md"
       val safe = name.replace(Regex("[/\\\\\\\\:*?\\"<>|]"), "_")
-      val dir = File(cacheDir, "open")
-      dir.mkdirs()
-      val outFile = File(dir, safe)
-      contentResolver.openInputStream(uri)?.use { input ->
-        outFile.outputStream().use { output -> input.copyTo(output) }
-      } ?: run {
+      val outFile = importToCache(uri, safe) ?: run {
         webviewEval("window.__paperlingPickDone && window.__paperlingPickDone(false)")
         return
       }
@@ -344,6 +358,7 @@ const ACTIVITY_BODY = `\
       webviewEval(js)
     } catch (e: Exception) {
       android.util.Log.e("Paperling", "Failed to import the picked file", e)
+      reportPickerError(e.message ?: "Could not read the selected file")
       webviewEval("window.__paperlingPickDone && window.__paperlingPickDone(false)")
     }
   }
@@ -369,12 +384,7 @@ const ACTIVITY_BODY = `\
     try {
       val name = queryDisplayName(uri) ?: "opened.md"
       val safe = name.replace(Regex("[/\\\\\\\\:*?\\"<>|]"), "_")
-      val dir = File(cacheDir, "open")
-      dir.mkdirs()
-      val outFile = File(dir, safe)
-      contentResolver.openInputStream(uri)?.use { input ->
-        outFile.outputStream().use { output -> input.copyTo(output) }
-      } ?: return
+      val outFile = importToCache(uri, safe) ?: return
       val payload = JSONObject()
       payload.put("path", outFile.absolutePath)
       payload.put("name", safe)
@@ -382,6 +392,38 @@ const ACTIVITY_BODY = `\
       deliverToWebview(outFile.absolutePath, safe)
     } catch (e: Exception) {
       android.util.Log.e("Paperling", "Failed to import the opened file", e)
+    }
+  }
+
+  // ANDR-01: every source document gets its own working directory,
+  // keyed by its URI. Before this, all imports lived in one flat folder named
+  // by display name, so opening folderA/report.md and then folderB/report.md
+  // overwrote the first note's working copy while its tab stayed open. The
+  // same source still maps to the same path, which the app relies on to
+  // dedupe the boot-time and live deliveries of one file.
+  private fun workingDirFor(uri: Uri): File {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+      .digest(uri.toString().toByteArray(Charsets.UTF_8))
+    val key = digest.take(8).joinToString("") { "%02x".format(it) }
+    val dir = File(File(cacheDir, "open"), key)
+    dir.mkdirs()
+    return dir
+  }
+
+  // Copies through a sibling temp file and renames it into place, so a read
+  // that fails halfway can never truncate a working copy a tab already uses.
+  // Returns null when the provider gives no stream.
+  private fun importToCache(uri: Uri, safe: String): File? {
+    val dir = workingDirFor(uri)
+    val outFile = File(dir, safe)
+    val tmp = File.createTempFile("import", ".part", dir)
+    try {
+      val input = contentResolver.openInputStream(uri) ?: return null
+      input.use { src -> tmp.outputStream().use { dst -> src.copyTo(dst) } }
+      if (!tmp.renameTo(outFile)) throw java.io.IOException("Could not store the imported file")
+      return outFile
+    } finally {
+      tmp.delete()
     }
   }
 

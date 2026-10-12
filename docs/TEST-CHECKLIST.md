@@ -13,6 +13,8 @@
 - [ ] Open the mobile menu, follow a link, and use Escape to close it.
 - [ ] Expand an FAQ answer and follow the download link to the official GitHub release.
 - [ ] Browse Features, Guide, Shortcuts, Privacy, Open source, and What's new from the footer.
+- [ ] Above the © line, every page's footer reads “More by Saqlain Razee” with All projects, Snipflag, Vuoom and Coldframe. Each link opens that project (not a 404), and none points back to Paperling.
+- [ ] Open `/Paperling/sitemap.xml`. Every entry has a `<lastmod>` date, and the dates differ where pages changed on different days: a footer or style change alone does not move them.
 - [ ] Follow an unknown URL. The custom 404 shows the crumpled mascot and offers a working route home.
 - [ ] Open Download (juggling mascot), Features (an icon on each card), and any feature page (its icon beside the heading).
 - [ ] Enable reduced motion in your device settings. Decorative movement and smooth scrolling should stop.
@@ -25,7 +27,7 @@
 - `bun run verify` in `docs/`: checks the production output, run in CI after building.
 - Root `tsc --noEmit` and full Vitest suite with `--maxWorkers=2`.
 
-The production verifier checks unique titles/descriptions, exact canonical and social URLs, one H1 per page, valid JSON-LD, internal pages/anchors, sitemap completeness, noindex 404, and the original Google verification file. Test Website uploads a 14-day artifact. Deploy docs to Pages repeats output verification before publishing.
+The production verifier checks unique titles/descriptions, exact canonical and social URLs, one H1 per page, valid JSON-LD, internal pages/anchors, sitemap completeness with a real `<lastmod>` per entry, the cross-project footer links, noindex 404, and the original Google verification file. Test Website uploads a 14-day artifact. Deploy docs to Pages repeats output verification before publishing.
 
 ## Scope
 

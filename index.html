@@ -41,9 +41,16 @@
             cyan: "#06b6d4",
           };
           var stored = localStorage.getItem("paperling-theme");
-          // Paper is the brand default for first runs; a saved choice always
-          // wins. (Must mirror ThemeContext's getInitialTheme.)
-          var theme = THEME_BG[stored] ? stored : "paper";
+          // A saved choice always wins. With none (or "system") the app follows
+          // the OS: Paper by day, Graphite by night. An existing profile that
+          // never picked a theme is about to be pinned to Paper by
+          // persistence.ts, so it must not flash dark first. (Must mirror
+          // ThemeContext's getInitialTheme. THEME-01.)
+          var existingUnpinned = stored === null && localStorage.length > 0 &&
+            localStorage.getItem("paperling:defaultsVersion") === null;
+          var dark = !existingUnpinned && window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var theme = THEME_BG[stored] ? stored : dark ? "graphite" : "paper";
           var el = document.documentElement;
           // Set data-theme so index.css variables resolve correctly the instant
           // the stylesheet loads, and set the color inline for the pre-CSS frame.

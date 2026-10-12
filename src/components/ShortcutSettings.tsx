@@ -33,6 +33,7 @@ const GROUPS: Array<{ titleKey: TKey; ids: BindingId[] }> = [
         titleKey: "shortcuts.group.viewNav",
         ids: [
             "palette", "gotoLine", "toggleMode", "toggleSplit", "zenMode", "fullscreen",
+            "zoomIn", "zoomOut", "zoomReset",
             "toggleFileExplorer", "toggleTOC", "searchInFolder", "settings",
         ],
     },

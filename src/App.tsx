@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, laz
 import { useI18n, useSystemLocaleSync } from "./i18n";
 import { saveTextFile } from "./utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
-import { save, ask } from "@tauri-apps/plugin-dialog";
+import { save, ask, open } from "@tauri-apps/plugin-dialog";
 import { listen, TauriEvent } from "@tauri-apps/api/event";
 
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -31,6 +31,8 @@ import { useScrollSync } from "./hooks/useScrollSync";
 import { useFileSession } from "./hooks/useFileSession";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { IS_MOBILE, isTauri } from "./utils/platform";
+import { isDocumentPath } from "./utils/documentPaths";
+import { getWorkspaceDirectory, setWorkspaceDirectory } from "./utils/persistence";
 import { isTextDirection, type TextDirection } from "./utils/textDirection";
 import { joinNotesPath } from "./utils/mobileFiles";
 import { openSystemFilePicker, saveToDownloads, DOWNLOADS_SENTINEL } from "./utils/nativePicker";
@@ -95,6 +97,8 @@ import {
   initAIKey,
   getSavedViewMode,
   getSpellCheck,
+  getLivePreview,
+  setLivePreview,
   getVimMode,
   setVimMode,
   getSplitRatio,
@@ -117,7 +121,8 @@ import {
   getTextDirection,
   setTextDirection,
 } from "./utils/persistence";
-import { getAutoSave } from "./utils/persistence";
+import { getAutoSave, getOpenInReader } from "./utils/persistence";
+import { formatZoom } from "./utils/zoom";
 import { clearBufferBackups } from "./utils/bufferBackup";
 import { findAnchorLine, splitWikilinkTarget } from "./utils/wikilinkAnchor";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
@@ -153,7 +158,7 @@ const AI_SHORTCUT = IS_MAC ? "⌘J" : "Alt+J";
 // Width of the left-side drawers (FileExplorer / TableOfContents); they are
 // `fixed left-0 w-72` (18rem = 288px), so the editor reserves this much
 // padding-left when one is open so content reflows beside it (not under it).
-const SIDEBAR_WIDTH = 288;
+const SIDEBAR_WIDTH = "var(--sidebar-width)";
 
 // Theme options for the command palette, in the same order as Settings.
 const THEME_CHOICES: { id: Theme; label: string }[] = [
@@ -171,7 +176,7 @@ function AppContent() {
   // re-resolves a "follow system" preference once the browser locale is readable.
   const { t } = useI18n();
   useSystemLocaleSync();
-  const { theme, setTheme, font, fontSize, customFont } = useTheme();
+  const { theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom, font, fontSize, customFont } = useTheme();
 
   // Publishes --keyboard-inset (the on-screen keyboard's height) and keeps
   // focused fields visible. Desktop-safe: without a visualViewport the hook
@@ -206,6 +211,7 @@ function AppContent() {
   zenModeRef.current = zenMode;
   const zenToggleRef = useRef<() => void>(() => {});
   const [spellCheckEnabled, setSpellCheckEnabled] = usePersistedState<boolean>(getSpellCheck, setSpellCheck);
+  const [livePreviewEnabled, setLivePreviewEnabled] = usePersistedState<boolean>(getLivePreview, setLivePreview);
   // Readable line length: centered ~800px preview column (Obsidian-style
   // default ON). RLL-01.
   const [readableLineLength, setReadableLineLengthState] = usePersistedState<boolean>(getReadableLineLength, setReadableLineLength);
@@ -237,10 +243,13 @@ function AppContent() {
   // Sidebar panel state
   const [showFileExplorer, setShowFileExplorer] = useState(false);
   const [showTOC, setShowTOC] = useState(false);
+  const [workspaceDirectory, setWorkspaceDirectoryLocal] = useState(getWorkspaceDirectory);
   const [showBacklinks, setShowBacklinks] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(false);
   // Live during a drag; the panel writes the settled value to storage itself.
   const [aiPanelWidth, setAiPanelWidth] = useState(getAIPanelWidth);
+  const rightPanelWidth = (showTOC || showBacklinks) ? SIDEBAR_WIDTH
+    : showAIPanel ? `min(${aiPanelWidth}px, max(160px, calc(100vw - ${showFileExplorer ? SIDEBAR_WIDTH : "0px"} - 240px)))` : "0px";
   // Proposed document from Agent mode, shown as an inline diff for accept/reject.
   const [proposedDoc, setProposedDoc] = useState<string | null>(null);
 
@@ -481,6 +490,12 @@ function AppContent() {
   }, [loadFile, closeAllPanels]);
 
   // Export HTML content ref - captures from visible preview
+  useEffect(() => {
+    const onDeviceError = (e: Event) => showToast((e as CustomEvent).detail?.message || "Could not open the selected file", "error");
+    window.addEventListener("paperling:device-file-error", onDeviceError);
+    return () => window.removeEventListener("paperling:device-file-error", onDeviceError);
+  }, [showToast]);
+
   const previewRef = useRef<HTMLDivElement>(null);
   // Reader-mode adapter for the shared FindBar. Stable identity (reads previewRef
   // at call time) so the bar's effects don't churn.
@@ -643,6 +658,7 @@ function AppContent() {
       ["paperling:toolbar-toggle", (e) => setToolbarVisible(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:wordwrap-toggle", (e) => setWordWrapEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:spellcheck-toggle", (e) => setSpellCheckEnabled(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:live-preview-toggle", (e) => setLivePreviewEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:vim-toggle", (e) => setVimModeEnabled(!!(e as CustomEvent).detail?.enabled)],
       // Settings → Editor toggle for Zen mode. Routed through the shared
       // toggle (a no-op when already in the desired state) so entering via
@@ -854,6 +870,27 @@ function AppContent() {
   }, [forceCloseWindow]);
 
   // Listen for Tauri drag-drop events
+  const openWorkspace = useCallback((directory: string) => {
+    setWorkspaceDirectoryLocal(directory);
+    setWorkspaceDirectory(directory);
+    setShowFileExplorer(true);
+    if (IS_MOBILE) { setShowTOC(false); setShowBacklinks(false); }
+  }, []);
+  const handleOpenFolder = useCallback(async () => {
+    try {
+      const directory = await open({ directory: true, multiple: false, title: "Open folder" });
+      if (typeof directory === "string") openWorkspace(directory);
+    } catch (error) { showToast(errMessage(error) || "Could not open folder", "error"); }
+  }, [openWorkspace, showToast]);
+  const handleDroppedPath = useCallback(async (path: string) => {
+    try {
+      const info = await invoke<{ is_dir: boolean }>("get_file_info", { path });
+      if (info.is_dir) openWorkspace(path);
+      else if (isDocumentPath(path)) await loadFile(path);
+      else showToast("Open a folder or a Markdown/text file", "info");
+    } catch (error) { showToast(errMessage(error) || "Could not open the dropped item", "error"); }
+  }, [loadFile, openWorkspace, showToast]);
+
   useEffect(() => {
     let mounted = true;
     let unlisten: (() => void) | undefined;
@@ -861,11 +898,9 @@ function AppContent() {
     listen<{ paths: string[] }>(TauriEvent.DRAG_DROP, async (event) => {
       // Open EVERY dropped markdown / text file in its own tab (the last one
       // wins focus), rather than only the first. TABS-11 / TXT-01.
-      const paths = (event.payload.paths ?? []).filter((p) =>
-        /\.(md|markdown|txt|text)$/i.test(p)
-      );
+      const paths = event.payload.paths ?? [];
       for (const p of paths) {
-        await loadFile(p);
+        await handleDroppedPath(p);
       }
     }).then((fn) => {
       if (mounted) {
@@ -879,7 +914,7 @@ function AppContent() {
       mounted = false;
       unlisten?.();
     };
-  }, [loadFile]);
+  }, [handleDroppedPath]);
 
   // Offer to create a note that a link points at but doesn't exist yet, then
   // open it. Used by both wikilinks and relative links. NAV-07.
@@ -1089,10 +1124,11 @@ function AppContent() {
 
   // Folder the cross-file search runs in: the open file's directory.
   const currentDirectory = useMemo(() => {
+    if (workspaceDirectory) return workspaceDirectory;
     if (!filePath) return null;
     const lastSep = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
     return lastSep > 0 ? filePath.slice(0, lastSep) : null;
-  }, [filePath]);
+  }, [filePath, workspaceDirectory]);
 
   const handleOpenTutorial = useCallback(() => openTutorial(tutorialMarkdown), [openTutorial]);
 
@@ -1136,6 +1172,34 @@ function AppContent() {
     };
   }, [loadFile]);
 
+  // MODE-02: with "Open files in reader" on, the view belongs to the note, not
+  // the window. The mode used to be one global value, so opening a new note
+  // (Code) and going back to the one being read left that one in Code too.
+  // Each tab remembers the view it was last in; switching to it restores that.
+  // With the setting off the mode stays global, as before, so people who work
+  // in Split everywhere are not bounced back to Reader on every tab switch.
+  // Layout effect: the restore lands before paint, so there is no flash of
+  // the wrong view.
+  const tabModesRef = useRef(new Map<string, ViewMode>());
+  const modeTabRef = useRef(activeTabId);
+  useLayoutEffect(() => {
+    const modes = tabModesRef.current;
+    if (modeTabRef.current !== activeTabId) {
+      modeTabRef.current = activeTabId;
+      const remembered = activeTabId ? modes.get(activeTabId) : undefined;
+      if (remembered && remembered !== mode && getOpenInReader()) {
+        setMode(remembered);
+        return;
+      }
+    }
+    if (activeTabId) modes.set(activeTabId, mode);
+    // Closed tabs drop out; ids are never reused.
+    if (modes.size > tabs.length) {
+      const open = new Set(tabs.map((tab) => tab.id));
+      for (const id of modes.keys()) if (!open.has(id)) modes.delete(id);
+    }
+  }, [activeTabId, mode, setMode, tabs]);
+
   // Toggle between preview and code (skips split — split has its own shortcut)
   const handleToggleMode = useCallback(() => {
     setMode((prev) => (prev === "code" ? "preview" : "code"));
@@ -1148,26 +1212,32 @@ function AppContent() {
   // Toggle file explorer (mutually exclusive with TOC)
   const handleToggleFileExplorer = useCallback(() => {
     setShowFileExplorer((prev) => !prev);
-    setShowTOC(false);
-    setShowBacklinks(false);
+    if (IS_MOBILE) { setShowTOC(false); setShowBacklinks(false); }
   }, []);
 
   // Toggle table of contents (mutually exclusive with file explorer)
   const handleToggleTOC = useCallback(() => {
     setShowTOC((prev) => !prev);
-    setShowFileExplorer(false);
+    if (IS_MOBILE) setShowFileExplorer(false);
     setShowBacklinks(false);
+    setShowAIPanel(false);
   }, []);
 
   // Toggle backlinks (mutually exclusive with the other left drawers)
   const handleToggleBacklinks = useCallback(() => {
     setShowBacklinks((prev) => !prev);
-    setShowFileExplorer(false);
+    if (IS_MOBILE) setShowFileExplorer(false);
     setShowTOC(false);
+    setShowAIPanel(false);
   }, []);
 
   // Toggle the right-side AI assistant panel.
-  const handleToggleAI = useCallback(() => setShowAIPanel((v) => !v), []);
+  const handleToggleAI = useCallback(() => {
+    setShowAIPanel((v) => !v);
+    setShowTOC(false);
+    setShowBacklinks(false);
+    if (IS_MOBILE) setShowFileExplorer(false);
+  }, []);
 
   // Agent proposed an edited document → show it as a diff to accept/reject.
   // Ensure the editor (where the diff renders) is visible.
@@ -1263,9 +1333,9 @@ function AppContent() {
   // Handle file drop
   const handleFileDrop = useCallback(
     (path: string) => {
-      loadFile(path);
+      void handleDroppedPath(path);
     },
-    [loadFile]
+    [handleDroppedPath]
   );
 
 // Handle content change
@@ -1333,6 +1403,7 @@ function AppContent() {
     handleOpenFile, handleSaveFile, handleSaveAs, handleNewFile,
     handleToggleMode, handleToggleSplit, handleToggleFileExplorer, handleToggleTOC,
     toggleFullscreen, toggleZen: handleToggleZen,
+    zoomBy, resetZoom,
     openCheatsheet: () => setShowCheatsheet(true),
     openPalette: () => { setPaletteSeed(undefined); setShowPalette(true); },
     openGotoLine: () => { setPaletteSeed(":"); setShowPalette(true); },
@@ -1446,7 +1517,21 @@ function AppContent() {
     }
   }, [customFont, fileName, font, fontSize, getExportHtml, showToast]);
 
-  // Open find / find-and-replace from the Edit menu and command palette. In
+  // ZOOM-01: say the level whenever it changes, since the shortcut and the
+  // wheel have no other visible readout. Skips the initial mount.
+  const shownZoomRef = useRef(zoom);
+  useEffect(() => {
+    if (shownZoomRef.current === zoom) return;
+    shownZoomRef.current = zoom;
+    showToast(`Zoom ${formatZoom(zoom)}`, "info");
+  }, [zoom, showToast]);
+
+  // Stable identities for the memoised TitleBar: inline arrows here made it
+  // re-render on every keystroke.
+  const handlePrintAction = useCallback(() => { void handlePrint(); }, [handlePrint]);
+  const handleShowSearch = useCallback(() => setShowSearch(true), []);
+
+  // Open find / find-and-replace from the Find menu and command palette. In
   // reader mode "find" uses the preview find bar; "replace" only applies to the
   // editor, so from reader mode we switch to code mode first. The editor listens
   // for these events (CodeEditor's paperling:open-find / paperling:open-replace).
@@ -1486,6 +1571,7 @@ function AppContent() {
       run: handleOpenFileAction,
     });
     // Save / Save As only make sense when a buffer is open
+    if (!IS_MOBILE) items.push({ id: "file.openFolder", label: "Open folder…", section: "File", icon: "folder_open", run: handleOpenFolder });
     if (hasFile) {
       items.push({
         id: "file.save",
@@ -1581,6 +1667,23 @@ function AppContent() {
         section: "View",
         icon: "code",
         run: () => setMode("code"),
+      });
+      items.push(
+        { id: "view.zoomIn", label: "Zoom in", hint: formatShortcut("zoomIn"), section: "View", icon: "zoom_in", keywords: "bigger larger text size", run: () => zoomBy(1) },
+        { id: "view.zoomOut", label: "Zoom out", hint: formatShortcut("zoomOut"), section: "View", icon: "zoom_out", keywords: "smaller text size", run: () => zoomBy(-1) },
+        { id: "view.zoomReset", label: "Reset zoom", hint: formatShortcut("zoomReset"), section: "View", icon: "search", keywords: "100% actual size text", run: resetZoom },
+      );
+      items.push({
+        id: "edit.reader",
+        label: "Edit in place (Reader)",
+        section: "View",
+        icon: "edit_note",
+        keywords: "wysiwyg rich text edit reader in place double click",
+        run: () => {
+          setMode("preview");
+          // The Reader has to be mounted and showing this note before a session can start.
+          window.setTimeout(() => window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")), 50);
+        },
       });
       items.push({
         id: "view.split",
@@ -1708,10 +1811,18 @@ function AppContent() {
     // === Theme === switch directly from the palette. The welcome tour tells
     // users themes live here, and it makes the four themes discoverable without
     // opening Settings. The active theme is marked and skipped as a no-op.
+    items.push({
+      id: "theme.system",
+      label: followSystem ? "Theme: follow system (current)" : "Theme: follow system light / dark",
+      section: "Theme",
+      icon: "brightness_auto",
+      keywords: "theme auto automatic system os dark light night",
+      run: () => setFollowSystem(true),
+    });
     for (const t of THEME_CHOICES) {
       items.push({
         id: `theme.${t.id}`,
-        label: theme === t.id ? `Theme: ${t.label} (current)` : `Change theme to ${t.label}`,
+        label: !followSystem && theme === t.id ? `Theme: ${t.label} (current)` : `Change theme to ${t.label}`,
         section: "Theme",
         icon: "palette",
         keywords: "theme color appearance dark light paper dracula graphite nord midnight",
@@ -1785,10 +1896,10 @@ function AppContent() {
     // letting `content` flow into this useMemo would rebuild every keystroke
     // (post-debounce) for no reason. Headings are computed below in a
     // separate hook that's gated on the palette actually being open.
-    handleNewFile, handleOpenFileAction, handleSaveFile, handleSaveAs, handleOpenTutorial,
+    handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
     loadFile, filePath, hasFile, showToast, closeTab, handlePrint,
-    typewriterModeEnabled, toolbarVisible, aiEnabled,
+    typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
 
@@ -1930,6 +2041,7 @@ function AppContent() {
             isDirty={isDirty}
             filePath={filePath ?? undefined}
             onOpenFile={handleOpenFile}
+            onOpenFolder={handleOpenFolder}
             onNewFile={handleNewFile}
             getExportHtml={getExportHtml}
             onExportSuccess={handleExportSuccess}
@@ -1940,7 +2052,10 @@ function AppContent() {
             onToggleFullscreen={toggleFullscreen}
             onFind={openFind}
             onReplace={openReplace}
-            onFindInFiles={() => setShowSearch(true)}
+            onFindInFiles={handleShowSearch}
+            onSave={handleSaveFile}
+            onSaveAs={handleSaveAs}
+            onPrint={handlePrintAction}
           />
         )
       )}
@@ -1997,8 +2112,8 @@ function AppContent() {
         <div
           className="shrink-0 bg-[var(--bg-titlebar)]"
           style={{
-            paddingLeft: !IS_MOBILE && (showFileExplorer || showTOC || showBacklinks) ? `${SIDEBAR_WIDTH}px` : 0,
-            paddingRight: !IS_MOBILE && showAIPanel && aiEnabled ? `min(${aiPanelWidth}px, 90vw)` : 0,
+            paddingLeft: !IS_MOBILE && showFileExplorer ? SIDEBAR_WIDTH : 0,
+            paddingRight: !IS_MOBILE ? rightPanelWidth : 0,
             transition: "padding 0.15s ease",
           }}
         >
@@ -2038,12 +2153,13 @@ function AppContent() {
           <div
             className="flex-1 min-h-0 flex flex-col"
             style={{
-              paddingLeft: !IS_MOBILE && showFileExplorer ? `${SIDEBAR_WIDTH}px` : 0,
+              paddingLeft: !IS_MOBILE && showFileExplorer ? SIDEBAR_WIDTH : 0,
               transition: "padding 0.15s ease",
             }}
           >
             <WelcomeScreen
               onOpenFile={handleOpenFileAction}
+              onOpenFolder={IS_MOBILE ? undefined : handleOpenFolder}
               onNewFile={handleNewFile}
               onOpenSettings={() => setShowSettings(true)}
               onFileDrop={handleFileDrop}
@@ -2086,8 +2202,8 @@ function AppContent() {
             // On mobile there is no reflow: the panels are full-screen sheets
             // (see index.css [data-panel]) and the content keeps the full width.
             style={{
-                paddingLeft: !IS_MOBILE && !zenActive && (showFileExplorer || showTOC || showBacklinks) ? `${SIDEBAR_WIDTH}px` : 0,
-                paddingRight: !IS_MOBILE && !zenActive && showAIPanel ? `min(${aiPanelWidth}px, 90vw)` : 0,
+                paddingLeft: !IS_MOBILE && !zenActive && showFileExplorer ? SIDEBAR_WIDTH : 0,
+                paddingRight: !IS_MOBILE && !zenActive ? rightPanelWidth : 0,
                 transition: "padding 0.15s ease",
             }}
           >
@@ -2122,6 +2238,7 @@ function AppContent() {
                 showToolbar={IS_MOBILE || toolbarVisible}
                 wordWrap={wordWrapEnabled}
                 spellCheck={spellCheckEnabled}
+                livePreview={livePreviewEnabled}
                 vimMode={vimModeEnabled}
                 readableLineLength={readableLineLength}
                 textDirection={textDirection}
@@ -2153,7 +2270,9 @@ function AppContent() {
                   preferable to a spinner that pre-empts the layout. */}
               <Suspense fallback={null}>
                 <MarkdownPreview
-                  content={deferredContent}
+                  content={mode === "preview" ? content : deferredContent}
+                  liveContent={mode === "preview" ? content : undefined}
+                  allowReaderEditing={mode === "preview"}
                   docKey={activeTabId}
                   fileName={fileName || ""}
                   fileSize={fileSize}
@@ -2189,7 +2308,7 @@ function AppContent() {
           {/* The floating mode pill is a desktop affordance; the phone's bottom
               nav carries the Read/Edit toggle. Zen hides it on both shells. */}
           {!IS_MOBILE && !zenActive && (
-            <ModeToggle mode={mode} onSetMode={setMode} aiPanelOpen={showAIPanel} aiPanelWidth={aiPanelWidth} />
+            <ModeToggle mode={mode} onSetMode={setMode} rightPanelWidth={rightPanelWidth} />
           )}
 
           {/* Sidebar Panels — only mount when actually open so they don't
@@ -2199,7 +2318,7 @@ function AppContent() {
               <TableOfContents
                 isOpen={showTOC}
                 content={deferredContent}
-                onClose={closeAllPanels}
+                onClose={() => setShowTOC(false)}
                 activeLine={mode === "preview" ? previewLine : cursorPosition.line}
               />
             </Suspense>
@@ -2211,7 +2330,7 @@ function AppContent() {
                 directory={currentDirectory}
                 currentFilePath={filePath}
                 onFileSelect={handleOpenSearchResult}
-                onClose={closeAllPanels}
+                onClose={() => setShowBacklinks(false)}
               />
             </Suspense>
           )}
@@ -2228,7 +2347,10 @@ function AppContent() {
                 selectionText={content.slice(selectionRange.start, selectionRange.end)}
                 aiConfig={aiConfig}
                 onProposeEdit={handleProposeEdit}
+                onDiscardEdit={clearReview}
+                docKey={activeTabId}
                 width={aiPanelWidth}
+                maxWidth={rightPanelWidth}
                 onWidthChange={setAiPanelWidth}
               />
             </Suspense>
@@ -2255,6 +2377,7 @@ function AppContent() {
             <StatusBar
               isSaved={!isDirty}
               savePulse={savePulse}
+              onSave={handleSaveFile}
               lineNumber={mode === "preview" ? previewLine : cursorPosition.line}
               columnNumber={cursorPosition.col}
               mode={mode}
@@ -2283,8 +2406,10 @@ function AppContent() {
             isOpen={showFileExplorer}
             currentFilePath={filePath}
             fallbackDirectory={notesDir}
+            rootDirectory={IS_MOBILE ? undefined : workspaceDirectory}
+            onOpenFolder={handleOpenFolder}
             onFileSelect={loadFile}
-            onClose={closeAllPanels}
+            onClose={() => setShowFileExplorer(false)}
             onPathChanged={(oldPath, newPath) => {
               const affected = retargetPaths(oldPath, newPath);
               if (newPath === null && affected > 0) {

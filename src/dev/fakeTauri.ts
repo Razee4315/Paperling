@@ -19,6 +19,9 @@
  *   __fakefs.reset()                 restore the seed disk
  */
 
+import { loadBufferBackups, saveBufferBackups } from "../utils/bufferBackup";
+import { setReopenSession, setSession } from "../utils/persistence";
+
 type Disk = Record<string, { content: string; modified: number }>;
 const KEY = "paperling.fakefs.v1";
 const ROOT = "C:\\Notes";
@@ -145,9 +148,60 @@ function searchIn(query: string, caseSensitive: boolean, wholeWord: boolean, dir
     return out;
 }
 
+let aiFixture = "prose";
+const aiRequests = new Map<number, AbortController>();
+const RESTORE_RACE_KEY = "paperling.fakefs.restore-race.v1";
+let heldRestorePath = localStorage.getItem(RESTORE_RACE_KEY);
+let releaseRestore: (() => void) | null = null;
+let restoreStatus: HTMLElement | null = null;
+
 async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
     switch (cmd) {
+        case "ai_cancel": aiRequests.get(a.id)?.abort(); return null;
+        case "ai_request": {
+            const fixture = aiFixture;
+            const ctrl = new AbortController();
+            aiRequests.set(a.id, ctrl);
+            const body = JSON.parse(a.body);
+            const request = body.messages.at(-1)?.content ?? "";
+            const original = request.match(/<document>\n([\s\S]*?)\n<\/document>/)?.[1];
+            const reply = fixture === "edit" && original
+                ? `<<<<<<< SEARCH\n${original}\n=======\n${original}\n\nImproved by the browser AI fixture.\n>>>>>>> REPLACE`
+                : "# Fixture reply\n\nA streamed response for the browser test.";
+            a.channel.onmessage({ type: "status", status: 200 });
+            try {
+                if (fixture === "error") throw "Fixture endpoint unavailable.";
+                if (fixture === "empty") { a.channel.onmessage({ type: "done" }); return null; }
+                let first = true;
+                for (const delta of reply.match(/.{1,12}/gs) ?? []) {
+                    if (ctrl.signal.aborted) throw "cancelled";
+                    a.channel.onmessage({ type: "chunk", data: `data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n` });
+                    // Mirror native task abortion even while no token arrives.
+                    await new Promise<void>((resolve, reject) => {
+                        const aborted = () => { clearTimeout(timer); ctrl.signal.removeEventListener("abort", aborted); reject("cancelled"); };
+                        const timer = setTimeout(() => { ctrl.signal.removeEventListener("abort", aborted); resolve(); }, fixture === "pause-65s" && first ? 65_000 : fixture === "slow" ? 800 : 30);
+                        ctrl.signal.addEventListener("abort", aborted, { once: true });
+                        if (ctrl.signal.aborted) aborted();
+                    });
+                    first = false;
+                    if (fixture === "partial-error") throw "Fixture connection failed after a token.";
+                }
+                if (ctrl.signal.aborted) throw "cancelled";
+                a.channel.onmessage({ type: "done" });
+                return null;
+            } finally { aiRequests.delete(a.id); }
+        }
+        // The mobile shell asks native storage for its notes root. Mirror it
+        // here so responsive verification uses the same seeded disk as desktop.
+        case "get_notes_dir": return { path: ROOT };
         case "read_file": {
+            if (heldRestorePath && norm(a.path).toLowerCase() === norm(heldRestorePath).toLowerCase()) {
+                heldRestorePath = null;
+                localStorage.removeItem(RESTORE_RACE_KEY);
+                if (restoreStatus) restoreStatus.textContent = "Background restore read is waiting.";
+                await new Promise<void>((resolve) => { releaseRestore = resolve; });
+                if (restoreStatus) restoreStatus.textContent = "Background restore read released.";
+            }
             const k = find(a.path) ?? err(`File not found: ${a.path}`);
             const f = disk[k];
             return { path: k, name: baseName(k), content: f.content, size: f.content.length, line_count: f.content.split("\n").length, modified: f.modified };
@@ -162,10 +216,10 @@ async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
         case "get_file_info": {
             const k = find(a.path);
             if (!k) {
-                if (dirs().has(norm(a.path))) return { path: norm(a.path), name: baseName(a.path), size: 0, modified: 0 };
+                if (dirs().has(norm(a.path))) return { path: norm(a.path), name: baseName(a.path), size: 0, modified: 0, is_dir: true };
                 err(`File not found: ${a.path}`);
             }
-            return { path: k, name: baseName(k), size: disk[k].content.length, modified: disk[k].modified };
+            return { path: k, name: baseName(k), size: disk[k].content.length, modified: disk[k].modified, is_dir: false };
         }
         case "list_directory_files": {
             const d = norm(a.directory);
@@ -204,6 +258,7 @@ async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
             return searchIn(`[[${stem}`, false, false, a.directory).filter((r) => norm(r.path) !== norm(a.targetFile));
         }
         case "get_cli_file":
+            return new URLSearchParams(location.search).get("cli");
         case "get_incoming_file":
             return null;
         case "get_ai_key":
@@ -299,6 +354,58 @@ export function installFakeTauri(): void {
         window.cancelAnimationFrame = (id: number) => window.clearTimeout(id);
     }
     w.__fakefs = hooks;
+    // Optional visible fixture controls avoid prompt() (unsupported in the
+    // in-app browser). They only affect this virtual disk, never native files.
+    if (new URLSearchParams(location.search).get("fixtures") === "1") {
+        const panel = document.createElement("details");
+        panel.style.cssText = "position:fixed;bottom:35px;left:8px;z-index:150;background:#222;color:white;padding:8px;font:12px sans-serif;max-width:320px";
+        panel.innerHTML = '<summary>Browser test fixtures</summary><label>Next dialog path <input aria-label="Fixture dialog path"></label><button>Use path</button><button>Drop folder</button>';
+        const input = panel.querySelector("input")!;
+        input.value = `${ROOT}\\Welcome.md`;
+        const [use, drop] = panel.querySelectorAll("button");
+        use.onclick = () => { hooks.nextOpen = input.value; hooks.nextSave = input.value; };
+        drop.onclick = () => hooks.emit("tauri://drag-drop", { paths: [input.value] });
+        const label = document.createElement("label");
+        label.textContent = "AI fixture ";
+        const select = document.createElement("select");
+        select.setAttribute("aria-label", "AI fixture response");
+        for (const value of ["prose", "edit", "slow", "partial-error", "error", "empty", "pause-65s"]) {
+            const option = document.createElement("option");
+            option.value = value; option.textContent = value; select.append(option);
+        }
+        select.onchange = () => { aiFixture = select.value; };
+        label.append(select); panel.append(label);
+        // Visible, deterministic controls exercise launch races without letting
+        // browser automation mutate hidden state. Existing dirty notes survive.
+        const prepare = document.createElement("button");
+        prepare.textContent = "Prepare restore race and reload";
+        prepare.onclick = () => {
+            const activePath = `${ROOT}\\Recovery-active.md`, backgroundPath = `${ROOT}\\Recovery-background.md`;
+            const original = "# Disk background\n\nOriginal saved text.\n";
+            hooks.write(activePath, "# Recovery active\n\nSafe first note.\n");
+            hooks.write(backgroundPath, original);
+            saveBufferBackups([...loadBufferBackups().filter((b) => b.filePath !== backgroundPath), {
+                filePath: backgroundPath, fileName: "Recovery-background.md", originalContent: original,
+                content: "# Recovered background\n\nDraft before crash.\n",
+            }]);
+            setReopenSession(true);
+            setSession({ tabs: [{ path: activePath }, { path: backgroundPath }], activeIndex: 0 });
+            localStorage.setItem(RESTORE_RACE_KEY, backgroundPath);
+            location.reload();
+        };
+        const release = document.createElement("button");
+        release.textContent = "Release background restore";
+        release.onclick = () => { releaseRestore?.(); releaseRestore = null; };
+        const inspect = document.createElement("button");
+        inspect.textContent = "Inspect recovery backups";
+        const backups = document.createElement("textarea");
+        backups.setAttribute("aria-label", "Fixture recovery backups"); backups.readOnly = true;
+        inspect.onclick = () => { backups.value = JSON.stringify(loadBufferBackups(), null, 2); };
+        restoreStatus = document.createElement("span");
+        restoreStatus.setAttribute("role", "status");
+        panel.append(prepare, release, inspect, restoreStatus, backups);
+        document.body.append(panel);
+    }
     w.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
         unregisterListener(event: string, id: number) { listeners.get(event)?.delete(id); },
     };
@@ -312,7 +419,7 @@ export function installFakeTauri(): void {
         unregisterCallback(id: number) { callbacks.delete(id); },
         convertFileSrc(p: string) { return p; },
         async invoke(cmd: string, args: Record<string, unknown> = {}) {
-            hooks.log.push({ cmd, args });
+            hooks.log.push({ cmd, args: cmd === "ai_request" ? { ...args, apiKey: "[redacted]" } : args });
             if (hooks.log.length > 200) hooks.log.shift();
             await new Promise((r) => setTimeout(r, hooks.latencyMs));
             return handle(cmd, args as Record<string, any>);

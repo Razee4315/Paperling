@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { Children, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { useTheme, ACCENT_CHOICES, type Theme, type FontFamily, type FontSize } from "../context/ThemeContext";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { getInstalledFontFamilies } from "../utils/fontDiscovery";
@@ -12,9 +12,13 @@ import {
     getAIEnabled, setAIEnabled,
     getWordWrap, setWordWrap,
     getSpellCheck, setSpellCheck,
+    getLivePreview, setLivePreview,
     getVimMode, setVimMode,
     getAutoSave, setAutoSave,
     getOpenInReader, setOpenInReader,
+    getReopenSession, setReopenSession,
+    getRemoteImages, setRemoteImages,
+    getReaderEditing, setReaderEditing,
     getReadableLineLength, setReadableLineLength,
     getTextDirection, setTextDirection,
     getZenMode, setZenMode,
@@ -62,7 +66,9 @@ const sections: Array<{ id: Section; labelKey: TKey; icon: string }> = [
 // Settings-search synonyms live in the dictionary (SET-05): they have to be
 // searchable in the language being read, so "主题" finds the theme row exactly
 // like "theme" does. Translated keywords are appended to the English ones, so
-// either language keeps working from either UI language.
+// either language keeps working from either UI language, and the search still
+// jumps to the first matching section ("vim" from Appearance finds the Editor
+// rows). Kept dictionary-driven across the upstream 1.1.1 merge.
 const sectionKeywords = (id: Section): string => t(`settings.keywords.${id}` as TKey);
 
 // Theme names are translated; the ones that are proper nouns (Nord, Dracula)
@@ -101,6 +107,21 @@ interface ToggleRowProps {
     description: string;
     checked: boolean;
     onChange: (v: boolean) => void;
+}
+
+/** A titled card of setting rows. Renders nothing when the search filter has
+ *  hidden every row inside it. SET-06. */
+function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+    const rows = Children.toArray(children);
+    if (rows.length === 0) return null;
+    return (
+        <section>
+            <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">{title}</h3>
+            <div className="rounded-[var(--radius-lg)] border border-[var(--border)] divide-y divide-[var(--border-subtle)] overflow-hidden">
+                {rows}
+            </div>
+        </section>
+    );
 }
 
 function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
@@ -222,15 +243,19 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const { t, preference } = useI18n();
     const [section, setSection] = useState<Section>("appearance");
     const [filter, setFilter] = useState("");
-    const { theme, setTheme, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
+    const { theme, setTheme, followSystem, setFollowSystem, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
 
     const [typewriter, setTypewriterLocal] = useState(getTypewriterMode);
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
     const [wordWrap, setWordWrapLocal] = useState(getWordWrap);
     const [spellCheck, setSpellCheckLocal] = useState(getSpellCheck);
+    const [livePreview, setLivePreviewLocal] = useState(getLivePreview);
     const [vimMode, setVimModeLocal] = useState(getVimMode);
     const [autoSave, setAutoSaveLocal] = useState(getAutoSave);
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
+    const [reopenSession, setReopenSessionLocal] = useState(getReopenSession);
+    const [remoteImages, setRemoteImagesLocal] = useState(getRemoteImages);
+    const [readerEditing, setReaderEditingLocal] = useState(getReaderEditing);
     const [readableLength, setReadableLengthLocal] = useState(getReadableLineLength);
     const [textDirection, setTextDirectionLocal] = useState(getTextDirection);
     // Installed-font suggestions for the custom-font input. Computed lazily on
@@ -464,12 +489,28 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     <section>
                                         <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">{t("settings.theme")}</h3>
                                         <div className="grid grid-cols-4 gap-2">
+                                            {/* THEME-01: follows the OS light/dark setting. */}
+                                            <button
+                                                onClick={() => setFollowSystem(true)}
+                                                aria-pressed={followSystem}
+                                                className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${followSystem
+                                                    ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
+                                                    : "hover:bg-[var(--bg-hover)]"
+                                                    }`}
+                                                title={t("settings.themeSystemHint")}
+                                            >
+                                                <div className="w-12 h-12 rounded-[var(--radius-md)] overflow-hidden border border-[var(--border)] flex">
+                                                    <div className="w-1/2 h-full" style={{ backgroundColor: "#f5f0e6" }}></div>
+                                                    <div className="w-1/2 h-full" style={{ backgroundColor: "#1c1917" }}></div>
+                                                </div>
+                                                <span className="text-[11px] text-[var(--text-primary)]">{t("settings.themeSystem")}</span>
+                                            </button>
                                             {themes.map((t2) => (
                                                 <button
                                                     key={t2.id}
                                                     onClick={() => setTheme(t2.id)}
-                                                    aria-pressed={theme === t2.id}
-                                                    className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${theme === t2.id
+                                                    aria-pressed={!followSystem && theme === t2.id}
+                                                    className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${!followSystem && theme === t2.id
                                                         ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
                                                         : "hover:bg-[var(--bg-hover)]"
                                                         }`}
@@ -594,58 +635,83 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         )}
 
                         {section === "editor" && (
-                            <div className="rounded-[var(--radius-lg)] border border-[var(--border)] divide-y divide-[var(--border-subtle)] overflow-hidden">
-                                {/* Typewriter scrolling orbits a physical
-                                    keyboard's caret line; on touch it's a
-                                    solution without a problem. */}
-                                {matches("typewriter", t("settings.typewriter")) && !IS_MOBILE && (
-                                    <ToggleRow label={t("settings.typewriter")} description={t("settings.typewriterHint")} checked={typewriter}
-                                        onChange={(v) => { setTypewriterLocal(v); setTypewriterMode(v); fire("paperling:typewriter-toggle", v); }} />
-                                )}
-                                {/* Not offered on mobile: the toolbar is the
-                                    phone's only formatting surface, always on. */}
-                                {matches("toolbar", t("settings.toolbar")) && !IS_MOBILE && (
-                                    <ToggleRow label={t("settings.toolbar")} description={t("settings.toolbarHint")} checked={toolbar}
-                                        onChange={(v) => { setToolbarLocal(v); setToolbarEnabled(v); fire("paperling:toolbar-toggle", v); }} />
-                                )}
-                                {matches("word wrap", t("settings.wordWrap")) && (
-                                    <ToggleRow label={t("settings.wordWrap")} description={t("settings.wordWrapHint")} checked={wordWrap}
-                                        onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
-                                )}
-                                {matches("spell check", t("settings.spellCheck")) && (
-                                    <ToggleRow label={t("settings.spellCheck")} description={t("settings.spellCheckHint")} checked={spellCheck}
-                                        onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
-                                )}
-                                {matches("vim", t("settings.vim")) && (
-                                    <ToggleRow label={t("settings.vim")} description={t("settings.vimHint")} checked={vimMode}
-                                        onChange={(v) => { setVimModeLocal(v); setVimMode(v); fire("paperling:vim-toggle", v); }} />
-                                )}
-                                {matches("autosave", t("settings.autosave")) && (
-                                    <ToggleRow label={t("settings.autosave")} description={t("settings.autosaveHint")} checked={autoSave}
-                                        onChange={(v) => { setAutoSaveLocal(v); setAutoSave(v); fire("paperling:autosave-toggle", v); }} />
-                                )}
-                                {matches("open files in reader mode", t("settings.openInReader")) && (
-                                    // No window event: App reads the flag live at each
-                                    // file open (same pattern as toggle-ai-panel).
-                                    <ToggleRow label={t("settings.openInReader")} description={t("settings.openInReaderHint")} checked={openInReader}
-                                        onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
-                                )}
-                                {matches("readable line length preview width column", t("settings.readableLength")) && (
-                                    <ToggleRow label={t("settings.readableLength")} description={t("settings.readableLengthHint")} checked={readableLength}
-                                        onChange={(v) => { setReadableLengthLocal(v); setReadableLineLength(v); fire("paperling:readable-toggle", v); }} />
-                                )}
-                                {matches("text direction right to left rtl ltr arabic hebrew persian urdu", t("settings.textDirection")) && (
-                                    <DirectionRow value={textDirection}
-                                        onChange={(v) => {
-                                            setTextDirectionLocal(v);
-                                            setTextDirection(v);
-                                            window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: v } }));
-                                        }} />
-                                )}
-                                {matches("zen mode", t("settings.zenMode")) && (
-                                    <ToggleRow label={t("settings.zenMode")} description={t("settings.zenModeHint")} checked={zenMode}
-                                        onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
-                                )}
+                            // SET-06: fourteen switches in one undivided list were hard
+                            // to scan. Grouped by what they affect; a group whose rows
+                            // are all filtered out by the search disappears with them.
+                            <div className="space-y-6">
+                                <SettingsGroup title={t("settings.groupWriting")}>
+                                    {/* Not offered on mobile: the toolbar is the
+                                        phone's only formatting surface, always on. */}
+                                    {matches("toolbar", t("settings.toolbar")) && !IS_MOBILE && (
+                                        <ToggleRow label={t("settings.toolbar")} description={t("settings.toolbarHint")} checked={toolbar}
+                                            onChange={(v) => { setToolbarLocal(v); setToolbarEnabled(v); fire("paperling:toolbar-toggle", v); }} />
+                                    )}
+                                    {matches("live preview hide markdown symbols syntax wysiwyg", t("settings.livePreview")) && (
+                                        <ToggleRow label={t("settings.livePreview")} description={t("settings.livePreviewHint")} checked={livePreview}
+                                            onChange={(v) => { setLivePreviewLocal(v); setLivePreview(v); fire("paperling:live-preview-toggle", v); }} />
+                                    )}
+                                    {matches("spell check", t("settings.spellCheck")) && (
+                                        <ToggleRow label={t("settings.spellCheck")} description={t("settings.spellCheckHint")} checked={spellCheck}
+                                            onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
+                                    )}
+                                    {matches("word wrap", t("settings.wordWrap")) && (
+                                        <ToggleRow label={t("settings.wordWrap")} description={t("settings.wordWrapHint")} checked={wordWrap}
+                                            onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
+                                    )}
+                                    {/* Typewriter scrolling orbits a physical
+                                        keyboard's caret line; on touch it's a
+                                        solution without a problem. */}
+                                    {matches("typewriter", t("settings.typewriter")) && !IS_MOBILE && (
+                                        <ToggleRow label={t("settings.typewriter")} description={t("settings.typewriterHint")} checked={typewriter}
+                                            onChange={(v) => { setTypewriterLocal(v); setTypewriterMode(v); fire("paperling:typewriter-toggle", v); }} />
+                                    )}
+                                    {matches("vim", t("settings.vim")) && (
+                                        <ToggleRow label={t("settings.vim")} description={t("settings.vimHint")} checked={vimMode}
+                                            onChange={(v) => { setVimModeLocal(v); setVimMode(v); fire("paperling:vim-toggle", v); }} />
+                                    )}
+                                </SettingsGroup>
+                                <SettingsGroup title={t("settings.groupSaving")}>
+                                    {matches("autosave", t("settings.autosave")) && (
+                                        <ToggleRow label={t("settings.autosave")} description={t("settings.autosaveHint")} checked={autoSave}
+                                            onChange={(v) => { setAutoSaveLocal(v); setAutoSave(v); fire("paperling:autosave-toggle", v); }} />
+                                    )}
+                                    {matches("open files in reader mode", t("settings.openInReader")) && (
+                                        // No window event: App reads the flag live at each
+                                        // file open (same pattern as toggle-ai-panel).
+                                        <ToggleRow label={t("settings.openInReader")} description={t("settings.openInReaderHint")} checked={openInReader}
+                                            onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
+                                    )}
+                                    {matches("reopen last session launch startup recovery", t("settings.reopenSession")) && (
+                                        <ToggleRow label={t("settings.reopenSession")} description={t("settings.reopenSessionHint")} checked={reopenSession}
+                                            onChange={(v) => { setReopenSessionLocal(v); setReopenSession(v); fire("paperling:reopen-session-toggle", v); }} />
+                                    )}
+                                </SettingsGroup>
+                                <SettingsGroup title={t("settings.groupReading")}>
+                                    {matches("readable line length preview width column", t("settings.readableLength")) && (
+                                        <ToggleRow label={t("settings.readableLength")} description={t("settings.readableLengthHint")} checked={readableLength}
+                                            onChange={(v) => { setReadableLengthLocal(v); setReadableLineLength(v); fire("paperling:readable-toggle", v); }} />
+                                    )}
+                                    {matches("edit reader wysiwyg rich text", t("settings.readerEditing")) && (
+                                        <ToggleRow label={t("settings.readerEditing")} description={t("settings.readerEditingHint")} checked={readerEditing}
+                                            onChange={(v) => { setReaderEditingLocal(v); setReaderEditing(v); fire("paperling:reader-editing-toggle", v); }} />
+                                    )}
+                                    {matches("load remote images privacy badges", t("settings.remoteImages")) && (
+                                        <ToggleRow label={t("settings.remoteImages")} description={t("settings.remoteImagesHint")} checked={remoteImages}
+                                            onChange={(v) => { setRemoteImagesLocal(v); setRemoteImages(v); fire("paperling:remote-images-toggle", v); }} />
+                                    )}
+                                    {matches("text direction right to left rtl ltr arabic hebrew persian urdu", t("settings.textDirection")) && (
+                                        <DirectionRow value={textDirection}
+                                            onChange={(v) => {
+                                                setTextDirectionLocal(v);
+                                                setTextDirection(v);
+                                                window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: v } }));
+                                            }} />
+                                    )}
+                                    {matches("zen mode", t("settings.zenMode")) && (
+                                        <ToggleRow label={t("settings.zenMode")} description={t("settings.zenModeHint")} checked={zenMode}
+                                            onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
+                                    )}
+                                </SettingsGroup>
                             </div>
                         )}
 

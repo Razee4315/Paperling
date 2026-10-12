@@ -22,6 +22,8 @@ interface StatusBarProps {
     selectionWordCount?: number;
     /** Bumped on each manual Ctrl+S; replays the "Saved" pulse. SAVE-07. */
     savePulse?: number;
+    /** Makes the "Unsaved" indicator a button that saves. CHROME-02. */
+    onSave?: () => void;
 }
 
 // The wording (and the inflections) live in the dictionary: Chinese does not
@@ -46,6 +48,7 @@ function StatusBarImpl({
     selectionLength = 0,
     selectionWordCount = 0,
     savePulse = 0,
+    onSave,
 }: StatusBarProps) {
     const { t } = useI18n();
     const hasSelection = selectionLength > 0;
@@ -60,7 +63,6 @@ function StatusBarImpl({
             <div className="flex items-center gap-1">
                 {/* File Explorer Toggle */}
                 <button
-                    data-tour="file-explorer"
                     onClick={onToggleFileExplorer}
                     title={t("statusBar.filesTitle")}
                     aria-label={showFileExplorer ? t("statusBar.closeExplorer") : t("statusBar.openExplorer")}
@@ -77,7 +79,6 @@ function StatusBarImpl({
 
                 {/* TOC Toggle */}
                 <button
-                    data-tour="toc"
                     onClick={onToggleTOC}
                     title={t("statusBar.tocTitle")}
                     aria-label={showTOC ? t("statusBar.closeToc") : t("statusBar.openToc")}
@@ -107,11 +108,18 @@ function StatusBarImpl({
                 </button>
             </div>
             <div className="flex items-center gap-4">
-                <div
+                <button
+                    type="button"
+                    data-tour="save"
                     // key: a new pulse remounts the element so the animation replays.
                     key={savePulse}
-                    className={`flex items-center gap-1.5 ${savePulse > 0 ? "save-pulse" : ""}`}
-                    aria-label={isSaved ? t("statusBar.fileSaved") : t("statusBar.fileUnsaved")}
+                    // "Unsaved" was a label with nothing to click; it is now the
+                    // most direct way to save for someone who doesn't use Ctrl+S.
+                    onClick={isSaved ? undefined : onSave}
+                    disabled={isSaved || !onSave}
+                    title={isSaved ? undefined : t("statusBar.clickToSave")}
+                    className={`flex items-center gap-1.5 rounded px-1 -mx-1 ${savePulse > 0 ? "save-pulse" : ""} ${isSaved || !onSave ? "cursor-default" : "hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"}`}
+                    aria-label={isSaved ? t("statusBar.fileSaved") : t("statusBar.fileUnsavedSaveNow")}
                 >
                     <span
                         className={`w-2 h-2 rounded-full transition-all ${isSaved
@@ -120,7 +128,7 @@ function StatusBarImpl({
                             }`}
                     ></span>
                     <span className="transition-colors" role="status" aria-live="polite">{isSaved ? t("statusBar.saved") : t("statusBar.unsaved")}</span>
-                </div>
+                </button>
                 {(mode === "code" || mode === "split") && (
                     // Tabular digits (footer) plus a minimum width: Ln/Col and
                     // the counts no longer nudge their neighbours sideways as

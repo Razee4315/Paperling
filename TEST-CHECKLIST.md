@@ -70,6 +70,122 @@
 - [ ] Files that were fine before are still fine: an English-path image, a `https://…` image, and an image pasted from the clipboard still render.
 - [ ] `data/chem_doc/第04章_非金属及其化合物_融合版.md` still shows 3 error boxes ("…image-2026060821…png"). That is expected — those 3 files are genuinely absent from the folder (they point at a `…第1节_氯及其化合物.assets/` folder that isn't there).
 - [ ] Sanity: a note containing `![x](../../../etc/passwd)` still refuses to load it.
+# macOS window — branch `fix/macos-native-window-2026-10-09`
+
+Issue #262. Built and run on a Mac (macOS 26.5, Apple silicon, debug build); the items marked **seen** were checked there in the running app, the rest need a person at a Mac because they are drawn by macOS itself or need a real pointer.
+
+- [x] **seen** The title bar has no minimize / maximize / close buttons of its own at the right, and its content starts 86px in, clear of the system's buttons (CHROME-05).
+- [x] **seen** `⌃⌘F` enters fullscreen: the window takes the whole display (1512 × 949 on a 1512 × 982 screen with a notch) and the title bar's left inset closes up. `⌃⌘F` again leaves it. Find does not open (FULLSCREEN-02).
+- [x] **seen** Leaving fullscreen without the app (what the green button and View → Exit Full Screen do) puts the inset back, and the next `⌃⌘F` enters fullscreen again instead of doing nothing.
+- [x] **seen** Zen mode (`F9`): the reveal bar has no window buttons and starts clear of the system's.
+- [x] **seen** A file opened the Finder way (`open -a Paperling note.md`, name with a space) still opens.
+- [ ] The red, yellow and green buttons sit at the top left, centred on the title bar, and work: close asks about unsaved changes, yellow minimizes, green goes fullscreen.
+- [ ] In fullscreen the menu bar and the Dock are hidden; moving the pointer to the top edge shows the menu bar and the three buttons.
+- [ ] Dragging the title bar moves the window; double-clicking it zooms the window.
+- [ ] Settings → Shortcuts and the `?` cheatsheet show `⌃⌘F` for fullscreen; rebinding it works, including to another `⌃⌘` combination (SHC-11).
+- [ ] Quit in fullscreen and reopen: the window comes back as a large normal window, not fullscreen (known, see the pull request).
+- [ ] Windows and Linux are unchanged: the three buttons are still at the right, `F11` still toggles fullscreen.
+
+# Core flow — branch `feat/core-flow-2026-10-02`
+
+From `CORE-FLOW-AUDIT.md`. Checked live in the browser build; the native items (installer, file association, real window) need the Test Build.
+
+## A fresh install (delete the app's data first, or use a new Windows user)
+
+- [ ] On a dark-mode desktop the first window is dark (Graphite); on a light one it is Paper. Flip the OS setting with the app open: it follows (THEME-01).
+- [ ] The tour's steps are: Read or edit, Saved for you, Make it yours, Everything else, Done. Each card points at the right control (TOUR-02).
+- [ ] Open a `.md`: it opens in Reader with no toolbar strip. The title bar shows New, Open, Save, Find, Export and an **Edit** button (CHROME-01).
+- [ ] Press **Edit**: the editor opens with the formatting toolbar, misspelled words are underlined, and the button now says **Read** (DEFAULTS-01).
+- [ ] Type in a saved file and stop: within two seconds the status bar says Saved and the file on disk has the text (autosave on).
+- [ ] New note, type, then click **Unsaved** in the status bar or **Save** in the title bar: the Save dialog opens with a name taken from the first heading (CHROME-02).
+- [ ] Export → **Print…** opens the print dialog; Export → **Save As…** asks for a new name (CHROME-02).
+
+## An existing install (update over your current one)
+
+- [ ] Theme, autosave (still off unless you had it on), toolbar, spell check and "Open files in reader" are exactly as before the update (DEFAULTS-01 pin).
+
+## Reading and editing
+
+- [ ] In Reader, single clicks and text selection do nothing unusual. **Double-click** a sentence: it becomes editable and a toolbar appears. Escape once leaves the block, Escape again removes the toolbar (READ-06).
+- [ ] With "Open files in reader" on: read note A, create a new note (opens in the editor), go back to A: A is still in Reader, and the new note is still in the editor (MODE-02).
+- [ ] `Ctrl +` / `Ctrl -` / `Ctrl 0` and `Ctrl`+wheel change the text size in Reader and in the editor; a toast names the level; it survives a restart; Settings menu → Zoom shows the same value (ZOOM-01).
+- [ ] Settings → Editor → **Hide Markdown symbols**: in the editor, headings are larger with no `#`, bold has no `**`, links show only their text. Put the caret on such a line: the symbols come back. Typing and undo behave normally (LIVE-01).
+
+## Files
+
+- [ ] Double-click `README.MD` (upper-case extension) and a `.mdx` file in Explorer/Finder: each opens in Paperling (BOOT-04, FILES-10; needs the installer).
+
+# GitHub issues — branch `fix/github-issues-2026-09-30`
+
+Latest verification: [2026-10-01 recheck](FIXES-RECHECK-2026-10-01.md) covers all 18 issues plus READ-03. Five additional frontend regressions were corrected and checked with TypeScript and the real browser on port 5279. No test suite, build or manually dispatched GitHub Action ran during this recheck. Written regression cases were not executed. Earlier Test Build artifacts in `GITHUB-ISSUES-REPORT.md` do not contain these later changes. These boxes remain unchecked for repeatable owner/native verification.
+
+## Window controls and reading
+
+- [ ] On touch-enabled Windows, launch Paperling with a mouse/keyboard attached. The desktop title bar, Minimize, Maximize and Close are visible; drag the title bar to move the window (#206).
+- [ ] Shrink the window to its minimum width. The filename truncates and window controls remain reachable (#241).
+- [ ] Enter Zen, wait for the bar to hide, then reveal it at the top edge. Touch controls remain usable (#206).
+- [ ] In Dark/Graphite/Nord/Midnight, the active Reader/Split/Code pill uses a restrained dark surface (#232).
+- [ ] Open a note with an HTTPS badge/image. It loads. Turn off **Settings → Editor → Load remote images**; the placeholder appears, and **Load image** approves only that image (#224).
+
+## Files, folders and session recovery
+
+- [ ] Open Files and select several notes, then create one. Files stays open on desktop (#225).
+- [ ] Open Files and Outline together. Files is left, Outline is right; neither covers the document. Close Outline and Files remains open. Opening AI swaps the right panel (#226).
+- [ ] With Files and Outline open, type a complete sentence in Code and in Reader. Every character appears; focus stays in the editor. Escape outside the docks does not close them (PANEL-02).
+- [ ] Choose **Open folder** in the title bar, welcome screen or command palette. Browse a child folder, go up to the root, and switch to a tab outside it. The chosen root remains (#227).
+- [ ] Drop a folder onto the app. Files opens at that folder. Drop multiple `.MD`, `.markdown`, `.txt` and `.text` files; each opens in a tab (#227).
+- [ ] Restart and open Files again. The workspace root is remembered; Find in Files searches it (#227).
+- [ ] Turn off **Reopen last session on launch**, save and close clean tabs, then restart. Clean tabs do not reopen (#228).
+- [ ] With reopening off, leave an unsaved draft and restart. The draft recovers. Restore a backed-up file after moving/removing its disk file; its content appears as an unsaved untitled buffer (#228).
+- [ ] With several large background tabs saved, double-click a small Markdown file. It becomes usable before the older tabs finish loading (#228).
+- [ ] While background restoration is slow, edit the first note. Restart before loading finishes: new work and older unread backups recover (HOT-08).
+- [ ] During that slow restore, separately open and edit a backed-up background note. When loading completes, new work stays selected and a distinct older draft appears as an unsaved **Recovered …** tab. Restart and verify both survive (HOT-07/HOT-08).
+- [ ] During slow restoration, explicitly close/discard the already recovered first note, or Save As to a different path. The old launch snapshot does not reappear when background loading finishes (HOT-08; both flows passed in browser fixtures, native repeat pending).
+- [ ] In unrestricted Files navigation, Go Up from `/home` reaches `/`, or from `C:/child` reaches `C:/`. Go Up is disabled at the chosen workspace root (FILES-09).
+
+## Optional editing in Reader
+
+- [ ] In Reader choose **Edit Reader**. Single-click a normal paragraph, heading, list or quote and type directly. Click another block and continue without pressing Done (READ-03, #213).
+- [ ] At the end of a heading, type a suffix, press Enter, and write a new paragraph. Done keeps both, without duplicated paragraphs or missing text.
+- [ ] Use **Add paragraph** in an empty note and below an existing block. Change the text style to a heading, bullets, numbers or quote. Enter on a trailing empty list item or quote paragraph leaves it.
+- [ ] Select text and use Bold/Italic/Strike/Code/Link. Apply a normal URL; an unsafe `javascript:` URL is refused. The text selection survives clicking the toolbar.
+- [ ] Use arrow keys at a block boundary to reach its neighbor. Backspace at the start of a paragraph joins it to the preceding text block. Undo restores both blocks.
+- [ ] Try Undo/Redo before and after Done, Escape and a mode switch. Change tabs: undo affects only that tab. Editing in Code clears stale Reader undo instead of overwriting the Code edit.
+- [ ] **Undo block changes** restores the current block while keeping neighboring content.
+- [ ] Type, then switch modes/tabs or restart. The typed changes remain in the note/recovery buffer (#213).
+- [ ] Include frontmatter, math, comments, a table, an image and a Mermaid diagram around the edited paragraph. Their source remains unchanged. Specialized blocks explain that Code is their editing path (#213).
+- [ ] Edit a paragraph that contains a `[[wikilink]]`, a `#tag`, `==highlight==` or inline `$math$`, and a task list (`- [ ]`). The text around them is editable; the link, tag, highlight, math and checkbox stay exactly as written in Code (READ-05).
+- [ ] Change one item of a numbered list in Reader, then look in Code: the other items keep `1. ` with a single space (READ-04).
+- [ ] A paragraph with ordinary inline code such as `x < y` or `$literal` remains editable. After Done, its code text is intact.
+- [ ] Turn off **Settings → Editor → Edit text in Reader**. Reader is read-only again. Keyboard users can focus a text block and press Enter while editing is enabled (#213).
+
+## AI actions and conversations
+
+- [ ] Use a slow local model to Expand/Rewrite/Shorten selected text. Tokens appear as they arrive; generation is not cancelled at 60 seconds (#229).
+- [ ] Stop generation. The model request stops and the action controls become available again (#229).
+- [ ] Edit an older sent prompt. Cancel keeps history/draft; Send replaces that prompt and later replies. Close/reopen the panel and the revised chat remains (#230).
+- [ ] Regenerate the latest reply. It uses current note context and does not duplicate the question. Disconnect the endpoint and retry: the previous answer is retained (#230).
+- [ ] Disconnect after retry tokens arrive, or Stop mid-retry. The full original answer remains. Repeat for an edited early prompt: later turns remain on failure, the edited prompt is still available, and Cancel restores the previous composer draft (AI-09).
+- [ ] Start New Chat or switch history during an unfinished Regenerate. Reopen the original chat: its completed answer remains (AI-09).
+- [ ] In Agent, ask an edit from a model that replies with prose. The panel explains that no edits were proposed; choosing **Review full reply as replacement document** opens a diff. Reject keeps the original (#231).
+- [ ] Try edits with CRLF versus LF/trailing whitespace. Unique passages can match; duplicate/ambiguous searches do not guess. Switch tabs during generation: the old reply cannot propose edits to the new note (#231).
+
+## Native platform checks
+
+- [ ] macOS, app closed: double-click a `.md` file whose path contains spaces. The correct note opens. Repeat while Paperling is already running (#250).
+- [ ] Windows/macOS: export to PDF/print repeatedly. After the export WebView closes, its temporary HTML disappears within about two seconds (#214).
+- [ ] Android: tap **Open from device…**. The system picker appears, Cancel returns normally, and selecting a Markdown/text file opens it (#254).
+- [ ] Android: Save As → **Save to Downloads**, then Export → HTML. Check Downloads in the device Files app, reopen the saved files and compare contents (#253).
+- [ ] Android: repeatedly save the same name and exercise a slow/failed save. A late result cannot mark a different note as saved (#253).
+- [ ] Android: type at the bottom of a long note with the keyboard open, rotate, close/reopen the keyboard, and continue typing. The caret stays visible and blank space does not remain after closing it (#252).
+- [ ] Android: Files/Outline remain full-screen sheets, and selecting a note closes Files (#225/#226).
+- [ ] **Known P1, unresolved:** import two different documents both named `report.md`, then simulate a failed copy. They must retain distinct working files and existing text. The current native cache implementation does not meet this requirement; see the recheck report before relying on it.
+- [ ] **Known P3, unresolved:** force PDF URL/window creation failure after staging. No staged HTML should remain in Temp. This error-path cleanup still needs a compiled native fix.
+
+## Distribution
+
+- [ ] x86_64 Linux with Nix: `nix build github:Razee4315/Paperling/fix/github-issues-2026-09-30#paperling`, then launch the result (#212).
+- [ ] Publish Scoop/Homebrew manifests only after choosing the owner bucket/tap or upstream submission. Configure apt signing/hosting and the F-Droid source recipe separately. They are not claimed published by this branch (#212).
 
 ---
 

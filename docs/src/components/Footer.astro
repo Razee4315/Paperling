@@ -1,5 +1,6 @@
 ---
 import { url, SITE } from "../lib/site";
+import { moreProjects } from "../lib/projects";
 const columns = [
   {
     title: "THE APP",
@@ -62,6 +63,10 @@ const columns = [
       ))}
     </nav>
   </div>
+  <nav class="wrap footer-more" aria-label="More by Saqlain Razee">
+    <span>More by Saqlain Razee</span>
+    {moreProjects.map(([href, label]) => <a href={href}>{label}</a>)}
+  </nav>
   <div class="wrap footer-base">
     <span>© {new Date().getFullYear()} Paperling · Apache-2.0</span>
     <a href={SITE.repo + "/issues"}>Found a rough edge? Tell us ↗</a>

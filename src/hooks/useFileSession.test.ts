@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import { invoke } from "@tauri-apps/api/core";
 
 import { __resetBootForTests, useFileSession, type UseFileSessionOptions } from "./useFileSession";
+import { setReopenSession } from "../utils/persistence";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
@@ -255,5 +256,166 @@ describe("useFileSession crash recovery (HOT-02/04)", () => {
     expect(result.current.isDirty).toBe(true);
     expect(result.current.conflictPrompt?.fileName).toBe("a.md");
     expect(result.current.isAutosaveParked("C:/a.md")).toBe(true);
+  });
+
+  it("skips clean session tabs when disabled but always recovers unsaved work (#228)", async () => {
+    setReopenSession(false);
+    localStorage.setItem("paperling:session", JSON.stringify({ tabs: [{ path: "C:/b.md" }], activeIndex: 0 }));
+    seedBackup("alpha");
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    await waitFor(() => expect(result.current.booting).toBe(false));
+    expect(result.current.tabs.map((t) => t.filePath)).toEqual(["C:/a.md"]);
+    expect(result.current.isDirty).toBe(true);
+    expect(invoke).not.toHaveBeenCalledWith("read_file", { path: "C:/b.md" });
+  });
+
+  it("shows the CLI file while a heavy background tab is still loading (#228)", async () => {
+    localStorage.setItem("paperling:session", JSON.stringify({ tabs: [{ path: "C:/a.md" }], activeIndex: 0 }));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "get_cli_file") return "C:/b.md";
+      if (command === "read_file") {
+        const path = (args as { path: string }).path;
+        if (path === "C:/a.md") await gate;
+        return files.get(path);
+      }
+      return 30;
+    });
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    await waitFor(() => expect(result.current.content).toBe("bravo"));
+    expect(result.current.booting).toBe(true);
+    act(() => result.current.setContent("edited during restore"));
+    await act(async () => { release(); });
+    await waitFor(() => expect(result.current.booting).toBe(false));
+    expect(result.current.content).toBe("edited during restore");
+    expect(result.current.tabs.map((t) => t.filePath)).toEqual(["C:/a.md", "C:/b.md"]);
+  });
+
+  it("honors discard of an already-published recovery tab during launch (HOT-08)", async () => {
+    localStorage.setItem("paperling:session", JSON.stringify({ tabs: [{ path: "C:/a.md" }, { path: "C:/b.md" }], activeIndex: 0 }));
+    seedBackup("alpha");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let readingBackground = false;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "get_cli_file") return null;
+      if (command === "read_file") {
+        const path = (args as { path: string }).path;
+        if (path === "C:/b.md") { readingBackground = true; await gate; }
+        return files.get(path);
+      }
+      return 30;
+    });
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    await waitFor(() => expect(readingBackground).toBe(true));
+    expect(result.current.content).toBe("alpha plus unsaved work");
+    act(() => result.current.closeTab(result.current.activeTabId!));
+    act(() => result.current.handleDiscardCloseTab());
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(localStorage.getItem("paperling.buffer-backup.v1")).toBeNull();
+    await act(async () => { release(); });
+    await waitFor(() => expect(result.current.booting).toBe(false));
+    expect(result.current.tabs.map((tab) => tab.filePath)).toEqual(["C:/b.md"]);
+    expect(result.current.content).toBe("bravo");
+  });
+
+  it.each(["C:/a.md", "C:/b.md"])(
+    "backs up editable launch work before background reads finish (HOT-08; edit=%s)",
+    async (editPath) => {
+      localStorage.setItem("paperling:session", JSON.stringify({ tabs: [{ path: "C:/a.md" }, { path: "C:/b.md" }], activeIndex: 0 }));
+      localStorage.setItem("paperling.buffer-backup.v1", JSON.stringify([
+        { filePath: "C:/b.md", fileName: "b.md", content: "older recovered bravo", originalContent: "bravo" },
+      ]));
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let backgroundReads = 0;
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command === "get_cli_file") return null;
+        if (command === "read_file") {
+          const path = (args as { path: string }).path;
+          if (path === "C:/b.md" && ++backgroundReads === 1) await gate;
+          return files.get(path);
+        }
+        return 30;
+      });
+      const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+      await waitFor(() => expect(backgroundReads).toBe(1));
+      if (editPath === "C:/b.md") await act(() => result.current.loadFile(editPath));
+      act(() => result.current.setContent("new work before restore finishes"));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      expect(result.current.booting).toBe(true);
+      const backups = JSON.parse(localStorage.getItem("paperling.buffer-backup.v1") ?? "[]") as { filePath: string | null; content: string }[];
+      expect(backups).toEqual(expect.arrayContaining([
+        expect.objectContaining({ filePath: editPath, content: "new work before restore finishes" }),
+        expect.objectContaining({ filePath: editPath === "C:/b.md" ? null : "C:/b.md", content: "older recovered bravo" }),
+      ]));
+      // A crash here would reload these records; the same-path versions must
+      // remain distinct instead of collapsing in the path-indexed restore.
+      await act(async () => { release(); });
+      await waitFor(() => expect(result.current.booting).toBe(false));
+      expect(result.current.content).toBe("new work before restore finishes");
+    },
+  );
+
+  it.each(["bravo", "new edits during launch", "recovered bravo"])(
+    "preserves a pending recovered draft when its note is opened during launch (HOT-07; live=%s)",
+    async (liveContent) => {
+      localStorage.setItem("paperling:session", JSON.stringify({ tabs: [{ path: "C:/a.md" }, { path: "C:/b.md" }], activeIndex: 0 }));
+      localStorage.setItem("paperling.buffer-backup.v1", JSON.stringify([
+        { filePath: "C:/b.md", fileName: "b.md", content: "recovered bravo", originalContent: "bravo" },
+      ]));
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let backgroundReads = 0;
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command === "get_cli_file") return null;
+        if (command === "read_file") {
+          const path = (args as { path: string }).path;
+          if (path === "C:/b.md" && ++backgroundReads === 1) await gate;
+          return files.get(path);
+        }
+        return 30;
+      });
+      const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+      await waitFor(() => expect(backgroundReads).toBe(1));
+      expect(result.current.content).toBe("alpha");
+      expect(result.current.booting).toBe(true);
+      await act(() => result.current.loadFile("C:/b.md"));
+      act(() => result.current.setContent(liveContent));
+      const userTab = result.current.activeTabId;
+      await act(async () => { release(); });
+      await waitFor(() => expect(result.current.booting).toBe(false));
+      expect(result.current.activeTabId).toBe(userTab);
+      expect(result.current.content).toBe(liveContent);
+      expect(result.current.tabs.filter((tab) => tab.filePath === "C:/b.md")).toHaveLength(1);
+      const recovered = result.current.tabs.filter((tab) => tab.filePath === null);
+      if (liveContent === "recovered bravo") {
+        expect(recovered).toHaveLength(0);
+      } else {
+        expect(recovered).toEqual([expect.objectContaining({
+          fileName: "Recovered b.md", content: "recovered bravo", originalContent: "bravo",
+        })]);
+      }
+      // The next recovery-store mirror must retain the old draft as well as
+      // any new live edits; it previously removed the only crashed copy.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const backups = JSON.parse(localStorage.getItem("paperling.buffer-backup.v1") ?? "[]") as { content: string }[];
+      expect(backups.some((backup) => backup.content === "recovered bravo")).toBe(true);
+      if (liveContent !== "bravo") expect(backups.some((backup) => backup.content === liveContent)).toBe(true);
+    },
+  );
+
+  it("recovers a backup with an unreadable disk path as a dirty untitled buffer (HOT-05)", async () => {
+    seedBackup("alpha");
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "read_file") throw new Error("file missing");
+      return null;
+    });
+    const { result } = renderHook(() => useFileSession(options({ restoreOnMount: true })));
+    await waitFor(() => expect(result.current.booting).toBe(false));
+    expect(result.current.content).toBe("alpha plus unsaved work");
+    expect(result.current.filePath).toBeNull();
+    expect(result.current.isDirty).toBe(true);
   });
 });

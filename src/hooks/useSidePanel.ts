@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { attachFocusTrap } from "../utils/focusTrap";
 import { IS_MOBILE } from "../utils/platform";
 
@@ -17,6 +17,11 @@ import { IS_MOBILE } from "../utils/platform";
  *    to where it came from when it closes.
  */
 export function useSidePanel(panelRef: RefObject<HTMLElement | null>, isOpen: boolean, onClose: () => void): void {
+    // PANEL-02 (#225/#226): App supplies inline close callbacks. Typing changes
+    // their identity; restarting this effect on each render pulled focus out
+    // of Code/Reader and back into Files/Outline after the first character.
+    const closeRef = useRef(onClose);
+    closeRef.current = onClose;
     useEffect(() => {
         if (!isOpen) return;
         const panel = panelRef.current;
@@ -25,14 +30,14 @@ export function useSidePanel(panelRef: RefObject<HTMLElement | null>, isOpen: bo
             const inside = !!panel && panel.contains(document.activeElement);
             if (!inside && !IS_MOBILE) return;
             e.preventDefault();
-            onClose();
+            closeRef.current();
         };
         document.addEventListener("keydown", handleKeyDown);
-        panel?.focus();
         const detach = attachFocusTrap(panel, { cycleTab: IS_MOBILE });
+        panel?.focus();
         return () => {
             document.removeEventListener("keydown", handleKeyDown);
             detach();
         };
-    }, [panelRef, isOpen, onClose]);
+    }, [panelRef, isOpen]);
 }

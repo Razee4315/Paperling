@@ -48,7 +48,34 @@ describe("keybindings on macOS", () => {
         expect(kb.formatShortcut("saveAs")).toBe("⇧⌘S");
         expect(kb.formatShortcut("nextTab")).toBe("⌃Tab");
         expect(kb.formatShortcut("settings")).toBe("⌘,");
-        expect(kb.formatShortcut("fullscreen")).toBe("F11");
+        expect(kb.formatShortcut("fullscreen")).toBe("⌃⌘F");
+    });
+
+    it("toggles fullscreen on ⌃⌘F, the key every Mac app uses (FULLSCREEN-02, #262)", async () => {
+        const kb = await loadFresh();
+        const both = kev({ key: "f", ctrlKey: true, metaKey: true });
+        expect(kb.matchesBinding(both, "fullscreen")).toBe(true);
+        // ...and it is not a ⌘F: Find must not open as well.
+        expect(kb.matchesBinding(both, "find")).toBe(false);
+        expect(kb.matchesBinding(kev({ key: "f", metaKey: true }), "find")).toBe(true);
+        expect(kb.matchesBinding(kev({ key: "f", metaKey: true }), "fullscreen")).toBe(false);
+        expect(kb.matchesBinding(kev({ key: "f", ctrlKey: true }), "fullscreen")).toBe(false);
+        // F11 is Show Desktop on a Mac and never reaches the app as fullscreen.
+        expect(kb.matchesBinding(kev({ key: "F11" }), "fullscreen")).toBe(false);
+    });
+
+    it("fires a recorded ⌃⌘ combo instead of only displaying it (SHC-11)", async () => {
+        localStorage.clear();
+        const kb = await loadFresh();
+        const recorded = kb.bindingFromEvent(kev({ key: "k", code: "KeyK", ctrlKey: true, metaKey: true }));
+        expect(recorded).toEqual({ key: "k", mod: true, ctrl: true });
+        kb.setBindingOverride("palette", recorded);
+        expect(kb.matchesBinding(kev({ key: "k", ctrlKey: true, metaKey: true }), "palette")).toBe(true);
+        expect(kb.matchesBinding(kev({ key: "k", metaKey: true }), "palette")).toBe(false);
+        // ⌘K is still Link, untouched by the ⌃⌘K above.
+        expect(kb.matchesBinding(kev({ key: "k", metaKey: true }), "link")).toBe(true);
+        expect(kb.matchesBinding(kev({ key: "k", ctrlKey: true, metaKey: true }), "link")).toBe(false);
+        kb.resetAllBindings();
     });
 
     it("produces CodeMirror Mod- keys for editor bindings", async () => {
@@ -105,6 +132,15 @@ describe("keybindings on Windows/Linux", () => {
         expect(kb.isMac).toBe(false);
         expect(kb.matchesBinding(kev({ key: "s", ctrlKey: true }), "save")).toBe(true);
         expect(kb.matchesBinding(kev({ key: "s", metaKey: true }), "save")).toBe(false);
+    });
+
+    it("keeps fullscreen on F11, and Ctrl+Win combos off the Ctrl bindings", async () => {
+        const kb = await loadFresh();
+        expect(kb.formatShortcut("fullscreen")).toBe("F11");
+        expect(kb.matchesBinding(kev({ key: "F11" }), "fullscreen")).toBe(true);
+        expect(kb.matchesBinding(kev({ key: "f", ctrlKey: true, metaKey: true }), "fullscreen")).toBe(false);
+        // The OS key held with Ctrl is not our Ctrl+F.
+        expect(kb.matchesBinding(kev({ key: "f", ctrlKey: true, metaKey: true }), "find")).toBe(false);
     });
 
     it("formats shortcuts as Ctrl+…", async () => {

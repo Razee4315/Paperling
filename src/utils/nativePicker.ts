@@ -23,7 +23,7 @@ interface PaperlingBridge {
     openDocument?: () => void;
     /** mime is optional and defaults to text/markdown on the native side
         (HTML export passes "text/html" so Downloads opens it in a browser). */
-    saveToDownloads?: (name: string, content: string, mime?: string) => void;
+    saveToDownloads?: (name: string, content: string, mime: string, requestId: string) => void;
 }
 
 function getBridge(): PaperlingBridge | undefined {
@@ -33,8 +33,12 @@ function getBridge(): PaperlingBridge | undefined {
 export function openSystemFilePicker(): boolean {
     const bridge = getBridge();
     if (!bridge?.openDocument) return false;
-    bridge.openDocument();
-    return true;
+    try {
+        bridge.openDocument();
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -56,20 +60,34 @@ export interface DownloadsSaveResult {
 }
 
 /** Resolves the Kotlin side's one-shot __paperlingOnSaveResult callback. */
-function waitSaveResult(): Promise<DownloadsSaveResult> {
+let savePending = false;
+let nextSaveId = 0;
+function waitSaveResult(requestId: string, start: () => void): Promise<DownloadsSaveResult> {
     return new Promise((resolve) => {
         const w = window as unknown as {
-            __paperlingOnSaveResult?: (ok: boolean, a: string | null, b: string | null) => void;
+            __paperlingOnSaveResult?: (ok: boolean, a: string | null, b: string | null, requestId: string) => void;
         };
-        const timer = window.setTimeout(() => {
-            w.__paperlingOnSaveResult = undefined;
-            resolve({ ok: false, error: "Saving to Downloads timed out" });
-        }, 15_000);
-        w.__paperlingOnSaveResult = (ok, a, b) => {
+        let finished = false;
+        const finish = (result: DownloadsSaveResult) => {
+            if (finished) return;
+            finished = true;
             window.clearTimeout(timer);
             w.__paperlingOnSaveResult = undefined;
-            resolve(ok ? { ok: true, path: a ?? undefined, name: b ?? undefined } : { ok: false, error: a ?? "Save failed" });
+            savePending = false;
+            resolve(result);
         };
+        const timer = window.setTimeout(() => finish({ ok: false, error: "Saving to Downloads timed out" }), 15_000);
+        w.__paperlingOnSaveResult = (ok, a, b, resultId) => {
+            // SAF-03: a slow result after timeout must never acknowledge a
+            // newer save (which would mark a different note as saved).
+            if (resultId !== requestId) return;
+            finish(ok ? { ok: true, path: a ?? undefined, name: b ?? undefined } : { ok: false, error: a ?? "Save failed" });
+        };
+        // SAF-02: install the callback BEFORE invoking native code, and clean
+        // it up on synchronous Java errors. A second save cannot steal it.
+        try { start(); } catch {
+            finish({ ok: false, error: "Could not start saving to Downloads. Try again or restart Paperling." });
+        }
     });
 }
 
@@ -80,8 +98,10 @@ export async function saveToDownloads(
 ): Promise<DownloadsSaveResult> {
     const bridge = getBridge();
     if (!bridge?.saveToDownloads) return { ok: false, error: "not-available" };
-    bridge.saveToDownloads(name, content, mime);
-    return waitSaveResult();
+    if (savePending) return { ok: false, error: "A Downloads save is already in progress" };
+    savePending = true;
+    const requestId = `${Date.now()}-${++nextSaveId}`;
+    return waitSaveResult(requestId, () => bridge.saveToDownloads!(name, content, mime, requestId));
 }
 
 export function downloadsSaveAvailable(): boolean {

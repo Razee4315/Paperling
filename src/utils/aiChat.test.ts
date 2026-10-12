@@ -101,6 +101,24 @@ describe("parseEdits", () => {
         const res = parseEdits(block(doc, "brand new content"), doc);
         expect(res.proposedDoc).toBe("brand new content");
     });
+
+    it("matches CRLF and trailing whitespace while preserving surrounding source", () => {
+        const doc = "prefix\r\nalpha  \r\nbravo\r\nsuffix";
+        const result = parseEdits(block("alpha\nbravo", "ALPHA\nBRAVO"), doc);
+        expect(result.proposedDoc).toBe("prefix\r\nALPHA\r\nBRAVO\r\nsuffix");
+        expect(result.applied).toBe(1);
+    });
+    it("refuses ambiguous exact and normalized passages and empty searches", () => {
+        for (const [doc, search] of [["same same", "same"], ["same  \r\nnext\r\nsame\r\nnext", "same\nnext"], ["abc", ""]]) {
+            const result = parseEdits(block(search, "replacement"), doc);
+            expect(result.proposedDoc).toBe(doc);
+            expect(result.applied).toBe(0);
+            expect(result.failed).toBe(1);
+        }
+    });
+    it("does not fuzzy-match different prose", () => {
+        expect(parseEdits(block("nearly the original", "new"), "nearly original").applied).toBe(0);
+    });
 });
 
 describe("buildAskMessages", () => {

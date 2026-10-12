@@ -5,6 +5,10 @@ All notable changes to Paperling will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Each section here is what the GitHub release page and the in-app update
+dialog show, so keep it to a handful of lines and link to the full notes in
+[`release-notes/`](release-notes/).
+
 ## [Unreleased]
 
 ### Added
@@ -30,6 +34,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bun run build:local` now produces the same `.msi` and setup `.exe` without
   updater signing and finishes with exit code 0; released builds are untouched
   and still signed. (BLD-01)
+## [1.1.1] - 2026-10-09
+
+- **macOS: a real Mac window.** The red, yellow and green buttons are back, at the left of the title bar, and the green one (or `⌃⌘F`) takes Paperling into true fullscreen, with the menu bar and the Dock out of the way (#262).
+
+## [1.1.0] - 2026-10-02
+
+Paperling 1.1 is about the basics: reading, editing and saving feel right from the first minute.
+
+- **Edit while you read.** Double-click a sentence in Reader to fix it in place.
+- **Saving you can see.** A Save button, and autosave on for new installs.
+- **Zoom.** `Ctrl +` / `Ctrl -`, or `Ctrl` + mouse wheel.
+- **Open a folder**, with Files and Outline side by side.
+- **Follows your system's light or dark theme**, with a calmer title bar and settings menu.
+- **Fixes** for touchscreen PCs, macOS double-click, and Android open, save and keyboard.
+
+Your current settings are kept when you update.
+
+**[Full release notes](https://github.com/Razee4315/Paperling/blob/main/release-notes/v1.1.0.md)**
+
+### Thank you
+
+To @leewaichong and @Gracy769 for their fixes, and to @Schadenfreund, @trymeouteh and @user-7510 for the reports that shaped this release.
 
 ## [1.0.51] - 2026-09-26
 
