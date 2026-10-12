@@ -12,6 +12,12 @@
  * LRU eviction at `cap` entries: the Map preserves insertion order, so a hit
  * is re-inserted (moved to the end) and the front is evicted when full.
  * Evicted URLs are revoked so the image data can be GC'd.
+ *
+ * Concurrent lookups of one image share a single in-flight lookup. Every
+ * reference re-checks on window focus, so a note embedding the same diagram
+ * 50 times sent 50 stats at once, and after a change on disk all 50 missed
+ * the cache together: 50 reads, and 49 object URLs overwritten in the map
+ * without being revoked. IMG-05.
  */
 export interface LocalImageCacheDeps {
     /** mtime (ms) of the file, or null when it can't be stat'ed. */
@@ -30,9 +36,18 @@ export function joinImagePath(baseDir: string, relPath: string): string {
 
 export function createLocalImageCache({ stat, read, createUrl, revokeUrl, cap = 100 }: LocalImageCacheDeps) {
     const entries = new Map<string, { url: string; mtime: number | null }>();
+    const inFlight = new Map<string, Promise<string>>();
 
-    return async function getLocalImageUrl(baseDir: string, relPath: string, mimeType: string): Promise<string> {
+    return function getLocalImageUrl(baseDir: string, relPath: string, mimeType: string): Promise<string> {
         const key = `${baseDir}\u0000${relPath}`;
+        const running = inFlight.get(key);
+        if (running) return running;
+        const lookup = lookUp(key, baseDir, relPath, mimeType).finally(() => inFlight.delete(key));
+        inFlight.set(key, lookup);
+        return lookup;
+    };
+
+    async function lookUp(key: string, baseDir: string, relPath: string, mimeType: string): Promise<string> {
         const mtime = await stat(joinImagePath(baseDir, relPath));
         const hit = entries.get(key);
         if (hit !== undefined) {
@@ -56,5 +71,5 @@ export function createLocalImageCache({ stat, read, createUrl, revokeUrl, cap = 
             }
         }
         return url;
-    };
+    }
 }
