@@ -42,9 +42,22 @@ describe("useExternalChangeWatcher", () => {
     const o = setup();
     await focus();
     expect(o.reload).toHaveBeenCalledWith("C:/doc.md");
-    expect(o.onReloaded).toHaveBeenCalled();
+    expect(o.onReloaded).toHaveBeenCalledWith("focus");
     expect(o.onConflict).not.toHaveBeenCalled();
     expect(o.knownMtimeRef.current).toBe(200); // advanced so it won't re-fire
+  });
+
+  it("also picks up changes on the visible-window interval, without focus. EXT-07", async () => {
+    vi.useFakeTimers();
+    try {
+      (invoke as Mock).mockResolvedValue({ modified: 200 });
+      const o = setup();
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(o.reload).toHaveBeenCalledWith("C:/doc.md");
+      expect(o.onReloaded).toHaveBeenCalledWith("interval");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("warns instead of reloading when the buffer is dirty", async () => {

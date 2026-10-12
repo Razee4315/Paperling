@@ -2554,14 +2554,11 @@ function AppContent() {
             y={tabMenu.y}
             onClose={() => setTabMenu(null)}
             actions={[
-              // Touch reorder: HTML5 drag never fires on a phone, so the
-              // long-press menu carries explicit move actions instead.
-              ...(IS_MOBILE
-                ? [
-                    { label: "Move left", icon: "arrow_back", disabled: idx <= 0, onClick: () => handleReorderTab(idx, idx - 1) },
-                    { label: "Move right", icon: "arrow_forward", disabled: !hasRight, onClick: () => handleReorderTab(idx, idx + 1) },
-                  ]
-                : []),
+              // Explicit move actions: the phone's only reorder route (drag
+              // never fires on touch), and a keyboard-free fallback for
+              // dragging on desktop. TABS-24.
+              { label: "Move left", icon: "arrow_back", disabled: idx <= 0, onClick: () => handleReorderTab(idx, idx - 1) },
+              { label: "Move right", icon: "arrow_forward", disabled: !hasRight, onClick: () => handleReorderTab(idx, idx + 1) },
               { label: "Close", icon: "close", onClick: () => closeTab(tabMenu.id) },
               { label: "Close others", icon: "close_fullscreen", disabled: !others, onClick: () => handleTabMenuAction("closeOthers", tabMenu.id) },
               { label: "Close to the right", icon: "keyboard_tab", disabled: !hasRight, onClick: () => handleTabMenuAction("closeRight", tabMenu.id) },

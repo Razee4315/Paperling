@@ -7,6 +7,7 @@ import type { ViewMode } from "../components/ModeToggle";
 import type { ToastType } from "./useToast";
 import { useAutosave } from "./useAutosave";
 import { useExternalChangeWatcher } from "./useExternalChangeWatcher";
+import { subscribeExternalChecks, type ExternalCheckTrigger } from "../utils/externalCheck";
 import { IS_MOBILE } from "../utils/platform";
 import { errMessage } from "../utils/errors";
 import { DOWNLOADS_SENTINEL, saveToDownloads } from "../utils/nativePicker";
@@ -839,8 +840,12 @@ export function useFileSession({
   // External-change detection: on window focus, stat the open file and reload
   // a clean buffer or prompt for a dirty buffer. EXT-01. Callbacks are memoised
   // so the focus listener stays registered across renders.
+  // Interval reloads stay quiet: an agent editing the open note would otherwise
+  // toast on every write. The focus check keeps its toast. EXT-07.
   const handleExternalReloaded = useCallback(
-    () => showToast("File changed on disk, reloaded the latest version", "info"),
+    (trigger: ExternalCheckTrigger) => {
+      if (trigger === "focus") showToast("File changed on disk, reloaded the latest version", "info");
+    },
     [showToast],
   );
   const handleExternalConflict = useCallback(
@@ -979,16 +984,23 @@ export function useFileSession({
 
   // External-change detection for BACKGROUND tabs. The active tab is handled by
   // useExternalChangeWatcher; clean background tabs refresh silently, while a
-  // dirty one advances its mtime and shows a one-time warning. TABS-06.
+  // dirty one advances its mtime and shows a one-time warning. TABS-06. Runs on
+  // focus and on the visible-window interval; `checking` keeps a slow pass from
+  // overlapping the next tick. EXT-07.
   useEffect(() => {
-    const onFocus = async () => {
+    let checking = false;
+    const checkBackgroundTabs = async () => {
       const activeId = activeTabIdRef.current;
       const backgroundTabs = tabsRef.current.filter((tab) => tab.id !== activeId && tab.filePath);
       for (const tab of backgroundTabs) {
         try {
           const info = await invoke<{ modified: number }>("get_file_info", { path: tab.filePath! });
-          if (!(tab.knownMtime > 0 && info.modified > tab.knownMtime)) continue;
-          if (tab.content === tab.originalContent) {
+          // Re-read the tab: it may have been edited, reloaded or closed while
+          // an earlier stat in this pass was in flight.
+          const latest = tabsRef.current.find((current) => current.id === tab.id);
+          if (!latest || latest.id === activeTabIdRef.current || latest.filePath !== tab.filePath) continue;
+          if (!(latest.knownMtime > 0 && info.modified > latest.knownMtime)) continue;
+          if (latest.content === latest.originalContent) {
             const fileData = await readTextFile<FileData>(tab.filePath!);
             commitTabs(
               tabsRef.current.map((current) =>
@@ -1019,8 +1031,13 @@ export function useFileSession({
         }
       }
     };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    return subscribeExternalChecks(() => {
+      if (checking) return;
+      checking = true;
+      void checkBackgroundTabs().finally(() => {
+        checking = false;
+      });
+    });
   }, [commitTabs, showToast]);
 
   // Persist the whole open-tab session so a relaunch reopens every saved tab,
