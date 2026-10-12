@@ -195,6 +195,37 @@ describe("useFileSession", () => {
     await act(() => result.current.handleSaveFile());
     expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/b.md", content: "my bravo edits" });
   });
+
+  it("an external reload keeps what the user typed while the file was being read (EXT-09)", async () => {
+    let releaseRead: (() => void) | null = null;
+    let diskMtime = 10;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "get_file_info") return Promise.resolve({ modified: diskMtime });
+      if (command === "read_file" && args?.path) {
+        const data = diskMtime === 10 ? files.get(args.path) : { ...files.get(args.path)!, content: "alpha from agent", modified: diskMtime };
+        if (diskMtime === 10) return Promise.resolve(data);
+        return new Promise((resolve) => { releaseRead = () => resolve(data); });
+      }
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/a.md"));
+
+    diskMtime = 50; // an agent rewrote a.md
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(releaseRead).not.toBeNull();
+    act(() => result.current.setContent("alpha, typed during the read"));
+    await act(async () => {
+      releaseRead!();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(result.current.content).toBe("alpha, typed during the read");
+    expect(result.current.conflictPrompt?.fileName).toBe("a.md");
+  });
 });
 
 describe("useFileSession crash recovery (HOT-02/04)", () => {

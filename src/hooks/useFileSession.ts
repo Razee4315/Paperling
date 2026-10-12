@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { readTextFile, saveTextFile } from "../utils/fileIO";
+import { idleWriteToken, readTextFile, saveTextFile } from "../utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
@@ -316,15 +316,24 @@ export function useFileSession({
     [activateTab],
   );
 
-  // Load a file directly from disk into the tab model.
+  // Load a file directly from disk into the tab model. Resolves false only
+  // when `keepEdits` declined the load (see below), true otherwise.
   const loadFileDirect = useCallback(
-    async (path: string) => {
+    async (path: string, { keepEdits = false }: { keepEdits?: boolean } = {}): Promise<boolean> => {
       const outgoing = filePathRef.current;
       // Preserve the file we're leaving in its tab before overwriting live state.
       snapshotActiveTab();
       setIsLoading(true);
       try {
         const fileData = await readTextFile<FileData>(path);
+        // An external-change reload only starts on a clean buffer, but the
+        // user can type while the file is being read; applying it would drop
+        // those keystrokes. With the 1.5 s interval check (EXT-07) that is a
+        // live race while someone types next to an agent editing the same
+        // note. Decline, and let the caller raise the conflict dialog. EXT-09.
+        if (keepEdits && samePath(filePathRef.current, path) && contentRef.current !== originalContentRef.current) {
+          return false;
+        }
         // A fresh load is a clean slate for every overlay: a review pending from
         // the PREVIOUS file must not survive into this one (its merge view would
         // diff old-file content against the new document, and its chunk buttons
@@ -397,6 +406,7 @@ export function useFileSession({
       } finally {
         setIsLoading(false);
       }
+      return true;
     },
     [bumpDocSwap, clearReview, commitTabs, newTabId, setActiveTab, setConflictPrompt, setMode, showToast, snapshotActiveTab],
   );
@@ -873,13 +883,14 @@ export function useFileSession({
     setConflictPrompt(null);
     if (path) void loadFileDirect(path);
   }, [loadFileDirect, setConflictPrompt]);
+  const reloadKeepingEdits = useCallback((path: string) => loadFileDirect(path, { keepEdits: true }), [loadFileDirect]);
   useExternalChangeWatcher({
     filePathRef,
     contentRef,
     originalContentRef,
     knownMtimeRef,
     isReviewActiveRef: reviewActiveRef,
-    reload: loadFileDirect,
+    reload: reloadKeepingEdits,
     onReloaded: handleExternalReloaded,
     onConflict: handleExternalConflict,
   });
@@ -993,8 +1004,13 @@ export function useFileSession({
       const activeId = activeTabIdRef.current;
       const backgroundTabs = tabsRef.current.filter((tab) => tab.id !== activeId && tab.filePath);
       for (const tab of backgroundTabs) {
+        // A background autosave of this tab overlapping the stat would read
+        // as an external change (EXT-08); leave it to the next tick.
+        const writeToken = idleWriteToken();
+        if (writeToken === null) continue;
         try {
           const info = await invoke<{ modified: number }>("get_file_info", { path: tab.filePath! });
+          if (idleWriteToken() !== writeToken) continue;
           // Re-read the tab: it may have been edited, reloaded or closed while
           // an earlier stat in this pass was in flight.
           const latest = tabsRef.current.find((current) => current.id === tab.id);
