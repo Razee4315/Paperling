@@ -34,8 +34,36 @@ export async function readTextFile<T extends { content: string; path?: string }>
     return data;
 }
 
+/**
+ * Our own writes, as seen by the external-change checks (EXT-08). Those checks
+ * stat open files every 1.5 s (EXT-07). A stat that lands while one of our
+ * saves is in flight sees the new mtime before the save path has recorded it,
+ * so Paperling's own autosave was reported as a change "on disk": a false
+ * conflict dialog on the active tab, and on a background tab an error toast
+ * plus parked autosave. A check takes a token before its stat and drops the
+ * result when the token has changed by the time the stat returns.
+ *
+ * The counter moves when a write starts and again when it ends, and every
+ * caller records the returned mtime synchronously after its await, so by the
+ * time a later check can run, the new mtime is already known.
+ */
+let writesInFlight = 0;
+let writeEpoch = 0;
+
+/** A token for "none of our writes is running"; null while one is. EXT-08. */
+export function idleWriteToken(): number | null {
+    return writesInFlight > 0 ? null : writeEpoch;
+}
+
 /** Save a document; re-adds the BOM the file was read with. Resolves the new mtime. */
-export function saveTextFile(path: string, content: string): Promise<number> {
+export async function saveTextFile(path: string, content: string): Promise<number> {
     const out = hadBom(path) && !content.startsWith(BOM) ? BOM + content : content;
-    return invoke<number>("save_file", { path, content: out });
+    writesInFlight++;
+    writeEpoch++;
+    try {
+        return await invoke<number>("save_file", { path, content: out });
+    } finally {
+        writesInFlight--;
+        writeEpoch++;
+    }
 }
