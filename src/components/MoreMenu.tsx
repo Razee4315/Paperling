@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
 import { formatShortcut } from '../config/keybindings';
 import { getRecentFiles, type RecentFile } from '../utils/persistence';
@@ -47,6 +47,7 @@ export function MoreMenu({
     const [isRecentOpen, setIsRecentOpen] = useState(false);
     const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
     const [submenuSide, setSubmenuSide] = useState<'right' | 'left'>('right');
+    const [submenuStyle, setSubmenuStyle] = useState<React.CSSProperties>({});
 
     const menuRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
@@ -54,6 +55,7 @@ export function MoreMenu({
     const recentButtonRef = useRef<HTMLButtonElement>(null);
     const submenuRef = useRef<HTMLDivElement>(null);
     const closeTimerRef = useRef<number | null>(null);
+    const focusRecentRef = useRef(false);
 
     const onMenuKeyDown = useDropdownKeyboard(isOpen, panelRef, () => {
         setIsRecentOpen(false);
@@ -67,24 +69,58 @@ export function MoreMenu({
         }
     }, []);
 
-    const updateSubmenuSide = useCallback(() => {
-        if (recentItemRef.current) {
-            const rect = recentItemRef.current.getBoundingClientRect();
-            // Submenu width is ~280px (w-72), plus a buffer
-            if (rect.right + 280 > window.innerWidth && rect.left >= 280) {
-                setSubmenuSide('left');
-            } else {
-                setSubmenuSide('right');
-            }
-        }
+    // CHROME-06: at the supported 600px window width neither side may fit a
+    // 288px fly-out. Clamp to the viewport instead of losing recent filenames
+    // offscreen, and shrink its scroll area in short windows.
+    const updateSubmenuPosition = useCallback(() => {
+        if (!recentItemRef.current) return;
+        const rect = recentItemRef.current.getBoundingClientRect();
+        const margin = 8;
+        const width = Math.min(288, Math.max(0, window.innerWidth - margin * 2));
+        const fitsRight = rect.right + 4 + width <= window.innerWidth - margin;
+        const side = fitsRight ? 'right' : 'left';
+        const desiredLeft = fitsRight ? rect.right + 4 : rect.left - width - 4;
+        const left = Math.max(margin, Math.min(desiredLeft, window.innerWidth - width - margin));
+        // If clamping overlaps the trigger, put the menu below the row.
+        // Otherwise the hover-open panel can put a file under the user's click.
+        const top = left < rect.right && left + width > rect.left ? rect.height + 4 : 0;
+        setSubmenuSide(side);
+        setSubmenuStyle({
+            left: left - rect.left,
+            top,
+            width,
+            maxHeight: Math.max(0, Math.min(320, window.innerHeight - rect.top - top - margin)),
+        });
     }, []);
 
-    const openRecentSubmenu = useCallback(() => {
+    const openRecentSubmenu = useCallback((focus = false) => {
         clearCloseTimer();
+        focusRecentRef.current = focus;
         setRecentFiles(getRecentFiles());
-        updateSubmenuSide();
+        updateSubmenuPosition();
         setIsRecentOpen(true);
-    }, [clearCloseTimer, updateSubmenuSide]);
+    }, [clearCloseTimer, updateSubmenuPosition]);
+
+    useLayoutEffect(() => {
+        if (!isRecentOpen || !focusRecentRef.current) return;
+        focusRecentRef.current = false;
+        const submenu = submenuRef.current;
+        (submenu?.querySelector<HTMLButtonElement>('button:not([disabled])') ?? submenu)?.focus();
+    });
+
+    useEffect(() => {
+        if (!isRecentOpen) return;
+        window.addEventListener('resize', updateSubmenuPosition);
+        return () => window.removeEventListener('resize', updateSubmenuPosition);
+    }, [isRecentOpen, updateSubmenuPosition]);
+
+    const closeRecentSubmenu = useCallback(() => {
+        clearCloseTimer();
+        focusRecentRef.current = false;
+        // A pointer departure must not strand keyboard focus in a removed menu.
+        if (submenuRef.current?.contains(document.activeElement)) recentButtonRef.current?.focus();
+        setIsRecentOpen(false);
+    }, [clearCloseTimer]);
 
     const handleRecentMouseEnter = useCallback(() => {
         openRecentSubmenu();
@@ -93,15 +129,10 @@ export function MoreMenu({
     const handleRecentMouseLeave = useCallback(() => {
         clearCloseTimer();
         // 150ms bridge timeout so moving between parent item and submenu is seamless
-        closeTimerRef.current = setTimeout(() => {
-            setIsRecentOpen(false);
-        }, 150) as unknown as number;
-    }, [clearCloseTimer]);
+        closeTimerRef.current = window.setTimeout(closeRecentSubmenu, 150);
+    }, [clearCloseTimer, closeRecentSubmenu]);
 
-    const handleOtherItemMouseEnter = useCallback(() => {
-        clearCloseTimer();
-        setIsRecentOpen(false);
-    }, [clearCloseTimer]);
+    const handleOtherItemMouseEnter = closeRecentSubmenu;
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -147,44 +178,46 @@ export function MoreMenu({
         if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             e.stopPropagation();
-            openRecentSubmenu();
-            setTimeout(() => {
-                submenuRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus();
-            }, 0);
+            openRecentSubmenu(true);
         }
     };
 
+    // CHROME-06: only navigate the current menu level. The shared dropdown
+    // hook intentionally supports flat panels; its recursive button query
+    // would otherwise include this fly-out and send Home/End to the parent.
+    const navigateMenu = (e: React.KeyboardEvent, menu: HTMLDivElement | null) => {
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key) || !menu) return false;
+        e.preventDefault();
+        e.stopPropagation();
+        const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not([disabled])'))
+            .filter((item) => item.closest('[role="menu"]') === menu);
+        if (items.length === 0) return true;
+        const current = items.indexOf(document.activeElement as HTMLButtonElement);
+        const next = e.key === 'Home' ? 0
+            : e.key === 'End' ? items.length - 1
+            : e.key === 'ArrowDown' ? (current + 1) % items.length
+            : current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length;
+        items[next].focus();
+        return true;
+    };
+
+    const handleMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (navigateMenu(e, panelRef.current)) {
+            closeRecentSubmenu();
+            return;
+        }
+        onMenuKeyDown(e);
+    };
+
     const handleSubmenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-        if (e.key === 'ArrowLeft') {
+        if (e.key === 'ArrowLeft' || e.key === 'Escape') {
             e.preventDefault();
             e.stopPropagation();
-            setIsRecentOpen(false);
+            closeRecentSubmenu();
             recentButtonRef.current?.focus();
             return;
         }
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            e.stopPropagation();
-            setIsRecentOpen(false);
-            recentButtonRef.current?.focus();
-            return;
-        }
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            e.preventDefault();
-            e.stopPropagation();
-            const items = Array.from(
-                submenuRef.current?.querySelectorAll<HTMLButtonElement>('button:not([disabled])') || []
-            );
-            if (items.length === 0) return;
-            const current = items.indexOf(document.activeElement as HTMLButtonElement);
-            let next: number;
-            if (e.key === 'ArrowDown') {
-                next = current < 0 ? 0 : (current + 1) % items.length;
-            } else {
-                next = current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length;
-            }
-            items[next]?.focus();
-        }
+        navigateMenu(e, submenuRef.current);
     };
 
     const findAndOutputItems: MoreMenuItem[] = [
@@ -218,7 +251,7 @@ export function MoreMenu({
             {isOpen && (
                 <div
                     ref={panelRef}
-                    onKeyDown={onMenuKeyDown}
+                    onKeyDown={handleMenuKeyDown}
                     role="menu"
                     aria-label="Options"
                     className="absolute right-0 top-full mt-1 w-60 p-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-xl z-[70] animate-fade-in-down"
@@ -238,7 +271,7 @@ export function MoreMenu({
                     )}
 
                     {/* Recent item directly below Open folder */}
-                    <div
+                    {onOpenRecent && <div
                         ref={recentItemRef}
                         className="relative"
                         onMouseEnter={handleRecentMouseEnter}
@@ -249,13 +282,9 @@ export function MoreMenu({
                             role="menuitem"
                             aria-haspopup="true"
                             aria-expanded={isRecentOpen}
-                            onClick={() => {
-                                if (isRecentOpen) {
-                                    setIsRecentOpen(false);
-                                } else {
-                                    openRecentSubmenu();
-                                }
-                            }}
+                            // Hover has already opened this on desktop: clicking must
+                            // keep it open and enter it, not toggle it closed. CHROME-06.
+                            onClick={() => openRecentSubmenu(true)}
                             onKeyDown={handleRecentKeyDown}
                             className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left rounded-lg transition-colors ${
                                 isRecentOpen ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'hover:bg-[var(--bg-hover)]'
@@ -275,13 +304,13 @@ export function MoreMenu({
                             <div
                                 ref={submenuRef}
                                 role="menu"
+                                tabIndex={-1}
                                 aria-label="Recent files"
                                 onKeyDown={handleSubmenuKeyDown}
                                 onMouseEnter={clearCloseTimer}
                                 onMouseLeave={handleRecentMouseLeave}
-                                className={`absolute top-0 w-72 max-h-80 overflow-y-auto p-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-2xl z-[80] animate-fade-in-down ${
-                                    submenuSide === 'right' ? 'left-full ml-1' : 'right-full mr-1'
-                                }`}
+                                style={submenuStyle}
+                                className="absolute top-0 overflow-y-auto p-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-2xl z-[80]"
                             >
                                 {recentFiles.length === 0 ? (
                                     <div className="px-3 py-3 text-xs text-[var(--text-muted)] italic text-center">
@@ -317,9 +346,9 @@ export function MoreMenu({
                                 )}
                             </div>
                         )}
-                    </div>
+                    </div>}
 
-                    <div className="h-px my-1 bg-[var(--border)]" role="separator" />
+                    {(onOpenFolder || onOpenRecent) && <div className="h-px my-1 bg-[var(--border)]" role="separator" />}
 
                     {findAndOutputItems.map((it) => (
                         <div key={it.label}>
