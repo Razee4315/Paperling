@@ -84,7 +84,10 @@ Dark, Light, Paper, and Dracula.
 - **Auto-pair** brackets, quotes, and code marks; **list/quote continuation** on Enter
 - **Tab in tables** moves between cells; auto-creates new rows
 - **Visual table editing**: a toolbar appears when the caret is in a table, with buttons to add or delete rows and columns, set column alignment, and tidy the layout
-- **Find & Replace** (Ctrl+F / Ctrl+H) with regex and match counter
+- **Find & Replace** (Ctrl+F / Ctrl+H) with regex and match counter; **replace across a whole folder** from folder search (Ctrl+Shift+F)
+- **Multiple cursors** — Ctrl+D selects the next occurrence; Ctrl/Cmd+click adds a cursor
+- **Lists and tasks from the keyboard** — Tab / Shift+Tab nest items, numbered lists renumber, Ctrl+Enter ticks a task
+- **Right-to-left languages** — Arabic, Hebrew, Persian and Urdu lines read right-to-left automatically; Ctrl+Right Shift / Ctrl+Left Shift switch the direction
 - **Smart paste** — URL → link, rich HTML → markdown, TSV → GFM table
 
 ### <img src="images/art/icon-flask.png" width="26" alt=""> Preview
@@ -93,11 +96,12 @@ Dark, Light, Paper, and Dracula.
 - **Code blocks** with syntax highlighting and one-click copy
 - **Math** via KaTeX (`$inline$`, `$$block$$`) — loaded only when needed
 - **Chemistry** via mhchem — `$\ce{2 H2 + O2 -> 2 H2O}$`, ions, isotopes, Kröger-Vink defects
-- **Mermaid diagrams** (` ```mermaid `) — flowcharts, sequence, class, state, gantt, ER, mindmaps
+- **Mermaid diagrams** (` ```mermaid `) — flowcharts, sequence, class, state, gantt, ER, mindmaps; zoom, pan, fullscreen, copy as PNG, save as SVG
+- **Callouts, #tags and %%comments%%** — Obsidian-style `> [!NOTE]` boxes (foldable), tag pills that search your folder, hidden comments
 - **Image lightbox** — click to zoom; lazy loading
 - **Interactive task checkboxes** — toggling writes back to source
 - **Heading anchors** with click-to-jump
-- **Wikilinks** `[[other-file]]` resolve in the same folder
+- **Wikilinks** `[[other-file]]` and `[[other-file#Heading]]` resolve in the same folder; Ctrl/Cmd+click follows links in the editor too, and Ctrl+Alt+← / → go back and forward
 - **Frontmatter** rendered as an editable Properties card
 
 ### <img src="images/art/icon-sparkles.png" width="26" alt=""> AI assistant
@@ -119,18 +123,20 @@ Dark, Light, Paper, and Dracula.
 - **Settings modal** (Ctrl+,) — sidebar nav with Appearance / Editor / AI / About
 - **New File** (Ctrl+N) and **Save As** (Ctrl+Shift+S)
 - **Auto-save** (optional, debounced) with status indicator
-- **External-change detection** — reload or keep your version when the file changes outside the app
+- **External-change detection** — reload or keep your version when the file changes outside the app; Paperling never silently overwrites newer work
+- **Crash-safe** — unsaved changes, even in never-saved notes, come back after a crash or force-quit
 - **Recent files** on the welcome screen — missing files marked
 - **Restore last opened file** on launch
-- **File Explorer** with folder navigation
+- **File Explorer** with folder navigation, new note / new folder, rename (F2) and move to trash
+- **Custom keyboard shortcuts** — rebind any command in Settings → Shortcuts
 - **Outline pane** that follows the cursor
 - **Backlinks panel** showing which notes in the current folder link to the open file
 
 ### <img src="images/art/icon-theme-swatches.png" width="26" alt=""> Customization
 
-- **Four themes** — Dark, Light, Paper, Dracula
+- **Seven themes** — Dark, Graphite, Nord, Midnight, Light, Paper, Dracula — with an adjustable accent color
 - **Five bundled fonts plus custom system fonts** — Inter, Merriweather, Lora, Source Serif, Fira Sans, or a locally installed family
-- **Three font sizes**
+- **Four font sizes** and an optional **readable line length** column
 - **WCAG-friendly** — visible focus rings, `prefers-reduced-motion` respected
 
 ### <img src="images/art/icon-bolt.png" width="26" alt=""> Platform

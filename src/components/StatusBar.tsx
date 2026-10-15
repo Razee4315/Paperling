@@ -19,6 +19,10 @@ interface StatusBarProps {
     /** Word count inside the active selection. Only meaningful when
      *  `selectionLength > 0`. */
     selectionWordCount?: number;
+    /** Bumped on each manual Ctrl+S; replays the "Saved" pulse. SAVE-07. */
+    savePulse?: number;
+    /** Makes the "Unsaved" indicator a button that saves. CHROME-02. */
+    onSave?: () => void;
 }
 
 const formatReadingTime = (min: number): string => {
@@ -45,17 +49,21 @@ function StatusBarImpl({
     readingTimeMin,
     selectionLength = 0,
     selectionWordCount = 0,
+    savePulse = 0,
+    onSave,
 }: StatusBarProps) {
     const hasSelection = selectionLength > 0;
     return (
+        // Not a live region: role="status" made screen readers announce the
+        // whole bar (Ln/Col, word count) on every keystroke. Only the save
+        // state is announced, from its own polite region below. A11Y-05.
         <footer
-            role="status"
-            className="h-7 shrink-0 bg-[var(--bg-titlebar)] border-t border-[var(--border)] px-4 flex items-center justify-between text-[11px] font-medium tracking-wide text-[var(--text-secondary)] no-select transition-colors"
+            aria-label="Status bar"
+            className="h-7 shrink-0 bg-[var(--bg-titlebar)] border-t border-[var(--border)] px-4 flex items-center justify-between text-[11px] font-medium tracking-wide tabular-nums text-[var(--text-secondary)] no-select transition-colors"
         >
             <div className="flex items-center gap-1">
                 {/* File Explorer Toggle */}
                 <button
-                    data-tour="file-explorer"
                     onClick={onToggleFileExplorer}
                     title="Files (Ctrl+Shift+E)"
                     aria-label={showFileExplorer ? "Close file explorer" : "Open file explorer"}
@@ -72,7 +80,6 @@ function StatusBarImpl({
 
                 {/* TOC Toggle */}
                 <button
-                    data-tour="toc"
                     onClick={onToggleTOC}
                     title="Table of Contents (Ctrl+Shift+O)"
                     aria-label={showTOC ? "Close table of contents" : "Open table of contents"}
@@ -102,23 +109,48 @@ function StatusBarImpl({
                 </button>
             </div>
             <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5" aria-label={isSaved ? "File saved" : "File has unsaved changes"}>
+                <button
+                    type="button"
+                    data-tour="save"
+                    // key: a new pulse remounts the element so the animation replays.
+                    key={savePulse}
+                    // "Unsaved" was a label with nothing to click; it is now the
+                    // most direct way to save for someone who doesn't use Ctrl+S.
+                    onClick={isSaved ? undefined : onSave}
+                    disabled={isSaved || !onSave}
+                    title={isSaved ? undefined : "Click to save"}
+                    className={`flex items-center gap-1.5 rounded px-1 -mx-1 ${savePulse > 0 ? "save-pulse" : ""} ${isSaved || !onSave ? "cursor-default" : "hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"}`}
+                    aria-label={isSaved ? "File saved" : "File has unsaved changes. Save now"}
+                >
                     <span
                         className={`w-2 h-2 rounded-full transition-all ${isSaved
                             ? "bg-[var(--status-saved)] shadow-[0_0_4px_rgba(80,250,123,0.4)]"
                             : "bg-[var(--status-unsaved)] shadow-[0_0_4px_rgba(255,184,108,0.4)] status-dot-unsaved"
                             }`}
                     ></span>
-                    <span className="transition-colors">{isSaved ? "Saved" : "Unsaved"}</span>
-                </div>
+                    <span className="transition-colors" role="status" aria-live="polite">{isSaved ? "Saved" : "Unsaved"}</span>
+                </button>
                 {(mode === "code" || mode === "split") && (
-                    <div className="hover:text-[var(--text-primary)] cursor-default transition-colors">
+                    // Tabular digits (footer) plus a minimum width: Ln/Col and
+                    // the counts no longer nudge their neighbours sideways as
+                    // they grow while typing. RLL-05.
+                    <div className="min-w-[6.5rem] text-right hover:text-[var(--text-primary)] cursor-default transition-colors">
                         Ln {lineNumber}, Col {columnNumber}
                     </div>
                 )}
                 {wordCount !== undefined && (
                     <div
                         className={`flex items-center gap-1 cursor-default transition-colors ${hasSelection ? "text-[var(--accent)]" : "hover:text-[var(--text-primary)]"}`}
+                        // The visible text is a WORD count, so the accessible
+                        // name must say words too — the character detail stays
+                        // as a hover title only (it used to leak into the
+                        // accessibility tree as the node's name, so screen
+                        // readers read "42 characters" for "42 words").
+                        aria-label={
+                            hasSelection
+                                ? `Selected ${selectionWordCount.toLocaleString()} of ${wordCount.toLocaleString()} words`
+                                : `${wordCount.toLocaleString()} words`
+                        }
                         title={
                             hasSelection
                                 ? `Selection: ${selectionWordCount.toLocaleString()} words, ${selectionLength.toLocaleString()} characters`
@@ -127,8 +159,8 @@ function StatusBarImpl({
                     >
                         <span className="material-symbols-outlined text-[14px] opacity-70">text_fields</span>
                         {hasSelection
-                            ? `${selectionWordCount.toLocaleString()} / ${wordCount.toLocaleString()} words`
-                            : `${wordCount.toLocaleString()} words`}
+                            ? `${selectionWordCount.toLocaleString()} / ${wordCount.toLocaleString()} ${wordCount === 1 ? "word" : "words"}`
+                            : `${wordCount.toLocaleString()} ${wordCount === 1 ? "word" : "words"}`}
                     </div>
                 )}
                 {readingTimeMin !== undefined && readingTimeMin > 0 && (

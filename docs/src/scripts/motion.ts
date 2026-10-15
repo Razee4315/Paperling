@@ -1,82 +1,80 @@
-import Lenis from "lenis";
-import { gsap } from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
+// WEB-02: visible HTML is the default, including when JS fails.
+// WEB-07: reveals fade up with a short stagger; smooth wheel scrolling is
+// desktop-only and loads on demand, so phones and reduced-motion users keep
+// native scrolling and never download Lenis.
+import type Lenis from "lenis";
 
-/**
- * Site motion: smooth scroll (Lenis) + scroll-reveal / parallax (GSAP) +
- * a sticky-nav solidify on scroll.
- *
- * Everything degrades gracefully: under prefers-reduced-motion we reveal
- * instantly and skip the smooth-scroll hijack. The page is fully readable
- * with JS disabled.
- */
+const REVEAL_MS = 1400;
+
 export function initMotion(): void {
-  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const reveals = gsap.utils.toArray<HTMLElement>("[data-reveal]");
-
-  /* Sticky nav: solidify after scrolling past the top. Runs in every mode via a
-     native scroll listener, so reduced-motion users also get a readable nav
-     (important over the light Paper section). */
-  const navEl = document.querySelector<HTMLElement>("[data-nav]");
-  if (navEl) {
-    const syncNav = () => navEl.classList.toggle("is-stuck", window.scrollY > 8);
-    window.addEventListener("scroll", syncNav, { passive: true });
-    syncNav();
-  }
-
-  if (reduce) {
-    reveals.forEach((el) => el.classList.add("is-revealed"));
-    return;
-  }
-
-  gsap.registerPlugin(ScrollTrigger);
-
-  /* ---- Lenis smooth scroll, driven by GSAP's ticker ---- */
-  const lenis = new Lenis({
-    duration: 1.05,
-    easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-    smoothWheel: true,
-  });
-  lenis.on("scroll", ScrollTrigger.update);
-  gsap.ticker.add((time: number) => lenis.raf(time * 1000));
-  gsap.ticker.lagSmoothing(0);
-
-  /* In-page anchor links route through Lenis for a smooth glide */
-  document.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((a) => {
-    a.addEventListener("click", (e) => {
-      const id = a.getAttribute("href");
-      if (!id || id === "#") return;
-      const target = document.querySelector(id);
-      if (!target) return;
-      e.preventDefault();
-      lenis.scrollTo(target as HTMLElement, { offset: -72, duration: 1.1 });
+  const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+  let observer: IntersectionObserver | undefined;
+  let lenis: Lenis | undefined;
+  const settle = (el: Element) => {
+    el.classList.remove("reveal-wait");
+    // Drop the slow reveal transition afterwards so hover effects stay snappy.
+    window.setTimeout(() => {
+      el.classList.remove("reveal");
+      (el as HTMLElement).style.removeProperty("--reveal-delay");
+    }, REVEAL_MS);
+  };
+  const stop = () => {
+    observer?.disconnect();
+    lenis?.destroy();
+    lenis = undefined;
+    document
+      .querySelectorAll<HTMLElement>("[data-reveal]")
+      .forEach((el) => el.classList.remove("reveal-wait", "reveal"));
+  };
+  if (!preference.matches && "IntersectionObserver" in window) {
+    observer = new IntersectionObserver(
+      (entries) =>
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            settle(entry.target);
+            observer?.unobserve(entry.target);
+          }
+        }),
+      { threshold: 0.12, rootMargin: "0px 0px -6% 0px" },
+    );
+    document.querySelectorAll<HTMLElement>("[data-reveal]").forEach((el) => {
+      if (el.getBoundingClientRect().top <= window.innerHeight) return;
+      // Siblings in a grid arrive one after another instead of all at once.
+      const siblings = el.parentElement
+        ? [...el.parentElement.children].filter((c) =>
+            c.hasAttribute("data-reveal"),
+          )
+        : [el];
+      const order = siblings.indexOf(el) % 4;
+      el.style.setProperty("--reveal-delay", order * 90 + "ms");
+      el.classList.add("reveal", "reveal-wait");
+      observer!.observe(el);
     });
+    initSmoothScroll().then((instance) => (lenis = instance));
+  }
+  preference.addEventListener("change", stop);
+  window.addEventListener("beforeprint", stop);
+  document.addEventListener("focusin", (e) => {
+    if (e.target instanceof Element) {
+      const el = e.target.closest("[data-reveal]");
+      if (el) settle(el);
+    }
   });
+}
 
-  /* ---- Scroll-reveal, batched & staggered by group ---- */
-  ScrollTrigger.batch("[data-reveal]", {
-    start: "top 88%",
-    onEnter: (batch) =>
-      gsap.to(batch, {
-        opacity: 1,
-        y: 0,
-        duration: 0.9,
-        ease: "expo.out",
-        stagger: 0.08,
-        overwrite: "auto",
-      }),
-  });
-
-  /* ---- Parallax accents ---- */
-  gsap.utils.toArray<HTMLElement>("[data-parallax]").forEach((el) => {
-    const depth = parseFloat(el.dataset.parallax || "10");
-    gsap.to(el, {
-      yPercent: -depth,
-      ease: "none",
-      scrollTrigger: { trigger: el, start: "top bottom", end: "bottom top", scrub: true },
+async function initSmoothScroll(): Promise<Lenis | undefined> {
+  // Touch screens already scroll smoothly; only mice and trackpads get Lenis.
+  if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+  try {
+    const { default: Lenis } = await import("lenis");
+    return new Lenis({
+      lerp: 0.1,
+      autoRaf: true,
+      allowNestedScroll: true,
+      // Lenis honours scroll-padding-top, so headings already clear the sticky header.
+      anchors: true,
     });
-  });
-
-  /* Recalculate once fonts settle to avoid scroll-trigger drift */
-  if (document.fonts?.ready) document.fonts.ready.then(() => ScrollTrigger.refresh());
+  } catch {
+    return undefined; // Native scrolling is a fine fallback.
+  }
 }

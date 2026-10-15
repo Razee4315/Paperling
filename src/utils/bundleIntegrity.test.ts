@@ -21,4 +21,12 @@ describe.skipIf(!existsSync(ASSETS))("production bundle integrity", () => {
         }
         expect(occurrences, "occurrences of the state marker string (2 per copy)").toBe(2);
     });
+
+    // src/dev/fakeTauri.ts is a browser-testing shim behind import.meta.env.DEV;
+    // it answers file commands from localStorage and must never ship.
+    it("does not bundle the dev-only fake Tauri backend", () => {
+        for (const f of readdirSync(ASSETS).filter((f) => f.endsWith(".js"))) {
+            expect(readFileSync(join(ASSETS, f), "utf8").includes("[fakefs]"), f).toBe(false);
+        }
+    });
 });

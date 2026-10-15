@@ -20,6 +20,32 @@ interface CommandPaletteProps {
     isOpen: boolean;
     items: PaletteCommand[];
     onClose: () => void;
+    /** Text to start with, e.g. ":" for go-to-line (Ctrl+G). */
+    initialQuery?: string;
+    /** Total lines in the open document, for the ":N" go-to-line mode. */
+    lineCount?: number;
+}
+
+/**
+ * Score an item against a possibly multi-word query: every whitespace-separated
+ * term must match one of the item's fields (so "fil new" finds "New file",
+ * which a single fuzzy pass over the whole string never did). Lower = better;
+ * -1 = no match.
+ */
+export function scoreItem(query: string, fields: string[]): number {
+    const terms = query.trim().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return 0;
+    let total = 0;
+    for (const term of terms) {
+        let best = -1;
+        for (const f of fields) {
+            const s = fuzzyScore(term, f);
+            if (s !== -1 && (best === -1 || s < best)) best = s;
+        }
+        if (best === -1) return -1;
+        total += best;
+    }
+    return total;
 }
 
 /** Indices in `haystack` that `needle` matches, mirroring fuzzyScore's logic
@@ -103,7 +129,7 @@ function isShortcutHint(hint: string): boolean {
     return /^(Ctrl|Alt|Shift|⌘|Meta)\+|^(Ctrl|Alt|Shift|⌘|Meta)$|^F\d{1,2}$/.test(hint.trim());
 }
 
-export function CommandPalette({ isOpen, items, onClose }: CommandPaletteProps) {
+export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount }: CommandPaletteProps) {
     const [query, setQuery] = useState("");
     const [activeIdx, setActiveIdx] = useState(0);
     const dialogRef = useRef<HTMLDivElement>(null);
@@ -112,10 +138,10 @@ export function CommandPalette({ isOpen, items, onClose }: CommandPaletteProps) 
     // Reset state on open
     useEffect(() => {
         if (isOpen) {
-            setQuery("");
+            setQuery(initialQuery ?? "");
             setActiveIdx(0);
         }
-    }, [isOpen]);
+    }, [isOpen, initialQuery]);
 
     // Focus input + trap, Escape to close
     useEffect(() => {
@@ -141,17 +167,28 @@ export function CommandPalette({ isOpen, items, onClose }: CommandPaletteProps) 
     // Filtered + sorted result
     const ranked = useMemo(() => {
         if (!isOpen) return [];
+        // ":42" — go to line (VS Code / Sublime convention). NAV-10.
+        if (query.startsWith(":")) {
+            const n = parseInt(query.slice(1).trim(), 10);
+            const max = lineCount ?? Infinity;
+            const valid = Number.isFinite(n) && n >= 1;
+            const line = valid ? Math.min(n, max) : 0;
+            return [{
+                id: "goto.line",
+                label: valid ? `Go to line ${line}` : `Type a line number${lineCount ? ` (1–${lineCount})` : ""}`,
+                section: "Go to line",
+                icon: "move_down",
+                run: () => {
+                    if (valid) window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
+                },
+            }];
+        }
         if (!query.trim()) return items;
         const scored = items
-            .map((it) => {
-                const candidates = [it.label, it.hint ?? "", it.keywords ?? "", it.section];
-                let best = -1;
-                for (const c of candidates) {
-                    const s = fuzzyScore(query, c);
-                    if (s !== -1 && (best === -1 || s < best)) best = s;
-                }
-                return { item: it, score: best };
-            })
+            .map((it) => ({
+                item: it,
+                score: scoreItem(query, [it.label, it.hint ?? "", it.keywords ?? "", it.section]),
+            }))
             .filter((r) => r.score !== -1)
             .sort((a, b) => a.score - b.score)
             .map((r) => r.item);

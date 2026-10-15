@@ -6,8 +6,17 @@ name: Test Build
 # download the zip from the run page (collaborators only; nothing public, no
 # tag, no version bump, no updater manifest — the in-app updater cannot see
 # these builds). For a real release use release.yml.
+#
+# A plain run builds Windows only. The macOS bundle takes a second, slower
+# runner, so it is built only when asked for: tick "Also build the macOS dmg"
+# in the Run workflow form, or pass `-f macos=true` to `gh workflow run`.
 on:
   workflow_dispatch:
+    inputs:
+      macos:
+        description: "Also build the macOS dmg"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -62,8 +71,9 @@ jobs:
 
   # Verifies the release.yml macOS packaging (universal Apple Silicon + Intel
   # bundle) without cutting a release — issues #94 / #103. Produces the .dmg as
-  # a run artifact only.
+  # a run artifact only. Opt-in: see the `macos` input above.
   build-macos:
+    if: ${{ inputs.macos }}
     runs-on: macos-latest
     steps:
       - name: Checkout repository

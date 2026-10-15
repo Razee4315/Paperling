@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import mascotMagnify from "../assets/mascot/mascot-magnify.png";
 import mascotReading from "../assets/mascot/mascot-reading.png";
-import { attachFocusTrap } from "../utils/focusTrap";
+import { useSidePanel } from "../hooks/useSidePanel";
 import { IS_MOBILE } from "../utils/platform";
 
 interface BacklinkMatch {
@@ -36,20 +36,31 @@ export function BacklinksPanel({
     const [error, setError] = useState<string | null>(null);
     const panelRef = useRef<HTMLElement>(null);
 
+    // Only the latest request may land: switching notes quickly let a slow
+    // search for the PREVIOUS note overwrite this one's backlinks. A refresh
+    // for the same note (window focus) keeps the list on screen instead of
+    // flashing "Loading". FILES-02.
+    const requestRef = useRef(0);
+    const shownForRef = useRef<string | null>(null);
     const loadBacklinks = useCallback(async () => {
-        setIsLoading(true);
+        const id = ++requestRef.current;
+        const sameNote = shownForRef.current === currentFilePath;
+        if (!sameNote) setIsLoading(true);
         setError(null);
         try {
             const next = await invoke<BacklinkResult[]>("find_backlinks", {
                 directory,
                 targetFile: currentFilePath,
             });
+            if (id !== requestRef.current) return;
+            shownForRef.current = currentFilePath;
             setResults(next);
         } catch (err) {
+            if (id !== requestRef.current) return;
             setResults([]);
             setError(String(err));
         } finally {
-            setIsLoading(false);
+            if (id === requestRef.current) setIsLoading(false);
         }
     }, [currentFilePath, directory]);
 
@@ -64,22 +75,8 @@ export function BacklinksPanel({
         return () => window.removeEventListener("focus", refresh);
     }, [isOpen, loadBacklinks]);
 
-    useEffect(() => {
-        if (!isOpen) return;
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === "Escape") {
-                event.preventDefault();
-                onClose();
-            }
-        };
-        document.addEventListener("keydown", handleKeyDown);
-        panelRef.current?.focus();
-        const detachTrap = attachFocusTrap(panelRef.current);
-        return () => {
-            document.removeEventListener("keydown", handleKeyDown);
-            detachTrap();
-        };
-    }, [isOpen, onClose]);
+    // Escape / focus behaviour for a docked, non-modal panel. PANEL-01.
+    useSidePanel(panelRef, isOpen, onClose);
 
     const matchCount = results.reduce((count, result) => count + result.matches.length, 0);
 
@@ -96,8 +93,9 @@ export function BacklinksPanel({
             role="navigation"
             aria-label="Backlinks"
             tabIndex={-1}
-            data-panel="left"
-            className={`fixed left-0 top-12 bottom-7 w-72 bg-[var(--bg-secondary)] border-r border-[var(--border)] z-50 shadow-2xl flex flex-col overflow-hidden transition-transform duration-200 ease-out ${isOpen ? "translate-x-0" : "-translate-x-full"}`}
+            data-panel={IS_MOBILE ? "left" : "right"}
+            style={IS_MOBILE ? undefined : { width: "var(--sidebar-width)" }}
+            className={`fixed ${IS_MOBILE ? "left-0 border-r" : "right-0 border-l"} top-12 bottom-7 w-72 bg-[var(--bg-secondary)] border-[var(--border)] z-50 shadow-2xl flex flex-col overflow-hidden transition-transform duration-200 ease-out ${isOpen ? "translate-x-0" : "translate-x-full"}`}
         >
             <div className="h-10 shrink-0 px-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-titlebar)]">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)] no-select">

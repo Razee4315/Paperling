@@ -3,18 +3,18 @@
 // transparent, so the buttons leave the tab order until revealed). On touch
 // it renders in flow, always visible, exit chip only (MOBILE-ZEN).
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 
-// No IPC host under jsdom; the window controls only need to exist.
+// No IPC host under jsdom; the window controls only need to exist, and
+// startDragging is a spy so the drag-handle tests can see it fire.
+const win = vi.hoisted(() => ({
+    minimize: async () => {},
+    toggleMaximize: async () => {},
+    startDragging: vi.fn(async () => {}),
+    close: async () => {},
+}));
 vi.mock("@tauri-apps/api/window", () => ({
-    Window: {
-        getCurrent: () => ({
-            minimize: async () => {},
-            toggleMaximize: async () => {},
-            startDragging: async () => {},
-            close: async () => {},
-        }),
-    },
+    Window: { getCurrent: () => win },
 }));
 
 // Mutable so the touch tests can flip the shell the component renders for.
@@ -22,23 +22,44 @@ vi.mock("@tauri-apps/api/window", () => ({
 const platform = vi.hoisted(() => ({
     IS_MOBILE: false,
     IS_TOUCH: false,
+    MAC_WINDOW: false,
+    MAC_LIGHTS_INSET: 86,
 }));
 vi.mock("../utils/platform", () => platform);
 
-import { ZenTopBar } from "./ZenTopBar";
+import { ZenTopBar, ZEN_PEEK_MS } from "./ZenTopBar";
 
 afterEach(() => {
     cleanup();
     platform.IS_MOBILE = false;
     platform.IS_TOUCH = false;
+    platform.MAC_WINDOW = false;
+    win.startDragging.mockClear();
 });
 
 const renderBar = (props: Partial<Parameters<typeof ZenTopBar>[0]> = {}) =>
     render(<ZenTopBar onExitZen={() => {}} {...props} />);
 
 describe("ZenTopBar", () => {
-    it("stays hidden until hovered (out of the tab order while hidden)", () => {
+    it("peeks on appearance so the window controls are discoverable (ZEN-04, #206)", () => {
+        vi.useFakeTimers();
+        try {
+            renderBar();
+            const bar = screen.getByRole("toolbar", { name: "Zen mode top bar" });
+            expect(bar).toHaveClass("visible");
+            expect(bar).not.toHaveClass("invisible");
+            act(() => { vi.advanceTimersByTime(ZEN_PEEK_MS); });
+            expect(bar).toHaveClass("invisible");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("then stays hidden until hovered (out of the tab order while hidden)", () => {
+        vi.useFakeTimers();
         renderBar();
+        act(() => { vi.advanceTimersByTime(ZEN_PEEK_MS); });
+        vi.useRealTimers();
         const bar = screen.getByRole("toolbar", { name: "Zen mode top bar" });
         expect(bar).toHaveClass("invisible");
         expect(bar).toHaveClass("opacity-0");
@@ -94,5 +115,56 @@ describe("ZenTopBar on touch (MOBILE-ZEN)", () => {
         renderBar({ onExitZen });
         fireEvent.click(screen.getByRole("button", { name: "Exit Zen mode" }));
         expect(onExitZen).toHaveBeenCalledTimes(1);
+    });
+});
+
+// ZEN-05 (#206): a Windows 2-in-1 reports a touch pointer even with a mouse
+// attached, so the desktop app renders the touch (always-visible) zen bar.
+// That bar must still carry the window controls AND move the frameless
+// window, or zen strands the user with no way to drag it.
+describe("ZenTopBar on a touchscreen desktop (ZEN-05)", () => {
+    it("keeps the window controls on a touch desktop", () => {
+        platform.IS_TOUCH = true;
+        renderBar();
+        expect(screen.getByRole("button", { name: "Minimize" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Maximize" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    });
+
+    it("drags the window from the bar on a touch desktop", () => {
+        platform.IS_TOUCH = true;
+        renderBar();
+        fireEvent.mouseDown(screen.getByRole("toolbar", { name: "Zen mode top bar" }), { button: 0 });
+        expect(win.startDragging).toHaveBeenCalledTimes(1);
+    });
+
+    it("never starts a window drag on a phone", () => {
+        platform.IS_TOUCH = true;
+        platform.IS_MOBILE = true;
+        renderBar();
+        fireEvent.mouseDown(screen.getByRole("toolbar", { name: "Zen mode top bar" }), { button: 0 });
+        expect(win.startDragging).not.toHaveBeenCalled();
+    });
+});
+
+describe("ZenTopBar on a native macOS window (CHROME-05)", () => {
+    it("leaves the window buttons to the system, and its own start clear of them", () => {
+        platform.MAC_WINDOW = true;
+        renderBar();
+        // macOS draws close / minimize / fullscreen at the top left itself.
+        expect(screen.queryByLabelText("Minimize")).toBeNull();
+        expect(screen.queryByLabelText("Maximize")).toBeNull();
+        expect(screen.queryByLabelText("Close")).toBeNull();
+        expect(screen.getByLabelText("Exit Zen mode")).toBeInTheDocument();
+        expect(screen.getByRole("toolbar", { name: "Zen mode top bar", hidden: true })).toHaveStyle({ paddingLeft: "86px" });
+    });
+
+    it("needs no room for them in fullscreen, and still drags the window", () => {
+        platform.MAC_WINDOW = true;
+        renderBar({ isFullscreen: true });
+        const bar = screen.getByRole("toolbar", { name: "Zen mode top bar", hidden: true });
+        expect(bar.style.paddingLeft).toBe("");
+        fireEvent.mouseDown(bar, { button: 0, detail: 1 });
+        expect(win.startDragging).toHaveBeenCalledTimes(1);
     });
 });

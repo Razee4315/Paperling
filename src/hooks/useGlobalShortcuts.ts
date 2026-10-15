@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { matchesBinding, isPlainModCombo } from "../config/keybindings";
+import { matchesBinding, isPlainModCombo, isMac, isWindows } from "../config/keybindings";
 
 /** Everything the global keyboard handler needs. Kept in a ref so the window
  *  listener is attached once and never re-bound on a handler/state change. */
@@ -12,12 +12,17 @@ export interface ShortcutHandlers {
     handleToggleSplit: () => void;
     /** Toggle Zen mode (F9). Works with or without a file open. */
     toggleZen: () => void;
+    /** Step the text zoom up or down / back to 100%. ZOOM-01. */
+    zoomBy: (direction: 1 | -1) => void;
+    resetZoom: () => void;
     /** Toggle OS fullscreen (F11). Cross-platform via the Tauri window API. */
     toggleFullscreen: () => void;
     handleToggleFileExplorer: () => void;
     handleToggleTOC: () => void;
     openCheatsheet: () => void;
     openPalette: () => void;
+    /** Open the palette in ":" go-to-line mode (mod+G). NAV-10. */
+    openGotoLine?: () => void;
     openSettings: () => void;
     /** Open the reader-mode find bar. Only invoked when mode === "preview". */
     openPreviewFind?: () => void;
@@ -30,6 +35,9 @@ export interface ShortcutHandlers {
     nextTab?: () => void;
     /** Reopen the most recently closed tab (mod+Shift+T). */
     reopenClosedTab?: () => void;
+    /** Back / forward through followed links (Ctrl+Alt+Left/Right). NAV-13. */
+    navBack?: () => void;
+    navForward?: () => void;
     /** Jump to a tab by index; -1 means the last tab (mod+1..9). */
     gotoTab?: (index: number) => void;
     hasFile: boolean;
@@ -57,14 +65,45 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             const s = ref.current;
+            // The editor, vim mode, the slash menu and dialogs preventDefault
+            // the keys they handle. Honoring that here stops app shortcuts
+            // from double-firing on top of editor behavior: without this,
+            // macOS Alt+Arrows switched tabs WHILE moving the caret word-wise,
+            // vim's Ctrl+W delete-word also closed the tab, and vim's Ctrl+E /
+            // Ctrl+O scroll/jump also toggled modes / opened files. SHC-01.
+            if (e.defaultPrevented) return;
+            // A modal dialog owns the keyboard. App shortcuts used to fire
+            // BEHIND it: Alt+Arrows / Ctrl+Tab behind the disk-conflict dialog
+            // switched tabs and silently resolved it, Ctrl+W behind a
+            // save prompt opened a second prompt, and so on. Only F11 (a
+            // window-level toggle) stays live. EXT-04.
+            if (
+                typeof document !== "undefined" &&
+                document.querySelector('[aria-modal="true"]') &&
+                !matchesBinding(e, "fullscreen")
+            ) {
+                return;
+            }
             // F11 - Toggle fullscreen. The universal fullscreen key on Windows
-            // and Linux. macOS reserves F11 for Show Desktop, where users
-            // fullscreen via the green title-bar button; the underlying Tauri
-            // setFullscreen drives the same window state either way. No file
-            // needed — works on the welcome screen too. FULLSCREEN-01.
+            // and Linux. macOS reserves F11 for Show Desktop, so the binding
+            // there is ⌃⌘F (FULLSCREEN-02), next to the green title-bar button;
+            // the underlying Tauri setFullscreen drives the same window state
+            // either way. No file needed — works on the welcome screen too.
+            // FULLSCREEN-01.
             if (matchesBinding(e, "fullscreen")) {
                 e.preventDefault();
                 s.toggleFullscreen();
+                return;
+            }
+            // mod+= / mod+- / mod+0 - text zoom. No file needed. ZOOM-01.
+            if (matchesBinding(e, "zoomIn") || matchesBinding(e, "zoomOut")) {
+                e.preventDefault();
+                s.zoomBy(matchesBinding(e, "zoomIn") ? 1 : -1);
+                return;
+            }
+            if (matchesBinding(e, "zoomReset")) {
+                e.preventDefault();
+                s.resetZoom();
                 return;
             }
             // mod+Shift+E - Toggle file explorer
@@ -145,18 +184,28 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
                 if (s.hasFile && s.mode === "preview" && s.openPreviewFind) {
                     e.preventDefault();
                     s.openPreviewFind();
+                } else if (s.hasFile) {
+                    // Focus is outside the editor (a tab, the split preview,
+                    // the status bar): the editor keymap never saw the key,
+                    // so Ctrl+F did nothing. Route it to the editor's find.
+                    // FIND-10.
+                    e.preventDefault();
+                    window.dispatchEvent(new CustomEvent("paperling:open-find"));
                 }
                 return;
             }
-            // Alt+Left / Alt+Right - switch to the previous/next tab. Alt (not
-            // Ctrl) keeps Ctrl+Arrow free for word-wise caret movement in the
-            // editor. TABS-01.
-            if (matchesBinding(e, "prevTabAlt")) {
+            // Alt+Left / Alt+Right - switch to the previous/next tab (Windows
+            // and Linux only). Alt (not Ctrl) keeps Ctrl+Arrow free for
+            // word-wise caret movement in the editor. On macOS Option+Arrows
+            // IS the standard word-wise caret gesture in every text view, so
+            // the combo is not bound there — use Ctrl+Tab / ⌘1-9 instead.
+            // TABS-01 / SHC-02.
+            if (!isMac && matchesBinding(e, "prevTabAlt")) {
                 e.preventDefault();
                 if (s.hasFile) s.prevTab?.();
                 return;
             }
-            if (matchesBinding(e, "nextTabAlt")) {
+            if (!isMac && matchesBinding(e, "nextTabAlt")) {
                 e.preventDefault();
                 if (s.hasFile) s.nextTab?.();
                 return;
@@ -182,6 +231,17 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
             if (matchesBinding(e, "prevTabPage")) {
                 e.preventDefault();
                 if (s.hasFile) s.prevTab?.();
+                return;
+            }
+            // mod+Alt+Left/Right - back / forward through followed links. NAV-13.
+            if (matchesBinding(e, "navBack")) {
+                e.preventDefault();
+                if (s.hasFile) s.navBack?.();
+                return;
+            }
+            if (matchesBinding(e, "navForward")) {
+                e.preventDefault();
+                if (s.hasFile) s.navForward?.();
                 return;
             }
             // mod+Shift+T - reopen the most recently closed tab. TABS-15.
@@ -212,19 +272,31 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
                 s.openPalette();
                 return;
             }
+            // mod+G - go to line (palette in ":" mode). NAV-10.
+            if (matchesBinding(e, "gotoLine")) {
+                e.preventDefault();
+                if (s.hasFile) s.openGotoLine?.();
+                return;
+            }
             // mod+, - Settings
             if (matchesBinding(e, "settings")) {
                 e.preventDefault();
                 s.openSettings();
                 return;
             }
-            // AI assist - Alt+J everywhere, Cmd+J on macOS. Handled here (window
-            // level) rather than only in the editor so it fires regardless of
-            // focus; the editor opens the bubble via the paperling:ai-assist
-            // listener. (Ctrl+J is reserved by WebView2 on Windows, hence Alt+J.)
-            const isAltJ = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "j" || e.key === "J" || e.code === "KeyJ");
-            const isCmdJ = e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === "j" || e.key === "J");
-            if (isAltJ || isCmdJ) {
+            // AI assist - Alt+J everywhere as the universal fallback, plus the
+            // platform-mod variant: ⌘J on macOS, Ctrl+J on Linux (where the
+            // webview doesn't reserve it — it was previously advertised and
+            // dead). Windows stays Alt+J only: WebView2 consumes Ctrl+J for
+            // Downloads and the page never sees it. SHC-03.
+            const isJ = e.key === "j" || e.key === "J" || e.code === "KeyJ";
+            const isAltJ = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && isJ;
+            const isModJ =
+                (isMac
+                    ? e.metaKey && !e.ctrlKey
+                    : !isWindows && e.ctrlKey && !e.metaKey) &&
+                !e.altKey && !e.shiftKey && isJ;
+            if (isAltJ || isModJ) {
                 e.preventDefault();
                 window.dispatchEvent(new CustomEvent("paperling:ai-assist"));
             }
@@ -232,15 +304,17 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
 
         window.addEventListener("keydown", handleKeyDown);
 
-        // Defense-in-depth for Ctrl+J: Edge/Chrome/WebView2 treat Ctrl+J as a
-        // "browser accelerator" for Downloads. On WebView2 (Windows) the page
-        // never sees this keydown, so JS can't help — users have Alt+J as the
-        // working alias there. On WebKitGTK (Linux) and WKWebView (macOS) the
-        // event DOES reach the page; we capture-phase preventDefault here so the
-        // host webview's default action is suppressed regardless of which
-        // element is focused (textarea, palette input, settings, etc.).
+        // Defense-in-depth for Ctrl+J on WINDOWS only: Edge/Chrome/WebView2
+        // treat Ctrl+J as a browser accelerator for Downloads. On WebView2 the
+        // page never sees this keydown (users have Alt+J there); this capture
+        // blocker covers any Windows environment where it does reach the page.
+        // Linux (Ctrl+J is the advertised AI shortcut) and macOS (⌘J) are
+        // exempt — their webviews don't reserve the combo, and blocking it
+        // here would preventDefault the AI handler out of the water now that
+        // the main handler honors defaultPrevented. SHC-03.
         const blockCtrlJ = (e: KeyboardEvent) => {
-            if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "j" || e.key === "J")) {
+            if (!isWindows) return;
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === "j" || e.key === "J")) {
                 e.preventDefault();
             }
         };

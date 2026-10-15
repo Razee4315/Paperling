@@ -18,7 +18,7 @@ const loadExportModule = (): Promise<ExportModule> => {
 
 interface ExportMenuProps {
     fileName: string;
-    getExportHtml?: () => string;
+    getExportHtml?: () => Promise<string>;
     onSuccess?: (format: string) => void;
     onError?: (format: string) => void;
 }
@@ -60,9 +60,13 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: Expo
     const handleExport = async (format: ExportFormat) => {
         if (isExporting || !getExportHtml) return;
 
-        // Capture HTML on demand from the visible preview
-        const htmlContent = getExportHtml();
-        if (!htmlContent) return;
+        // Capture HTML on demand from the visible preview. The capture flushes
+        // the preview debounce and waits a frame, so it's async (EXPORT-03).
+        const htmlContent = await getExportHtml();
+        if (!htmlContent) {
+            onError?.("Nothing to export yet");
+            return;
+        }
 
         setIsExporting(true);
         setIsOpen(false);
@@ -104,13 +108,9 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: Expo
                 aria-label="Export document"
                 aria-expanded={isOpen}
                 aria-haspopup="true"
-                className={`btn-press flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-xs ${
-                    disabled
-                        // Muted color at full opacity rather than opacity-40 on top
-                        // of muted — keeps the disabled label readable (a11y).
-                        ? 'cursor-not-allowed text-[var(--text-muted)]'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
+                // Muted color at full opacity when disabled rather than a
+                // faded button — keeps the label readable (a11y).
+                className={`chrome-btn flex items-center gap-1 px-2 h-8 text-xs ${disabled ? 'cursor-not-allowed !text-[var(--text-muted)]' : ''}`}
                 title="Export document"
             >
                 {isExporting ? (
@@ -128,7 +128,7 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: Expo
 
             {/* Simple Dropdown Menu */}
             {isOpen && !disabled && (
-                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label="Export formats" className="absolute left-0 top-full mt-1 w-40 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-[70] animate-fade-in-down">
+                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label="Export formats" className="absolute left-0 top-full mt-1 w-44 py-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-[70] animate-fade-in-down">
                     <button
                         role="menuitem"
                         onClick={() => handleExport('html')}

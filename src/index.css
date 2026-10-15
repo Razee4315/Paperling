@@ -1,5 +1,48 @@
 @import "tailwindcss";
 
+.reader-editing-block {
+  outline: 1px solid var(--border-subtle);
+  outline-offset: 4px;
+  border-radius: 2px;
+  min-height: 1.5em;
+  cursor: text;
+}
+
+.reader-editing-block:empty::before {
+  content: "Type here…";
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.reader-edit-toolbar button,
+.reader-edit-toolbar select {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  color: var(--text-primary);
+}
+
+.reader-edit-toolbar button:hover:not(:disabled),
+.reader-edit-toolbar select {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.reader-edit-toolbar button:focus-visible,
+.reader-edit-toolbar select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.reader-edit-toolbar button:disabled {
+  opacity: .35;
+}
+
+:root {
+  /* RLL-10 (#226): leave a readable center even with both docks at 600px. */
+  --sidebar-width: min(288px, max(140px, calc((100vw - 320px) / 2)));
+}
+
 /* ===== Theme Definitions ===== */
 
 /* Dark Theme (Default) - Black & White with subtle grays */
@@ -395,9 +438,10 @@
 }
 
 /* ===== Font Size Variables ===== */
-/* Default font size - must come BEFORE attribute selectors */
+/* Default font size - must come BEFORE attribute selectors.
+   --zoom (ZOOM-01) multiplies whichever preset is active; ThemeContext sets it. */
 :root {
-  --font-size-base: 16px;
+  --font-size-base: calc(16px * var(--zoom, 1));
   --font-size-h1: 2.25em;
   --font-size-h2: 1.75em;
   --font-size-h3: 1.25em;
@@ -405,7 +449,8 @@
 }
 
 [data-font-size="small"] {
-  --font-size-base: 14px;
+  --editor-font-size: calc(13px * var(--zoom, 1));
+  --font-size-base: calc(14px * var(--zoom, 1));
   --font-size-h1: 1.875em;
   --font-size-h2: 1.5em;
   --font-size-h3: 1.125em;
@@ -413,7 +458,8 @@
 }
 
 [data-font-size="medium"] {
-  --font-size-base: 16px;
+  --editor-font-size: calc(14px * var(--zoom, 1));
+  --font-size-base: calc(16px * var(--zoom, 1));
   --font-size-h1: 2.25em;
   --font-size-h2: 1.75em;
   --font-size-h3: 1.25em;
@@ -421,7 +467,17 @@
 }
 
 [data-font-size="large"] {
-  --font-size-base: 18px;
+  --editor-font-size: calc(16px * var(--zoom, 1));
+  --font-size-base: calc(18px * var(--zoom, 1));
+  --font-size-h1: 2.5em;
+  --font-size-h2: 2em;
+  --font-size-h3: 1.375em;
+  --line-height: 1.8;
+}
+
+[data-font-size="xlarge"] {
+  --editor-font-size: calc(18px * var(--zoom, 1));
+  --font-size-base: calc(20px * var(--zoom, 1));
   --font-size-h1: 2.5em;
   --font-size-h2: 2em;
   --font-size-h3: 1.375em;
@@ -1000,6 +1056,47 @@ html.touch ::-webkit-scrollbar {
 }
 
 /* Button press effect */
+/* CHROME-03: title-bar and other icon buttons. --bg-hover is tuned for
+   content surfaces and is almost the title bar's own colour in the light
+   themes, so hovering Minimize or Maximize showed nothing. A tint of the text
+   colour is visible on every theme, and the press-in gives the click weight. */
+.chrome-btn {
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  transition: background-color 0.12s ease-out, color 0.12s ease-out, transform 0.08s ease-out, opacity 0.12s ease-out;
+}
+
+.chrome-btn:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--text-primary) 11%, transparent);
+  color: var(--text-primary);
+}
+
+.chrome-btn:active:not(:disabled) {
+  background-color: color-mix(in srgb, var(--text-primary) 19%, transparent);
+  transform: scale(0.93);
+}
+
+/* Held open (a menu is showing) or toggled on. */
+.chrome-btn-on {
+  background-color: color-mix(in srgb, var(--text-primary) 11%, transparent);
+  color: var(--text-primary);
+}
+
+.chrome-btn-danger:hover:not(:disabled),
+.chrome-btn-danger:active:not(:disabled) {
+  background-color: var(--danger);
+  color: #fff;
+}
+
+.chrome-btn-remove:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.chrome-btn-remove:active:not(:disabled) {
+  background-color: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
 .btn-press {
   transition: transform 0.1s ease-out, box-shadow 0.1s ease-out;
 }
@@ -1145,7 +1242,17 @@ html.touch ::-webkit-scrollbar {
   color: var(--code-text);
 }
 
+/* Code is always left-to-right, even inside a right-to-left document or
+   block; inline code is isolated so it can't reorder the Arabic/Hebrew
+   around it. BIDI-03 (#216). */
+.markdown-body pre,
+.markdown-body code,
+.markdown-body kbd {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
 .markdown-body pre {
+  text-align: left;
   background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 0.375rem;
@@ -1173,17 +1280,25 @@ html.touch ::-webkit-scrollbar {
   max-width: none !important;
 }
 
+/* Diagram viewer (MermaidBlock): the sizer pins the diagram to its
+   fit-to-natural width (zoom 1) or the zoomed width; the svg fills it.
+   Without the sizer cap, every diagram stretched to the full column
+   width, so small flowcharts rendered comically oversized. MMV-01. */
+.mermaid-sizer {
+  max-width: 100%;
+}
+
 /* Tailwind v4 Preflight resets `ul, ol { list-style: none }`, so the markers
    must be re-declared here or every bullet/number in the preview disappears. */
 .markdown-body ul {
   list-style-type: disc;
-  padding-left: 1.5rem;
+  padding-inline-start: 1.5rem;
   margin-bottom: 1rem;
 }
 
 .markdown-body ol {
   list-style-type: decimal;
-  padding-left: 1.5rem;
+  padding-inline-start: 1.5rem;
   margin-bottom: 1rem;
 }
 
@@ -1203,22 +1318,142 @@ html.touch ::-webkit-scrollbar {
   color: var(--syntax-list);
 }
 
-/* GFM task lists ([ ] / [x]) render as <ul class="contains-task-list"> with a
-   checkbox per item — keep those flush and bullet-free so the checkbox stands
-   alone (GitHub-style), without a stray disc beside it. */
-.markdown-body ul.contains-task-list {
+/* GFM task lists ([ ] / [x]). remark-gfm marks the whole <ul> as
+   contains-task-list as soon as ONE item is a task, so hiding markers on the
+   list made every plain bullet beside a task vanish (PREV-01). Only task
+   items lose their marker; the checkbox hangs in the marker gutter
+   (GitHub-style) so plain and task items line up. A list made only of tasks
+   sits flush with the text column. */
+.markdown-body li.task-list-item {
   list-style-type: none;
-  padding-left: 0;
 }
 
+.markdown-body li.task-list-item > input[type="checkbox"] {
+  margin-inline-start: -1.4rem;
+  margin-inline-end: 0.45rem;
+}
+
+.markdown-body ul.contains-task-list:not(:has(> li:not(.task-list-item))) {
+  padding-inline-start: 1.4rem;
+}
+
+/* Done tasks read as done (Obsidian/Things style): dimmed, and struck
+   through when they have no sub-list (a line-through set on an <li> can't be
+   switched off for its nested items, so those only dim). */
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked) {
+  color: var(--text-muted);
+}
+
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked):not(:has(> ul, > ol)) {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+
+.markdown-body li.task-list-item:has(> input[type="checkbox"]:checked) li {
+  color: var(--text-primary);
+}
+
+/* Block-by-block preview rendering (PERF-02): each block's wrapper has no box
+   of its own, so layout, margins and selection behave exactly as if the
+   blocks were direct children of .markdown-body. */
+.markdown-body .md-block,
+.markdown-body .md-whole {
+  display: contents;
+}
+
+/* Logical sides (padding-inline-start, border-inline-start, …) so lists,
+   quotes, callouts and tables mirror in a right-to-left block and render
+   exactly as before in a left-to-right one. BIDI-03 (#216). */
 .markdown-body blockquote {
-  border-left: 4px solid var(--accent);
+  border-inline-start: 4px solid var(--accent);
   background: var(--blockquote-bg);
   padding: 0.5rem 1rem;
   margin: 1rem 0;
   font-style: italic;
   color: var(--text-secondary);
-  border-radius: 0 0.25rem 0.25rem 0;
+  border-start-end-radius: 0.25rem;
+  border-end-end-radius: 0.25rem;
+}
+
+/* Callouts (remarkNoteSyntax, SYNTAX-02): `> [!TYPE] Title`. Each
+   type sets --callout; the tint is mixed from it so every theme gets a
+   readable box without per-theme overrides. Foldable callouts are
+   <details>/<summary>. */
+.markdown-body .callout {
+  --callout: #4a8fe7;
+  border-inline-start: 4px solid var(--callout);
+  background: color-mix(in srgb, var(--callout) 10%, transparent);
+  border-start-end-radius: 0.375rem;
+  border-end-end-radius: 0.375rem;
+  padding: 0.6rem 1rem;
+  margin: 1rem 0;
+}
+.markdown-body [data-callout="note"], .markdown-body [data-callout="info"], .markdown-body [data-callout="todo"] { --callout: #4a8fe7; }
+.markdown-body [data-callout="abstract"], .markdown-body [data-callout="summary"], .markdown-body [data-callout="tldr"] { --callout: #2ab3c4; }
+.markdown-body [data-callout="tip"], .markdown-body [data-callout="hint"], .markdown-body [data-callout="important"] { --callout: #1fb89a; }
+.markdown-body [data-callout="success"], .markdown-body [data-callout="check"], .markdown-body [data-callout="done"] { --callout: #3fb950; }
+.markdown-body [data-callout="question"], .markdown-body [data-callout="help"], .markdown-body [data-callout="faq"] { --callout: #d99a1e; }
+.markdown-body [data-callout="warning"], .markdown-body [data-callout="caution"], .markdown-body [data-callout="attention"] { --callout: #e8792b; }
+.markdown-body [data-callout="failure"], .markdown-body [data-callout="fail"], .markdown-body [data-callout="missing"], .markdown-body [data-callout="danger"], .markdown-body [data-callout="error"], .markdown-body [data-callout="bug"] { --callout: #e5534b; }
+.markdown-body [data-callout="example"] { --callout: #9b72e8; }
+.markdown-body [data-callout="quote"], .markdown-body [data-callout="cite"] { --callout: #8b949e; }
+.markdown-body .callout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--callout);
+}
+.markdown-body summary.callout-title {
+  cursor: pointer;
+  list-style: none;
+}
+.markdown-body summary.callout-title::-webkit-details-marker { display: none; }
+.markdown-body summary.callout-title::after {
+  content: "expand_more";
+  font-family: "Material Symbols Outlined";
+  margin-inline-start: auto;
+  transition: transform 0.15s ease;
+}
+.markdown-body details.callout:not([open]) > summary.callout-title::after { transform: rotate(-90deg); }
+.markdown-body .callout-title::before {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-size: 1.15em;
+  content: "info";
+}
+.markdown-body [data-callout="abstract"] > .callout-title::before, .markdown-body [data-callout="summary"] > .callout-title::before, .markdown-body [data-callout="tldr"] > .callout-title::before { content: "summarize"; }
+.markdown-body [data-callout="todo"] > .callout-title::before { content: "check_circle"; }
+.markdown-body [data-callout="tip"] > .callout-title::before, .markdown-body [data-callout="hint"] > .callout-title::before, .markdown-body [data-callout="important"] > .callout-title::before { content: "local_fire_department"; }
+.markdown-body [data-callout="success"] > .callout-title::before, .markdown-body [data-callout="check"] > .callout-title::before, .markdown-body [data-callout="done"] > .callout-title::before { content: "check"; }
+.markdown-body [data-callout="question"] > .callout-title::before, .markdown-body [data-callout="help"] > .callout-title::before, .markdown-body [data-callout="faq"] > .callout-title::before { content: "help"; }
+.markdown-body [data-callout="warning"] > .callout-title::before, .markdown-body [data-callout="caution"] > .callout-title::before, .markdown-body [data-callout="attention"] > .callout-title::before { content: "warning"; }
+.markdown-body [data-callout="failure"] > .callout-title::before, .markdown-body [data-callout="fail"] > .callout-title::before, .markdown-body [data-callout="missing"] > .callout-title::before { content: "close"; }
+.markdown-body [data-callout="danger"] > .callout-title::before, .markdown-body [data-callout="error"] > .callout-title::before { content: "bolt"; }
+.markdown-body [data-callout="bug"] > .callout-title::before { content: "bug_report"; }
+.markdown-body [data-callout="example"] > .callout-title::before { content: "list"; }
+.markdown-body [data-callout="quote"] > .callout-title::before, .markdown-body [data-callout="cite"] > .callout-title::before { content: "format_quote"; }
+.markdown-body .callout-content { margin-top: 0.35rem; }
+.markdown-body .callout-content > :last-child { margin-bottom: 0; }
+
+/* #tags (remarkNoteSyntax): clickable pills that search the folder. */
+.markdown-body .md-tag {
+  display: inline-block;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.markdown-body .md-tag:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+/* Readable line length in the editor (Settings → Readable line length):
+   the text column is centred and capped like the preview's, while the
+   gutter stays at the left edge. Only applied with word wrap on. */
+.readable-editor .cm-content {
+  max-width: 820px;
+  margin: 0 auto;
 }
 
 .markdown-body strong {
@@ -1264,7 +1499,7 @@ html.touch ::-webkit-scrollbar {
 .markdown-body td {
   border: 1px solid var(--border);
   padding: 0.5rem;
-  text-align: left;
+  text-align: start;
 }
 
 .markdown-body th {
@@ -1473,4 +1708,31 @@ html.touch ::-webkit-scrollbar {
 
 .cm-editor .cm-deletedLineGutter {
   background-color: var(--diff-del-border);
+}
+
+/* The tab strip scrolls with the wheel and keeps the active tab in view
+   (TABS-13); a native horizontal scrollbar only ate into the 36px row and
+   covered the bottom of the tab labels. RLL-03. */
+.tab-strip {
+  scrollbar-width: none;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+/* Ctrl+S confirmation on the status bar's "Saved" (SAVE-07): a short
+   accent flash instead of a toast over the text. */
+@keyframes save-pulse {
+  0% { color: var(--accent); transform: scale(1.08); }
+  100% { color: inherit; transform: scale(1); }
+}
+
+.save-pulse {
+  animation: save-pulse 0.9s ease-out;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-pulse { animation: none; }
 }

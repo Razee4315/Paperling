@@ -1,20 +1,44 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import type { MouseEvent } from "react";
 import { Window } from "@tauri-apps/api/window";
 // Touch devices have no hover, and phones have no window manager to talk to:
 // there the bar renders IN FLOW (always visible, exit chip only, padded below
 // the system status bar). Desktop keeps the hover-reveal overlay with the
 // window controls and the frameless-window drag handle. ZEN-02 / MOBILE-ZEN.
-import { IS_MOBILE, IS_TOUCH } from "../utils/platform";
+import { IS_MOBILE, IS_TOUCH, MAC_LIGHTS_INSET, MAC_WINDOW } from "../utils/platform";
+import { formatShortcut } from "../config/keybindings";
 
 interface ZenTopBarProps {
     isFullscreen?: boolean;
     onToggleFullscreen?: () => void;
     /** Leave Zen mode and restore the normal chrome. */
     onExitZen: () => void;
+    /** Toggle the outline (table of contents) overlay. ZEN-03. */
+    outlineOpen?: boolean;
+    onToggleOutline?: () => void;
+    /** Start a new markdown file without leaving Zen. ZEN-03. */
+    onNewFile?: () => void;
+    /** Open an existing markdown file without leaving Zen. ZEN-03. */
+    onOpenFile?: () => void;
 }
 
-function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen }: ZenTopBarProps) {
+/** How long the bar stays revealed after it appears. ZEN-04. */
+export const ZEN_PEEK_MS = 4000;
+
+function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpen, onToggleOutline, onNewFile, onOpenFile }: ZenTopBarProps) {
+    // ZEN-04 (#206): the bar used to appear only while the mouse touched a
+    // 12px strip at the top edge. Zen persists across restarts, so a user who
+    // once pressed F9 relaunched into a frameless window with no visible way
+    // to move, maximize or close it ("I close it from the taskbar"). Every
+    // time the bar mounts (entering zen, or launching into it) it now shows
+    // itself for a few seconds, which also teaches where it lives.
+    const [peeking, setPeeking] = useState(!IS_TOUCH);
+    useEffect(() => {
+        if (IS_TOUCH) return;
+        const t = window.setTimeout(() => setPeeking(false), ZEN_PEEK_MS);
+        return () => window.clearTimeout(t);
+    }, []);
+
     const handleMinimize = useCallback(async () => {
         try {
             await Window.getCurrent().minimize();
@@ -46,6 +70,9 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen }: ZenTopBa
     // the frameless window; buttons opt out so they stay clickable. ZEN-02.
     // Phones skip all of it — startDragging/maximize are desktop window-manager
     // concepts, and a stray synthetic mousedown from a tap must not reach them.
+    // Gated on IS_MOBILE, NOT IS_TOUCH: a Windows 2-in-1 reports a touch
+    // pointer even with a mouse attached, and there the always-visible bar is
+    // the only way to move the frameless window while in zen. ZEN-05 (#206).
     const handleBarMouseDown = useCallback(async (event: MouseEvent<HTMLElement>) => {
         if (IS_MOBILE) return;
         const target = event.target;
@@ -71,14 +98,14 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen }: ZenTopBa
             className={IS_TOUCH
                 ? "relative shrink-0 z-50"
                 : "absolute top-0 inset-x-0 z-50 group/zenbar"}
-            onMouseDown={IS_TOUCH ? undefined : handleBarMouseDown}
+            onMouseDown={IS_MOBILE ? undefined : handleBarMouseDown}
         >
             {/* Invisible hover trigger (also a drag strip while the bar is
                 hidden, so the window stays movable in zen). Desktop only —
                 touch has no hover to catch. */}
             {!IS_TOUCH && <div className="h-3 w-full" aria-hidden="true" />}
-            {/* Desktop: reveal panel, hidden until the mouse reaches the top
-                edge, then fades/slides in. `invisible` (not just opacity-0)
+            {/* Desktop: reveal panel. After the ZEN-04 peek it hides until the
+                mouse reaches the top edge, then fades/slides in. `invisible` (not just opacity-0)
                 keeps the buttons out of the tab order and away from screen
                 readers while hidden; the hide lags 150ms so a slipping mouse
                 doesn't flicker it. ZEN-02.
@@ -88,21 +115,65 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen }: ZenTopBa
             <div
                 role="toolbar"
                 aria-label="Zen mode top bar"
-                style={{ paddingTop: "var(--safe-area-top, 0px)" }}
+                // macOS keeps its window buttons at the top left even in zen;
+                // the bar's own controls start clear of them. CHROME-05.
+                style={{
+                    paddingTop: "var(--safe-area-top, 0px)",
+                    ...(MAC_WINDOW && !isFullscreen ? { paddingLeft: MAC_LIGHTS_INSET } : {}),
+                }}
                 className={IS_TOUCH
                     ? "relative min-h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)] border-b border-[var(--border)]"
-                    : "absolute top-0 inset-x-0 h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)]/95 backdrop-blur-sm border-b border-[var(--border)] transition-all duration-150 delay-150 group-hover/zenbar:delay-0 invisible opacity-0 -translate-y-1 pointer-events-none group-hover/zenbar:visible group-hover/zenbar:opacity-100 group-hover/zenbar:translate-y-0 group-hover/zenbar:pointer-events-auto"}
+                    : `absolute top-0 inset-x-0 h-11 flex items-center justify-between pl-3 pr-2 bg-[var(--bg-titlebar)]/95 backdrop-blur-sm border-b border-[var(--border)] transition-all duration-150 delay-150 group-hover/zenbar:delay-0 ${peeking ? "visible opacity-100 translate-y-0 pointer-events-auto" : "invisible opacity-0 -translate-y-1 pointer-events-none"} group-hover/zenbar:visible group-hover/zenbar:opacity-100 group-hover/zenbar:translate-y-0 group-hover/zenbar:pointer-events-auto group-focus-within/zenbar:delay-0 group-focus-within/zenbar:visible group-focus-within/zenbar:opacity-100 group-focus-within/zenbar:translate-y-0 group-focus-within/zenbar:pointer-events-auto`}
             >
-                <button
-                    onClick={onExitZen}
-                    aria-label="Exit Zen mode"
-                    title="Back to normal view (F9)"
-                    className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-xs"
-                >
-                    <span className="material-symbols-outlined text-[16px]">web_asset</span>
-                    <span>Normal</span>
-                </button>
-                {!IS_MOBILE && (
+                <div className="flex items-center gap-1">
+                    <button
+                        onClick={onExitZen}
+                        aria-label="Exit Zen mode"
+                        title="Back to normal view (F9)"
+                        className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-xs"
+                    >
+                        <span className="material-symbols-outlined text-[16px]">web_asset</span>
+                        <span>Normal</span>
+                    </button>
+                    {/* Zen still needs the everyday file actions: jump around the
+                        document via the outline, and start/open a file — without
+                        giving up the distraction-free canvas. ZEN-03. */}
+                    {onToggleOutline && (
+                        <button
+                            onClick={onToggleOutline}
+                            aria-label={outlineOpen ? "Close outline" : "Open outline"}
+                            aria-pressed={outlineOpen}
+                            title="Outline (Ctrl+Shift+O)"
+                            className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${outlineOpen
+                                ? "bg-[var(--accent)] text-[var(--accent-text)]"
+                                : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
+                        >
+                            <span className="material-symbols-outlined text-[18px]">format_list_bulleted</span>
+                        </button>
+                    )}
+                    {onNewFile && (
+                        <button
+                            onClick={onNewFile}
+                            aria-label="New file"
+                            title="New file (Ctrl+N)"
+                            className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">edit_note</span>
+                        </button>
+                    )}
+                    {onOpenFile && (
+                        <button
+                            onClick={onOpenFile}
+                            aria-label="Open file"
+                            title="Open file (Ctrl+O)"
+                            className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">folder_open</span>
+                        </button>
+                    )}
+                </div>
+                {/* macOS draws the window's buttons itself. CHROME-05 (#262). */}
+                {!IS_MOBILE && !MAC_WINDOW && (
                     <div className="flex items-center gap-1">
                         <button
                             onClick={handleMinimize}
@@ -114,7 +185,7 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen }: ZenTopBa
                         <button
                             onClick={handleMaximize}
                             aria-label={isFullscreen ? "Exit fullscreen" : "Maximize"}
-                            title={isFullscreen ? "Exit fullscreen (F11)" : "Maximize"}
+                            title={isFullscreen ? `Exit fullscreen (${formatShortcut("fullscreen")})` : "Maximize"}
                             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[16px]">{isFullscreen ? "fullscreen_exit" : "crop_square"}</span>

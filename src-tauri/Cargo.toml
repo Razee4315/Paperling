@@ -1,6 +1,6 @@
 [package]
 name = "paperling"
-version = "1.0.50"
+version = "1.1.1"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -67,8 +67,8 @@ tauri-plugin-window-state = "2"
 # its native PrintToPdf (no OS print dialog). Versions track what wry/tauri
 # already resolve so we don't pull a second copy of the Windows bindings.
 [target."cfg(windows)".dependencies]
-webview2-com = "0.38"
-windows = "0.61"
+webview2-com = "0.39"
+windows = "0.62"
 
 # Same silent PDF export on macOS: an NSPrintOperation on the hidden WKWebView
 # with a save-to-URL job disposition writes the PDF with no dialogs. Versions

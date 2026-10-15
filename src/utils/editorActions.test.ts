@@ -2,53 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
     handleTab,
     handleEnter,
-    handleAutoPair,
-    handleSkipCloser,
-    handleBackspace,
     wrapSelection,
     insertLink,
+    toggleTask,
     type EditorState,
 } from "./editorActions";
 
 const st = (text: string, selStart: number, selEnd: number = selStart): EditorState => ({ text, selStart, selEnd });
-
-describe("handleAutoPair", () => {
-    it("inserts a closing pair on empty selection and centers the caret", () => {
-        const r = handleAutoPair(st("", 0), "(");
-        expect(r).toEqual({ text: "()", selStart: 1, selEnd: 1 });
-    });
-
-    it("wraps a non-empty selection", () => {
-        const r = handleAutoPair(st("abc", 0, 3), "(");
-        expect(r).toEqual({ text: "(abc)", selStart: 1, selEnd: 4 });
-    });
-
-    it("does not auto-pair a quote next to a word char (apostrophe)", () => {
-        expect(handleAutoPair(st("a", 1), "'")).toBeNull();
-    });
-
-    it("returns null for a non-pairing char", () => {
-        expect(handleAutoPair(st("", 0), "z")).toBeNull();
-    });
-});
-
-describe("handleSkipCloser", () => {
-    it("types past an existing closer", () => {
-        expect(handleSkipCloser(st("()", 1), ")")).toEqual({ text: "()", selStart: 2, selEnd: 2 });
-    });
-    it("returns null when next char is not the closer", () => {
-        expect(handleSkipCloser(st("(", 1), ")")).toBeNull();
-    });
-});
-
-describe("handleBackspace", () => {
-    it("erases an empty auto-pair as a unit", () => {
-        expect(handleBackspace(st("()", 1))).toEqual({ text: "", selStart: 0, selEnd: 0 });
-    });
-    it("returns null for normal backspace", () => {
-        expect(handleBackspace(st("ab", 2))).toBeNull();
-    });
-});
 
 describe("wrapSelection", () => {
     it("wraps a selection with markers", () => {
@@ -107,5 +67,127 @@ describe("handleTab", () => {
         // "| a | b |" — caret in first cell -> jumps into second cell
         const r = handleTab(st("| a | b |", 2), false);
         expect(r?.selStart).toBe(6);
+    });
+});
+
+describe("audit regression fixes", () => {
+    it("Tab with a single-line selection indents the line and KEEPS the selection (SHC-04)", () => {
+        const r = handleTab(st("hello world", 6, 11), false);
+        expect(r?.text).toBe("  hello world");
+        expect(r?.selStart).toBe(8);
+        expect(r?.selEnd).toBe(13);
+    });
+
+    it("Tab on the last cell of a table that ends the document creates a new row (SHC-05)", () => {
+        const doc = "| a | b |\n| --- | --- |\n| 1 | 2 |";
+        // caret on the "2" — inside the LAST cell (between the last two pipes)
+        const r = handleTab(st(doc, doc.length - 3), false);
+        expect(r?.text).toBe(doc + "\n|  |  |");
+        expect(r?.selStart).toBe(doc.length + 3);
+    });
+
+    it("Tab on the last cell before a trailing newline appends a row before it (SHC-05)", () => {
+        const doc = "| a | b |\n| --- | --- |\n| 1 | 2 |\n";
+        const r = handleTab(st(doc, doc.length - 4), false);
+        expect(r?.text).toBe("| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |\n");
+    });
+
+    it("Enter on a numbered list renumbers the items below (SHC-06)", () => {
+        const r = handleEnter(st("1. one\n2. two\n3. three", 6), false);
+        expect(r?.text).toBe("1. one\n2. \n3. two\n4. three");
+    });
+
+    it("Enter renumbering stops at a broken chain (SHC-06)", () => {
+        const r = handleEnter(st("1. one\n2. two\n\n9. nine", 6), false);
+        expect(r?.text).toBe("1. one\n2. \n3. two\n\n9. nine");
+    });
+
+    it("Enter on a numbered list at EOF adds no stray trailing newline (SHC-06)", () => {
+        expect(handleEnter(st("1. one", 6))?.text).toBe("1. one\n2. ");
+        expect(handleEnter(st("1. one\n", 6))?.text).toBe("1. one\n2. \n");
+    });
+
+    it("wrapSelection unwraps markers INSIDE the selection (SHC-07)", () => {
+        const r = wrapSelection(st("**bold**", 0, 8), "**");
+        expect(r.text).toBe("bold");
+        expect(r.selStart).toBe(0);
+        expect(r.selEnd).toBe(4);
+    });
+
+    it("wrapSelection still unwraps markers OUTSIDE the selection", () => {
+        const r = wrapSelection(st("**bold**", 2, 6), "**");
+        expect(r.text).toBe("bold");
+    });
+
+    it("handleTableTab: shift-tab from the first body cell skips the separator to the header row", () => {
+        const doc = "| a | b |\n| --- | --- |\n| 1 | 2 |";
+        // caret on the "1" (first cell of the body row)
+        const r = handleTab(st(doc, 26), true);
+        expect(r?.selStart).toBe(6); // second cell of the header row
+    });
+});
+
+describe("list editing (EDIT-03/04/05)", () => {
+    it("Enter right after the marker of a non-empty item splits instead of deleting the marker (EDIT-03)", () => {
+        expect(handleEnter(st("- a", 2))).toEqual({ text: "- \n- a", selStart: 5, selEnd: 5 });
+        expect(handleEnter(st("- [ ] task", 6))?.text).toBe("- [ ] \n- [ ] task");
+        expect(handleEnter(st("1. a", 3))?.text).toBe("1. \n2. a");
+        expect(handleEnter(st("> quoted", 2))?.text).toBe("> \n> quoted");
+    });
+
+    it("Enter on an empty top-level item still ends the list", () => {
+        expect(handleEnter(st("- a\n- ", 6))).toEqual({ text: "- a\n\n", selStart: 5, selEnd: 5 });
+        expect(handleEnter(st("> a\n> ", 6))?.text).toBe("> a\n\n");
+    });
+
+    it("Enter on an empty NESTED item steps out one level (EDIT-05)", () => {
+        expect(handleEnter(st("- a\n  - ", 8))).toEqual({ text: "- a\n- ", selStart: 6, selEnd: 6 });
+        // Under a numbered parent the item continues the parent's numbering.
+        expect(handleEnter(st("1. a\n   - ", 10))?.text).toBe("1. a\n2. ");
+        // A nested task keeps its checkbox when it steps out.
+        expect(handleEnter(st("- [ ] a\n  - [ ] ", 16))?.text).toBe("- [ ] a\n- [ ] ");
+    });
+
+    it("Tab nests the whole list item, wherever the caret is (EDIT-04)", () => {
+        expect(handleTab(st("- a\n- b", 7), false)).toEqual({ text: "- a\n  - b", selStart: 9, selEnd: 9 });
+        expect(handleTab(st("- a\n- bc", 7), false)?.text).toBe("- a\n  - bc");
+        // Under "1. " a child needs 3 spaces to nest, and restarts at 1.
+        expect(handleTab(st("1. a\n2. b", 9), false)?.text).toBe("1. a\n   1. b");
+        // Continues the numbering of an existing nested list.
+        expect(handleTab(st("1. a\n   1. x\n2. b", 16), false)?.text).toBe("1. a\n   1. x\n   2. b");
+    });
+
+    it("Tab on the first item (nothing to nest under) leaves the text alone", () => {
+        expect(handleTab(st("- a", 3), false)).toEqual({ text: "- a", selStart: 3, selEnd: 3 });
+    });
+
+    it("Shift+Tab un-nests to the parent's level (EDIT-04)", () => {
+        expect(handleTab(st("- a\n  - b", 9), true)).toEqual({ text: "- a\n- b", selStart: 7, selEnd: 7 });
+        expect(handleTab(st("1. a\n   1. b", 12), true)?.text).toBe("1. a\n2. b");
+        expect(handleTab(st("- a", 3), true)).toEqual({ text: "- a", selStart: 3, selEnd: 3 });
+    });
+
+    it("Tab outside a list still indents at the caret", () => {
+        expect(handleTab(st("abc", 0), false)).toEqual({ text: "  abc", selStart: 2, selEnd: 2 });
+    });
+});
+
+describe("toggleTask (TASK-01)", () => {
+    it("ticks and unticks a task, keeping the caret on the same text", () => {
+        expect(toggleTask(st("- [ ] milk", 8))).toEqual({ text: "- [x] milk", selStart: 8, selEnd: 8 });
+        expect(toggleTask(st("- [x] milk", 8)).text).toBe("- [ ] milk");
+    });
+
+    it("turns a list item or a plain line into a task", () => {
+        expect(toggleTask(st("- milk", 4))).toEqual({ text: "- [ ] milk", selStart: 8, selEnd: 8 });
+        expect(toggleTask(st("  1. step", 9)).text).toBe("  1. [ ] step");
+        expect(toggleTask(st("call mom", 0))).toEqual({ text: "- [ ] call mom", selStart: 6, selEnd: 6 });
+    });
+
+    it("applies one direction to every selected line, skipping blanks", () => {
+        const doc = "- [ ] a\n\n- [x] b\nc";
+        expect(toggleTask(st(doc, 0, doc.length)).text).toBe("- [x] a\n\n- [x] b\n- [ ] c");
+        const done = "- [x] a\n- [ ] b";
+        expect(toggleTask(st(done, 0, done.length)).text).toBe("- [ ] a\n- [ ] b");
     });
 });

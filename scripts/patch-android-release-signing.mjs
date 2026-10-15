@@ -48,6 +48,8 @@ const SIGNING_CONFIGS_BLOCK = `\
                 keyPassword = ksProps.getProperty("keyPassword")
                 storeFile = file(ksProps.getProperty("storeFile"))
                 storePassword = ksProps.getProperty("storePassword")
+                // Optional: "pkcs12" for the release keystore (ANDR-SIGN-01).
+                ksProps.getProperty("storeType")?.let { storeType = it }
             }
         }
     }

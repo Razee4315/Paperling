@@ -1,5 +1,7 @@
 import { useEffect, type RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { subscribeExternalChecks, type ExternalCheckTrigger } from "../utils/externalCheck";
+import { idleWriteToken } from "../utils/fileIO";
 
 export interface UseExternalChangeWatcherOptions {
   /** Path of the open file, or null. Read live via ref (listener mounts once). */
@@ -12,17 +14,22 @@ export interface UseExternalChangeWatcherOptions {
   knownMtimeRef: RefObject<number>;
   /** True while an AI review is pending — don't reload over a proposed diff. */
   isReviewActiveRef: RefObject<boolean>;
-  /** Reload the file from disk (used when the buffer is clean). */
-  reload: (path: string) => Promise<void>;
-  /** Called after a silent reload of a clean buffer. */
-  onReloaded: () => void;
+  /**
+   * Reload the file from disk (used when the buffer is clean). Resolves false
+   * when it declined because the buffer was edited during the read; the
+   * change is then treated as a conflict. EXT-09.
+   */
+  reload: (path: string) => Promise<boolean | void>;
+  /** Called after a silent reload of a clean buffer, with what triggered it. */
+  onReloaded: (trigger: ExternalCheckTrigger) => void;
   /** Called when the file changed on disk but the buffer is dirty. */
   onConflict: () => void;
 }
 
 /**
  * Detect the open file changing underneath us (sync tools, another editor). On
- * window focus, stat the file: if it's newer than what we last wrote and the
+ * window focus, and on an interval while the window is visible (EXT-07), stat
+ * the file: if it's newer than what we last wrote and the
  * buffer is clean, reload silently; if the buffer is dirty, warn that saving will
  * overwrite. EXT-01.
  *
@@ -41,21 +48,26 @@ export function useExternalChangeWatcher({
 }: UseExternalChangeWatcherOptions): void {
   useEffect(() => {
     let checking = false;
-    const checkExternalChange = async () => {
+    const checkExternalChange = async (trigger: ExternalCheckTrigger) => {
       const path = filePathRef.current;
       // Bail before claiming the `checking` slot so an early return can never
       // strand it set (that would silently kill detection for the session).
       if (!path || checking || isReviewActiveRef.current) return;
+      // One of our own saves overlapping the stat would read as an external
+      // change; skip this tick, the next one sees the recorded mtime. EXT-08.
+      const writeToken = idleWriteToken();
+      if (writeToken === null) return;
       checking = true;
       try {
         const info = await invoke<{ modified: number }>("get_file_info", { path });
+        if (idleWriteToken() !== writeToken) return;
         const known = knownMtimeRef.current ?? 0;
         if (known > 0 && info.modified > known) {
           // Update first so a failed/declined reload doesn't re-toast forever.
           knownMtimeRef.current = info.modified;
           if (contentRef.current === originalContentRef.current) {
-            await reload(path);
-            onReloaded();
+            if ((await reload(path)) === false) onConflict();
+            else onReloaded(trigger);
           } else {
             onConflict();
           }
@@ -66,7 +78,6 @@ export function useExternalChangeWatcher({
         checking = false;
       }
     };
-    window.addEventListener("focus", checkExternalChange);
-    return () => window.removeEventListener("focus", checkExternalChange);
+    return subscribeExternalChecks((trigger) => void checkExternalChange(trigger));
   }, [filePathRef, contentRef, originalContentRef, knownMtimeRef, isReviewActiveRef, reload, onReloaded, onConflict]);
 }

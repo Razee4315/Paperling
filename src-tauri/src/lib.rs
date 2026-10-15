@@ -3,26 +3,95 @@ mod commands;
 mod pdf;
 
 use commands::{
-    exit_app, find_backlinks, get_ai_key, get_file_info, get_incoming_file, get_notes_dir,
-    list_directory_files, read_file, read_image_file, save_file, save_image, search_files,
-    set_ai_key, write_export_file,
+    create_folder, exit_app, find_backlinks, get_ai_key, get_file_info, get_incoming_file,
+    get_notes_dir, list_directory_files, read_file, read_image_file, rename_path, save_file,
+    save_image, search_files, set_ai_key, trash_path, write_export_file,
 };
 use std::sync::Mutex;
-// Both traits are only exercised by the desktop single-instance closure
-// (window lookup + event emit); on mobile they would be unused imports.
+// Both traits are only exercised by the desktop single-instance closure and
+// the macOS open-documents path (state + window lookup, event emit); on mobile
+// they would be unused imports.
 #[cfg(desktop)]
 use tauri::{Emitter, Manager};
 
-/// File path passed on the command line (double-clicking a .md in the OS).
-/// Held until the frontend asks for it via `get_cli_file`.
-struct CliFile(Mutex<Option<String>>);
+/// File the OS asked us to open at launch (double-clicking a .md): from argv
+/// on Windows/Linux, from an open-documents event on macOS. Held until the
+/// frontend asks for it via `get_cli_file`.
+#[derive(Default)]
+struct LaunchFile {
+    file: Option<String>,
+    /// Set once the frontend has pulled. After that, a macOS open-documents
+    /// event must be pushed to the running window instead of stashed. BOOT-02.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pulled: bool,
+}
+
+struct CliFile(Mutex<LaunchFile>);
+
+/// Markdown under its common extensions, compared case-insensitively. A
+/// double-clicked `README.MD` (common on Windows) used to be ignored, so the
+/// app opened the last session instead of the file. BOOT-04. Plain `.txt` is
+/// deliberately absent: Paperling is not registered for it.
+const LAUNCH_EXTENSIONS: [&str; 5] = ["md", "markdown", "mdown", "mkd", "mdx"];
+
+fn is_markdown(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| LAUNCH_EXTENSIONS.iter().any(|known| ext.eq_ignore_ascii_case(known)))
+}
 
 /// First markdown path among the process arguments (skipping argv[0]).
 fn md_arg(args: &[String]) -> Option<String> {
-    args.iter()
-        .skip(1)
-        .find(|a| a.ends_with(".md") || a.ends_with(".markdown"))
-        .cloned()
+    args.iter().skip(1).find(|a| is_markdown(a)).cloned()
+}
+
+/// First markdown file among the URLs of a macOS open-documents event.
+/// `to_file_path` percent-decodes, so paths with spaces come back intact.
+#[cfg(target_os = "macos")]
+fn md_url(urls: &[tauri::Url]) -> Option<String> {
+    urls.iter()
+        .filter(|u| u.scheme() == "file")
+        .filter_map(|u| u.to_file_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .find(|p| is_markdown(p))
+}
+
+/// Stash the path for the frontend's pull, or hand it back to be pushed when
+/// the frontend has already pulled.
+#[cfg(any(target_os = "macos", test))]
+fn stash_unless_pulled(launch: &mut LaunchFile, path: String) -> Option<String> {
+    if launch.pulled {
+        return Some(path);
+    }
+    launch.file = Some(path);
+    None
+}
+
+fn take_launch_file(launch: &mut LaunchFile) -> Option<String> {
+    launch.pulled = true;
+    launch.file.take()
+}
+
+/// macOS never puts a double-clicked file in argv. Finder launches (or
+/// re-activates) the app and then sends an open-documents Apple Event, which
+/// Tauri surfaces as `RunEvent::Opened`. Without this the file was dropped and
+/// the last session restored, cold or warm; the single-instance plugin can't
+/// help because macOS doesn't start a second process. BOOT-02.
+///
+/// Before the frontend has pulled (cold start), stash the path for
+/// `get_cli_file`, the same PULL model argv uses. After that, push it through
+/// the existing `file-open-from-cli` listener. Deciding under the lock means a
+/// path can't slip between the stash and the pull.
+#[cfg(target_os = "macos")]
+fn open_os_file(app: &tauri::AppHandle, path: String) {
+    let forward = stash_unless_pulled(&mut app.state::<CliFile>().0.lock().unwrap(), path);
+    let Some(path) = forward else { return };
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        let _ = window.emit("file-open-from-cli", path);
+    }
 }
 
 /// PULL model for the OS-opened file. The old design pushed an event after a
@@ -34,7 +103,7 @@ fn md_arg(args: &[String]) -> Option<String> {
 /// `take()` so a webview reload doesn't re-open it.
 #[tauri::command]
 fn get_cli_file(state: tauri::State<CliFile>) -> Option<String> {
-    state.0.lock().unwrap().take()
+    take_launch_file(&mut state.0.lock().unwrap())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -78,8 +147,12 @@ pub fn run() {
     //   FULLSCREEN  useFullscreen tracks fullscreen in a ref because
     //               isFullscreen() lies on frameless windows (FULLSCREEN-01).
     //               Reopening fullscreen behind its back desyncs the title bar
-    //               and eats the first F11 press.
-    //   DECORATIONS meaningless for a window that is always decorations:false.
+    //               and eats the first F11 press. (macOS asks the window
+    //               instead, FULLSCREEN-02; a launch straight into
+    //               fullscreen is still not something we restore.)
+    //   DECORATIONS not ours to restore: the window is frameless everywhere
+    //               but macOS, where tauri.macos.conf.json gives it the
+    //               system's title-bar buttons.
     //
     // Filtered to "main" as well, because the plugin manages EVERY window and
     // PDF export spins up its own (pdf.rs, label "pdf-export-{seq}"). Those are
@@ -126,7 +199,10 @@ pub fn run() {
             }
             Ok(())
         })
-        .manage(CliFile(Mutex::new(cli_file)))
+        .manage(CliFile(Mutex::new(LaunchFile {
+            file: cli_file,
+            ..Default::default()
+        })))
         .manage(ai::AiCancel::default())
         .invoke_handler(tauri::generate_handler![
             read_file,
@@ -136,6 +212,9 @@ pub fn run() {
             list_directory_files,
             search_files,
             find_backlinks,
+            create_folder,
+            rename_path,
+            trash_path,
             save_image,
             read_image_file,
             get_ai_key,
@@ -148,13 +227,47 @@ pub fn run() {
             ai::ai_request,
             ai::ai_cancel
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                if let Some(path) = md_url(&urls) {
+                    open_os_file(_app, path);
+                }
+            }
+        });
 }
 
 #[cfg(test)]
 mod tests {
-    use super::md_arg;
+    use super::{md_arg, stash_unless_pulled, take_launch_file, LaunchFile};
+
+    #[test]
+    fn os_opened_file_is_stashed_until_the_frontend_pulls() {
+        let mut launch = LaunchFile::default();
+        // Cold start: the event beats the frontend, so the path waits for the pull.
+        assert_eq!(stash_unless_pulled(&mut launch, "/a.md".into()), None);
+        assert_eq!(take_launch_file(&mut launch), Some("/a.md".into()));
+        // Warm: once pulled, later files are handed back to be pushed, not stashed.
+        assert_eq!(stash_unless_pulled(&mut launch, "/b.md".into()), Some("/b.md".into()));
+        assert_eq!(take_launch_file(&mut launch), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn md_url_decodes_file_urls_and_skips_the_rest() {
+        let u = |s: &str| tauri::Url::parse(s).unwrap();
+        assert_eq!(
+            super::md_url(&[u("file:///Users/me/My%20Notes/a.md")]),
+            Some("/Users/me/My Notes/a.md".into())
+        );
+        assert_eq!(
+            super::md_url(&[u("file:///tmp/a.txt"), u("file:///tmp/b.markdown")]),
+            Some("/tmp/b.markdown".into())
+        );
+        assert_eq!(super::md_url(&[u("https://example.com/a.md")]), None);
+    }
 
     fn v(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| s.to_string()).collect()
@@ -164,6 +277,11 @@ mod tests {
     fn md_arg_skips_argv0_and_finds_markdown() {
         assert_eq!(md_arg(&v(&["paperling.exe", "C:\\notes\\a.md"])), Some("C:\\notes\\a.md".into()));
         assert_eq!(md_arg(&v(&["paperling.exe", "C:\\notes\\b.markdown"])), Some("C:\\notes\\b.markdown".into()));
+        // BOOT-04: extension case and the other Markdown extensions.
+        assert_eq!(md_arg(&v(&["paperling.exe", "README.MD"])), Some("README.MD".into()));
+        assert_eq!(md_arg(&v(&["paperling.exe", "page.mdx"])), Some("page.mdx".into()));
+        assert_eq!(md_arg(&v(&["paperling.exe", "notes.mdown"])), Some("notes.mdown".into()));
+        assert_eq!(md_arg(&v(&["paperling.exe", "notes.md.bak"])), None);
     }
 
     #[test]

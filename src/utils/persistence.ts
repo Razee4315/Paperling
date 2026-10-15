@@ -8,6 +8,7 @@ import { sanitizeSessions, pruneSessions, type ChatSession } from "./chatSession
 // touch-first users (e.g. the formatting toolbar ships on, because a phone
 // has no Ctrl+B). Explicit stored choices always win over these defaults.
 import { IS_MOBILE } from "./platform";
+import { isTextDirection, type TextDirection } from "./textDirection";
 
 // One-time migration from the app's pre-rename key prefix. The bundle
 // identifier (and therefore the WebView2 storage location) is unchanged, so
@@ -158,14 +159,22 @@ const KEY_WORD_WRAP = "paperling:wordWrap";
 const KEY_SPELL_CHECK = "paperling:spellCheck";
 export const getTypewriterMode = (): boolean => safeGet<boolean>(KEY_TYPEWRITER_MODE, false);
 export const setTypewriterMode = (v: boolean): void => safeSet(KEY_TYPEWRITER_MODE, v);
-// Default ON on mobile: the toolbar is the only formatting entry point a
-// touch user has (no Ctrl+B/I/K). Desktop keeps its opt-in default.
-export const getToolbarEnabled = (): boolean => safeGet<boolean>(KEY_TOOLBAR, IS_MOBILE);
+// Default ON everywhere: on a phone the toolbar is the only formatting entry
+// point (no Ctrl+B/I/K), and on desktop a new note used to be an empty
+// monospace page with nothing to click for someone who doesn't know Markdown
+// syntax. DEFAULTS-01.
+export const getToolbarEnabled = (): boolean => safeGet<boolean>(KEY_TOOLBAR, true);
 export const setToolbarEnabled = (v: boolean): void => safeSet(KEY_TOOLBAR, v);
 export const getWordWrap = (): boolean => safeGet<boolean>(KEY_WORD_WRAP, true);
 export const setWordWrap = (v: boolean): void => safeSet(KEY_WORD_WRAP, v);
-export const getSpellCheck = (): boolean => safeGet<boolean>(KEY_SPELL_CHECK, false);
+export const getSpellCheck = (): boolean => safeGet<boolean>(KEY_SPELL_CHECK, true);
 export const setSpellCheck = (v: boolean): void => safeSet(KEY_SPELL_CHECK, v);
+
+// LIVE-01: hide Markdown symbols in the editor except on the line being
+// edited. Opt-in: it changes how every line of the editor looks.
+const KEY_LIVE_PREVIEW = "paperling:livePreview";
+export const getLivePreview = (): boolean => safeGet<boolean>(KEY_LIVE_PREVIEW, false);
+export const setLivePreview = (v: boolean): void => safeSet(KEY_LIVE_PREVIEW, v);
 
 // Optional vim modal editing (issue #119). Off by default: the app must stay
 // fully usable by people who have never touched vim.
@@ -174,15 +183,62 @@ export const getVimMode = (): boolean => safeGet<boolean>(KEY_VIM_MODE, false);
 export const setVimMode = (v: boolean): void => safeSet(KEY_VIM_MODE, v);
 
 const KEY_AUTO_SAVE = "paperling:autoSave";
-export const getAutoSave = (): boolean => safeGet<boolean>(KEY_AUTO_SAVE, false);
+// Default ON (DEFAULTS-01): the desktop shell had no visible Save control, so
+// a user who doesn't think in shortcuts typed, saw "Unsaved" and had nothing
+// to click. Autosave only ever writes files that already have a path, stats
+// the file first (EXT-06) and parks itself during conflicts and AI reviews,
+// so it cannot overwrite an external change or create a file on its own.
+export const getAutoSave = (): boolean => safeGet<boolean>(KEY_AUTO_SAVE, true);
 export const setAutoSave = (v: boolean): void => safeSet(KEY_AUTO_SAVE, v);
 
 // "Always open files in reader": every file open switches to preview mode,
 // for the read-mostly audience. New files still open in code mode, and the
 // flag is read live at each open (no cached state to keep in sync). READ-01.
+// Default ON (DEFAULTS-01): the view mode is remembered globally, so after one
+// trip into Code every double-clicked file opened as raw Markdown — the exact
+// thing the app exists to avoid.
 const KEY_OPEN_IN_READER = "paperling:openInReader";
-export const getOpenInReader = (): boolean => safeGet<boolean>(KEY_OPEN_IN_READER, false);
+export const getOpenInReader = (): boolean => safeGet<boolean>(KEY_OPEN_IN_READER, true);
 export const setOpenInReader = (v: boolean): void => safeSet(KEY_OPEN_IN_READER, v);
+
+// BOOT-03 (#228): controls clean session tabs only; hot-exit recovery is
+// unconditional so turning this off can never discard unsaved work.
+export const getReopenSession = (): boolean => safeGet<boolean>("paperling:reopenSession", true);
+export const setReopenSession = (v: boolean): void => safeSet("paperling:reopenSession", v);
+
+export const getRemoteImages = (): boolean => safeGet<boolean>("paperling:remoteImages", true);
+export const setRemoteImages = (v: boolean): void => safeSet("paperling:remoteImages", v);
+// READ-06: whether double-clicking rendered text edits it in place. On by
+// default: with it off the gesture did nothing at all, and the only way in was
+// a permanent "Edit Reader" strip across the top of every note.
+export const getReaderEditing = (): boolean => safeGet<boolean>("paperling:readerEditing", true);
+export const setReaderEditing = (v: boolean): void => safeSet("paperling:readerEditing", v);
+
+export const getWorkspaceDirectory = (): string | null => {
+    const v = safeGet<unknown>("paperling:workspaceDirectory", null);
+    return typeof v === "string" && v.length > 0 ? v : null;
+};
+export const setWorkspaceDirectory = (v: string | null): void => safeSet("paperling:workspaceDirectory", v);
+
+// Readable line length (RLL-01): center the preview in a comfortable
+// ~800px column, Obsidian-style. ON by default — long measure (~100+ chars)
+// is measurably harder to read, and the pre-#205 behavior is the better
+// default; the toggle exists for users who want the full window width.
+const KEY_READABLE_LINE_LENGTH = "paperling:readableLineLength";
+export const getReadableLineLength = (): boolean => safeGet<boolean>(KEY_READABLE_LINE_LENGTH, true);
+export const setReadableLineLength = (v: boolean): void => safeSet(KEY_READABLE_LINE_LENGTH, v);
+
+// Text direction (issue #216, BIDI-01): "auto" gives each line/block the
+// direction of its first strong character; "rtl"/"ltr" force one direction
+// for the whole document. Set from Settings → Editor or the Windows
+// Ctrl+Right/Left Shift chord in the editor; broadcast via
+// paperling:text-direction-change. A malformed stored value falls back to auto.
+const KEY_TEXT_DIRECTION = "paperling:textDirection";
+export const getTextDirection = (): TextDirection => {
+    const v = safeGet<unknown>(KEY_TEXT_DIRECTION, "auto");
+    return isTextDirection(v) ? v : "auto";
+};
+export const setTextDirection = (v: TextDirection): void => safeSet(KEY_TEXT_DIRECTION, v);
 
 // Zen mode: distraction-free reading canvas. Hides the title bar, tab bar,
 // mode toggle, status bar, and all side panels, leaving only the rendered
@@ -316,3 +372,37 @@ export const setAIConfig = (cfg: { endpoint: string; model: string; apiKey: stri
         .then(() => { try { localStorage.removeItem(KEY_AI_API_KEY); } catch {/* ignore */} })
         .catch((err) => console.error("Could not securely persist the AI API key:", err));
 };
+
+// DEFAULTS-01: autosave, open-in-reader, the formatting toolbar and spell
+// check became ON by default for new installs. A profile that already exists
+// never stored those four unless the user toggled them, so flipping the
+// fallbacks alone would silently change how saving and opening behave for
+// everyone who has been using the app. Pin the previous defaults for such a
+// profile once; a fresh profile only records that it started on the new set.
+// Runs at module load, after the legacy-key migration and before any getter
+// seeds React state. Exported for tests.
+const KEY_DEFAULTS_VERSION = "paperling:defaultsVersion";
+export function pinLegacyDefaults(mobile: boolean = IS_MOBILE): void {
+    try {
+        if (localStorage.getItem(KEY_DEFAULTS_VERSION) !== null) return;
+        let existingProfile = false;
+        for (let i = 0; i < localStorage.length && !existingProfile; i++) {
+            existingProfile = !!localStorage.key(i)?.startsWith("paperling");
+        }
+        if (existingProfile) {
+            const pin = (key: string, value: boolean) => {
+                if (localStorage.getItem(key) === null) localStorage.setItem(key, JSON.stringify(value));
+            };
+            pin(KEY_AUTO_SAVE, false);
+            pin(KEY_OPEN_IN_READER, false);
+            pin(KEY_TOOLBAR, mobile);
+            pin(KEY_SPELL_CHECK, false);
+            // THEME-01: a profile that never chose a theme has been looking at
+            // Paper; following the OS is for new installs only. (Raw string:
+            // ThemeContext owns this key and does not JSON-encode it.)
+            if (localStorage.getItem("paperling-theme") === null) localStorage.setItem("paperling-theme", "paper");
+        }
+        localStorage.setItem(KEY_DEFAULTS_VERSION, "2");
+    } catch { /* storage unavailable — defaults simply apply */ }
+}
+pinLegacyDefaults();

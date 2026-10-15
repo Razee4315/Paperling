@@ -98,6 +98,24 @@ describe("useGlobalShortcuts", () => {
         window.removeEventListener("paperling:ai-assist", onAi);
         expect(onAi).toHaveBeenCalledTimes(1);
     });
+
+    it("ignores events another layer already handled (defaultPrevented, SHC-01)", () => {
+        // The editor/vim/menus preventDefault the keys they own; the window
+        // handler used to fire on top of them (e.g. vim's Ctrl+W delete-word
+        // also closed the tab, macOS Alt+Arrows moved the caret AND switched
+        // tabs).
+        const h = makeHandlers();
+        render(<Harness handlers={h} />);
+        const event = new KeyboardEvent("keydown", {
+            key: "s",
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true,
+        });
+        event.preventDefault(); // simulate the editor having handled it
+        window.dispatchEvent(event);
+        expect(h.handleSaveFile).not.toHaveBeenCalled();
+    });
 });
 
 describe("useGlobalShortcuts gating", () => {
@@ -119,6 +137,17 @@ describe("useGlobalShortcuts gating", () => {
         const h = makeHandlers({ mode: "code", openPreviewFind: vi.fn() });
         render(<Harness handlers={h} />);
         press({ key: "f", ctrlKey: true });
+        expect(h.openPreviewFind).not.toHaveBeenCalled();
+    });
+
+    it("Ctrl+F outside the focused editor opens the editor's find (FIND-10)", () => {
+        const h = makeHandlers({ mode: "split", openPreviewFind: vi.fn() });
+        render(<Harness handlers={h} />);
+        const opened = vi.fn();
+        window.addEventListener("paperling:open-find", opened);
+        press({ key: "f", ctrlKey: true });
+        window.removeEventListener("paperling:open-find", opened);
+        expect(opened).toHaveBeenCalledTimes(1);
         expect(h.openPreviewFind).not.toHaveBeenCalled();
     });
 });

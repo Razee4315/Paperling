@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { Children, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { useTheme, ACCENT_CHOICES, type Theme, type FontFamily, type FontSize } from "../context/ThemeContext";
+import { ShortcutSettings } from "./ShortcutSettings";
+import { getInstalledFontFamilies } from "../utils/fontDiscovery";
 import { IS_MOBILE } from "../utils/platform";
+import type { TextDirection } from "../utils/textDirection";
+import { isMac } from "../config/keybindings";
 import {
     getTypewriterMode, setTypewriterMode,
     getToolbarEnabled, setToolbarEnabled,
@@ -8,9 +12,15 @@ import {
     getAIEnabled, setAIEnabled,
     getWordWrap, setWordWrap,
     getSpellCheck, setSpellCheck,
+    getLivePreview, setLivePreview,
     getVimMode, setVimMode,
     getAutoSave, setAutoSave,
     getOpenInReader, setOpenInReader,
+    getReopenSession, setReopenSession,
+    getRemoteImages, setRemoteImages,
+    getReaderEditing, setReaderEditing,
+    getReadableLineLength, setReadableLineLength,
+    getTextDirection, setTextDirection,
     getZenMode, setZenMode,
     getAIHistoryTurns, setAIHistoryTurns, AI_HISTORY_TURNS_MAX,
     getAIIconAnimation, setAIIconAnimation,
@@ -31,14 +41,27 @@ interface SettingsModalProps {
     onClose: () => void;
 }
 
-type Section = "appearance" | "editor" | "ai" | "about";
+type Section = "appearance" | "editor" | "shortcuts" | "ai" | "about";
 
 const sections: Array<{ id: Section; label: string; icon: string }> = [
     { id: "appearance", label: "Appearance", icon: "palette" },
     { id: "editor", label: "Editor", icon: "edit" },
+    { id: "shortcuts", label: "Shortcuts", icon: "keyboard" },
     { id: "ai", label: "AI", icon: "auto_awesome" },
     { id: "about", label: "About", icon: "info" },
 ];
+
+// What each section contains, for the settings search: typing jumps to the
+// first section that has a match (the search used to filter only the section
+// already on screen, so "accent" or "vim" from another section found
+// nothing). SET-05.
+const SECTION_KEYWORDS: Record<Section, string> = {
+    appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small",
+    editor: "typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
+    shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
+    ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
+    about: "about version update tour guide help license",
+};
 
 const themes: Array<{ id: Theme; name: string; colors: [string, string]; textColor: string; icon?: string }> = [
     { id: "dark", name: "Dark", colors: ["#0a0a0a", "#141414"], textColor: "#ffffff" },
@@ -61,9 +84,12 @@ const fonts: Array<{ id: FontFamily; name: string; kind: string; stack: string }
 ];
 
 const fontSizes: Array<{ id: FontSize; name: string; sample: number }> = [
-    { id: "small", name: "Small", sample: 13 },
+    // Samples match the real reading sizes (they used to show 13/19px for
+    // 14/18px text).
+    { id: "small", name: "Small", sample: 14 },
     { id: "medium", name: "Medium", sample: 16 },
-    { id: "large", name: "Large", sample: 19 },
+    { id: "large", name: "Large", sample: 18 },
+    { id: "xlarge", name: "Extra large", sample: 20 },
 ];
 
 interface ToggleRowProps {
@@ -71,6 +97,21 @@ interface ToggleRowProps {
     description: string;
     checked: boolean;
     onChange: (v: boolean) => void;
+}
+
+/** A titled card of setting rows. Renders nothing when the search filter has
+ *  hidden every row inside it. SET-06. */
+function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+    const rows = Children.toArray(children);
+    if (rows.length === 0) return null;
+    return (
+        <section>
+            <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">{title}</h3>
+            <div className="rounded-[var(--radius-lg)] border border-[var(--border)] divide-y divide-[var(--border-subtle)] overflow-hidden">
+                {rows}
+            </div>
+        </section>
+    );
 }
 
 function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
@@ -97,19 +138,73 @@ function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
     );
 }
 
+const DIRECTION_OPTIONS: Array<{ id: TextDirection; label: string }> = [
+    { id: "auto", label: "Auto" },
+    { id: "ltr", label: "LTR" },
+    { id: "rtl", label: "RTL" },
+];
+
+// Three-way choice in the same row shape as ToggleRow; a radiogroup so screen
+// readers announce it as one setting with the current value. BIDI-02.
+function DirectionRow({ value, onChange }: { value: TextDirection; onChange: (v: TextDirection) => void }) {
+    return (
+        <div className="w-full flex items-center justify-between gap-4 px-3.5 py-3">
+            <div className="flex flex-col items-start min-w-0">
+                <span id="setting-text-direction" className="text-sm font-medium text-[var(--text-primary)]">Text direction</span>
+                <span className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                    Auto follows each line's language (Arabic, Hebrew, Persian… read right-to-left).
+                    {!isMac && !IS_MOBILE && " In the editor, Ctrl+Right Shift switches to RTL and Ctrl+Left Shift back to Auto."}
+                </span>
+            </div>
+            <div role="radiogroup" aria-labelledby="setting-text-direction" className="flex shrink-0 rounded-[var(--radius-md)] border border-[var(--border)] overflow-hidden">
+                {DIRECTION_OPTIONS.map((o) => {
+                    const active = value === o.id;
+                    return (
+                        <button
+                            key={o.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            onClick={() => onChange(o.id)}
+                            className={`px-2.5 py-1 text-xs font-medium transition-colors ${active
+                                ? "bg-[var(--accent)] text-[var(--accent-text)]"
+                                : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"}`}
+                        >
+                            {o.label}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
     const [section, setSection] = useState<Section>("appearance");
     const [filter, setFilter] = useState("");
-    const { theme, setTheme, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
+    const { theme, setTheme, followSystem, setFollowSystem, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
 
     const [typewriter, setTypewriterLocal] = useState(getTypewriterMode);
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
     const [wordWrap, setWordWrapLocal] = useState(getWordWrap);
     const [spellCheck, setSpellCheckLocal] = useState(getSpellCheck);
+    const [livePreview, setLivePreviewLocal] = useState(getLivePreview);
     const [vimMode, setVimModeLocal] = useState(getVimMode);
     const [autoSave, setAutoSaveLocal] = useState(getAutoSave);
     const [openInReader, setOpenInReaderLocal] = useState(getOpenInReader);
+    const [reopenSession, setReopenSessionLocal] = useState(getReopenSession);
+    const [remoteImages, setRemoteImagesLocal] = useState(getRemoteImages);
+    const [readerEditing, setReaderEditingLocal] = useState(getReaderEditing);
+    const [readableLength, setReadableLengthLocal] = useState(getReadableLineLength);
+    const [textDirection, setTextDirectionLocal] = useState(getTextDirection);
+    // Installed-font suggestions for the custom-font input. Computed lazily on
+    // first focus (never at startup), cached per session; the <datalist> does
+    // the type-to-filter natively. SET-03.
+    const [fontSuggestions, setFontSuggestions] = useState<string[]>([]);
+    const hydrateFontSuggestions = useCallback(() => {
+        void getInstalledFontFamilies().then(setFontSuggestions);
+    }, []);
     const [zenMode, setZenModeLocal] = useState(getZenMode);
 
     // The running app's version for the About panel (#148). Read from the Tauri
@@ -171,6 +266,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         };
         document.addEventListener("keydown", onKey);
         const detach = attachFocusTrap(dialogRef.current);
+        // Move focus INTO the dialog: the trap only engages once focus is
+        // inside the container, and screen readers need the dialog announced.
+        // Mirrors the cheatsheet/palette, which focus their filter inputs.
+        const searchInput = dialogRef.current?.querySelector<HTMLInputElement>('input[aria-label="Search settings"]');
+        searchInput?.focus();
         return () => {
             document.removeEventListener("keydown", onKey);
             detach();
@@ -206,7 +306,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     if (!isOpen) return null;
 
-    const matches = (text: string) => !filter || text.toLowerCase().includes(filter.toLowerCase());
+    const matches = (text: string) => !filter || text.toLowerCase().includes(filter.trim().toLowerCase());
+    // Searching for the section itself ("shortcuts", "keyboard"…) shows every
+    // row; a command name ("bold") narrows the list.
+    const shortcutRowFilter = /^(shortcuts?|keyboard|key ?bindings?|hotkeys?|rebind)$/i.test(filter.trim()) ? "" : filter;
+    const noResults =
+        !!filter.trim() &&
+        !sections.some((s) => SECTION_KEYWORDS[s.id].includes(filter.trim().toLowerCase()));
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Settings">
@@ -216,6 +322,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 ref={dialogRef}
                 className="settings-shell relative z-10 w-[min(820px,95vw)] h-[min(600px,90dvh)] flex bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-lg)] shadow-2xl overflow-hidden animate-fade-in"
             >
+                {/* Font suggestions (SET-03): filled on first focus of the
+                    custom-font input from the lazily-discovered installed
+                    families; the datalist filters natively as the user types. */}
+                <datalist id="paperling-installed-fonts">
+                    {fontSuggestions.map((f) => <option key={f} value={f} />)}
+                </datalist>
                 {/* Sidebar — narrower below `sm` so the content pane keeps a
                     usable width when the 95vw modal shrinks on small screens.
                     On mobile the shell CSS turns this into a horizontal icon
@@ -225,7 +337,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         <input
                             type="text"
                             value={filter}
-                            onChange={(e) => setFilter(e.target.value)}
+                            onChange={(e) => {
+                                const next = e.target.value;
+                                setFilter(next);
+                                const q = next.trim().toLowerCase();
+                                if (q && !SECTION_KEYWORDS[section].includes(q)) {
+                                    const hit = sections.find(
+                                        (s) => SECTION_KEYWORDS[s.id].includes(q) && (!IS_MOBILE || (s.id !== "ai" && s.id !== "shortcuts")),
+                                    );
+                                    if (hit) setSection(hit.id);
+                                }
+                            }}
                             placeholder="Search…"
                             aria-label="Search settings"
                             className="w-full px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
@@ -236,7 +358,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             switched off by default; on the phone it's just a
                             dead section, so it isn't offered. */}
                         {sections
-                            .filter((s) => !IS_MOBILE || s.id !== "ai")
+                            .filter((s) => !IS_MOBILE || (s.id !== "ai" && s.id !== "shortcuts"))
                             .map((s) => (
                             <button
                                 key={s.id}
@@ -254,8 +376,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </nav>
                 </aside>
 
-                {/* Body */}
-                <div className="flex-1 flex flex-col min-w-0">
+                {/* Body. min-h-0 is the load-bearing class: a flex item's
+                    default min-height:auto lets this wrapper grow to its
+                    content height, overflowing the shell (which clips) —
+                    on phones the settings below the fold (custom font…)
+                    were unreachable because the pane never scrolled.
+                    SET-02. */}
+                <div className="flex-1 flex flex-col min-w-0 min-h-0">
                     <header className="flex items-center justify-between px-6 py-3 border-b border-[var(--border)]">
                         <h2 className="text-base font-semibold text-[var(--text-primary)]">
                             {sections.find((s) => s.id === section)?.label ?? "Settings"}
@@ -272,11 +399,28 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     <section>
                                         <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Theme</h3>
                                         <div className="grid grid-cols-4 gap-2">
+                                            {/* THEME-01: follows the OS light/dark setting. */}
+                                            <button
+                                                onClick={() => setFollowSystem(true)}
+                                                aria-pressed={followSystem}
+                                                className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${followSystem
+                                                    ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
+                                                    : "hover:bg-[var(--bg-hover)]"
+                                                    }`}
+                                                title="Match the system's light or dark setting"
+                                            >
+                                                <div className="w-12 h-12 rounded-[var(--radius-md)] overflow-hidden border border-[var(--border)] flex">
+                                                    <div className="w-1/2 h-full" style={{ backgroundColor: "#f5f0e6" }}></div>
+                                                    <div className="w-1/2 h-full" style={{ backgroundColor: "#1c1917" }}></div>
+                                                </div>
+                                                <span className="text-[11px] text-[var(--text-primary)]">System</span>
+                                            </button>
                                             {themes.map((t) => (
                                                 <button
                                                     key={t.id}
                                                     onClick={() => setTheme(t.id)}
-                                                    className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${theme === t.id
+                                                    aria-pressed={!followSystem && theme === t.id}
+                                                    className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${!followSystem && theme === t.id
                                                         ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
                                                         : "hover:bg-[var(--bg-hover)]"
                                                         }`}
@@ -292,7 +436,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         </div>
                                     </section>
                                 )}
-                                {matches("theme") && (
+                                {matches("theme accent color colour") && (
                                     <section>
                                         <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Accent color</h3>
                                         <div className="flex items-center gap-2 flex-wrap">
@@ -359,7 +503,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                     type="text"
                                                     value={customFont}
                                                     maxLength={100}
-                                                    onFocus={() => setFont("custom")}
+                                                    list="paperling-installed-fonts"
+                                                    onFocus={() => { setFont("custom"); hydrateFontSuggestions(); }}
                                                     onChange={(e) => setCustomFont(e.target.value)}
                                                     onBlur={() => setCustomFont(customFont.trim())}
                                                     placeholder="e.g. Atkinson Hyperlegible"
@@ -375,7 +520,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 {matches("size") && (
                                     <section>
                                         <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Font size</h3>
-                                        <div className="grid grid-cols-3 gap-2">
+                                        <div className="grid grid-cols-4 gap-2">
                                             {fontSizes.map((s) => {
                                                 const active = fontSize === s.id;
                                                 return (
@@ -400,47 +545,92 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         )}
 
                         {section === "editor" && (
-                            <div className="rounded-[var(--radius-lg)] border border-[var(--border)] divide-y divide-[var(--border-subtle)] overflow-hidden">
-                                {/* Typewriter scrolling orbits a physical
-                                    keyboard's caret line; on touch it's a
-                                    solution without a problem. */}
-                                {matches("typewriter") && !IS_MOBILE && (
-                                    <ToggleRow label="Typewriter mode" description="Keep caret vertically centered" checked={typewriter}
-                                        onChange={(v) => { setTypewriterLocal(v); setTypewriterMode(v); fire("paperling:typewriter-toggle", v); }} />
-                                )}
-                                {/* Not offered on mobile: the toolbar is the
-                                    phone's only formatting surface, always on. */}
-                                {matches("toolbar") && !IS_MOBILE && (
-                                    <ToggleRow label="Show formatting toolbar" description="Toolbar above the editor" checked={toolbar}
-                                        onChange={(v) => { setToolbarLocal(v); setToolbarEnabled(v); fire("paperling:toolbar-toggle", v); }} />
-                                )}
-                                {matches("word wrap") && (
-                                    <ToggleRow label="Word wrap" description="Wrap long lines instead of horizontal scroll" checked={wordWrap}
-                                        onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
-                                )}
-                                {matches("spell check") && (
-                                    <ToggleRow label="Spell check" description="Underline misspelled words while you type" checked={spellCheck}
-                                        onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
-                                )}
-                                {matches("vim") && (
-                                    <ToggleRow label="Vim mode" description="Modal editing in the editor: h/j/k/l, modes, operators" checked={vimMode}
-                                        onChange={(v) => { setVimModeLocal(v); setVimMode(v); fire("paperling:vim-toggle", v); }} />
-                                )}
-                                {matches("autosave") && (
-                                    <ToggleRow label="Autosave" description="Save automatically a moment after you stop typing" checked={autoSave}
-                                        onChange={(v) => { setAutoSaveLocal(v); setAutoSave(v); fire("paperling:autosave-toggle", v); }} />
-                                )}
-                                {matches("open files in reader mode") && (
-                                    // No window event: App reads the flag live at each
-                                    // file open (same pattern as toggle-ai-panel).
-                                    <ToggleRow label="Open files in reader mode" description="Every file opens read-first; editing stays one click away" checked={openInReader}
-                                        onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
-                                )}
-                                {matches("zen mode") && (
-                                    <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}
-                                        onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
-                                )}
+                            // SET-06: fourteen switches in one undivided list were hard
+                            // to scan. Grouped by what they affect; a group whose rows
+                            // are all filtered out by the search disappears with them.
+                            <div className="space-y-6">
+                                <SettingsGroup title="Writing">
+                                    {/* Not offered on mobile: the toolbar is the
+                                        phone's only formatting surface, always on. */}
+                                    {matches("toolbar") && !IS_MOBILE && (
+                                        <ToggleRow label="Show formatting toolbar" description="Toolbar above the editor" checked={toolbar}
+                                            onChange={(v) => { setToolbarLocal(v); setToolbarEnabled(v); fire("paperling:toolbar-toggle", v); }} />
+                                    )}
+                                    {matches("live preview hide markdown symbols syntax wysiwyg") && (
+                                        <ToggleRow label="Hide Markdown symbols" description="In the editor, show # ** ` and link syntax only on the line you are editing" checked={livePreview}
+                                            onChange={(v) => { setLivePreviewLocal(v); setLivePreview(v); fire("paperling:live-preview-toggle", v); }} />
+                                    )}
+                                    {matches("spell check") && (
+                                        <ToggleRow label="Spell check" description="Underline misspelled words while you type" checked={spellCheck}
+                                            onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
+                                    )}
+                                    {matches("word wrap") && (
+                                        <ToggleRow label="Word wrap" description="Wrap long lines instead of horizontal scroll" checked={wordWrap}
+                                            onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
+                                    )}
+                                    {/* Typewriter scrolling orbits a physical
+                                        keyboard's caret line; on touch it's a
+                                        solution without a problem. */}
+                                    {matches("typewriter") && !IS_MOBILE && (
+                                        <ToggleRow label="Typewriter mode" description="Keep caret vertically centered" checked={typewriter}
+                                            onChange={(v) => { setTypewriterLocal(v); setTypewriterMode(v); fire("paperling:typewriter-toggle", v); }} />
+                                    )}
+                                    {matches("vim") && (
+                                        <ToggleRow label="Vim mode" description="Modal editing in the editor: h/j/k/l, modes, operators" checked={vimMode}
+                                            onChange={(v) => { setVimModeLocal(v); setVimMode(v); fire("paperling:vim-toggle", v); }} />
+                                    )}
+                                </SettingsGroup>
+                                <SettingsGroup title="Saving and files">
+                                    {matches("autosave") && (
+                                        <ToggleRow label="Autosave" description="Save automatically a moment after you stop typing" checked={autoSave}
+                                            onChange={(v) => { setAutoSaveLocal(v); setAutoSave(v); fire("paperling:autosave-toggle", v); }} />
+                                    )}
+                                    {matches("open files in reader mode") && (
+                                        // No window event: App reads the flag live at each
+                                        // file open (same pattern as toggle-ai-panel).
+                                        <ToggleRow label="Open files in reader mode" description="Every file opens read-first; editing stays one click away" checked={openInReader}
+                                            onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
+                                    )}
+                                    {matches("reopen last session launch startup recovery") && (
+                                        <ToggleRow label="Reopen last session on launch" description="Restore saved tabs on startup. Unsaved work is always recovered" checked={reopenSession}
+                                            onChange={(v) => { setReopenSessionLocal(v); setReopenSession(v); fire("paperling:reopen-session-toggle", v); }} />
+                                    )}
+                                </SettingsGroup>
+                                <SettingsGroup title="Reading">
+                                    {matches("readable line length preview width column") && (
+                                        <ToggleRow label="Readable line length" description="Center the reading column at a comfortable width (Obsidian-style). Off: the preview fills the window" checked={readableLength}
+                                            onChange={(v) => { setReadableLengthLocal(v); setReadableLineLength(v); fire("paperling:readable-toggle", v); }} />
+                                    )}
+                                    {matches("edit reader wysiwyg rich text") && (
+                                        <ToggleRow label="Edit text in Reader" description="Double-click rendered text to edit it in place. Tables, images, code blocks and callouts are edited in Code" checked={readerEditing}
+                                            onChange={(v) => { setReaderEditingLocal(v); setReaderEditing(v); fire("paperling:reader-editing-toggle", v); }} />
+                                    )}
+                                    {matches("load remote images privacy badges") && (
+                                        <ToggleRow label="Load remote images" description="Show HTTPS images and badges. Image hosts can see your IP address" checked={remoteImages}
+                                            onChange={(v) => { setRemoteImagesLocal(v); setRemoteImages(v); fire("paperling:remote-images-toggle", v); }} />
+                                    )}
+                                    {matches("text direction right to left rtl ltr arabic hebrew persian urdu") && (
+                                        <DirectionRow value={textDirection}
+                                            onChange={(v) => {
+                                                setTextDirectionLocal(v);
+                                                setTextDirection(v);
+                                                window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: v } }));
+                                            }} />
+                                    )}
+                                    {matches("zen mode") && (
+                                        <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}
+                                            onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
+                                    )}
+                                </SettingsGroup>
                             </div>
+                        )}
+
+                        {noResults && (
+                            <p className="text-sm text-[var(--text-secondary)]">No settings match “{filter.trim()}”.</p>
+                        )}
+
+                        {section === "shortcuts" && !IS_MOBILE && !noResults && (
+                            <ShortcutSettings filter={shortcutRowFilter} />
                         )}
 
                         {section === "ai" && !IS_MOBILE && (
@@ -607,7 +797,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="text-[11px]">A minimal markdown editor</div>
+                                        <div className="text-[11px]">A no-setup Markdown reader and editor</div>
                                     </div>
                                 </div>
                                 <p>Built with Tauri + React + TypeScript.</p>

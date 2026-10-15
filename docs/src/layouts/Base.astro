@@ -1,99 +1,129 @@
 ---
 import "@fontsource-variable/inter";
-import "@fontsource/instrument-serif/400.css";
-import "@fontsource/instrument-serif/400-italic.css";
+import "@fontsource-variable/manrope";
 import "@fontsource/jetbrains-mono/400.css";
-import "@fontsource/jetbrains-mono/500.css";
 import "../styles/global.css";
-// The app version, read straight from the repo-root package.json at build
-// time so the site can never drift behind the releases. The Release workflow
-// bumps package.json on main before publishing, and deploy-docs re-runs on
-// `release: published`, so this tracks the shipped version automatically.
-import { readFileSync } from "node:fs";
-const pkg = JSON.parse(
-  readFileSync(`${process.cwd()}/../package.json`, "utf-8"),
-);
-
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import { SITE, url, absolute } from "../lib/site";
 interface Props {
   title?: string;
   description?: string;
+  path?: string;
+  crumbs?: { label: string; path: string }[];
+  noindex?: boolean;
+  schema?: Record<string, unknown>[];
 }
-
 const {
-  title = "Paperling: the no-setup Markdown editor with live preview and AI",
-  description = "A fast, native, open-source Markdown editor with live preview, split view, KaTeX math, chemistry equations, Mermaid diagrams, slash commands, and an optional AI assistant. Free for Windows, macOS, Linux and Android. Built with Tauri + Rust + React.",
+  title = "Paperling: Free Markdown Editor with Live Preview & Optional AI",
+  description = "Open a Markdown file and make yourself at home. Paperling is a free, open-source editor with live preview, math, diagrams, and optional AI for desktop and Android.",
+  path = "",
+  crumbs = [],
+  noindex = false,
+  schema = [],
 } = Astro.props;
-
-const base = import.meta.env.BASE_URL; // "/Paperling/"
-const ogImage = new URL(`${base}og.png`, Astro.site).href;
-const canonical = new URL(base, Astro.site).href;
-const version = pkg.version;
+const canonical = absolute(path),
+  ogImage = absolute("og.png");
+const graph = [
+  {
+    "@type": "WebSite",
+    "@id": absolute() + "#website",
+    name: SITE.name,
+    url: absolute(),
+    inLanguage: "en",
+  },
+  ...(crumbs.length
+    ? [
+        {
+          "@type": "BreadcrumbList",
+          itemListElement: [{ label: "Home", path: "" }, ...crumbs].map(
+            (c, i) => ({
+              "@type": "ListItem",
+              position: i + 1,
+              name: c.label,
+              item: absolute(c.path),
+            }),
+          ),
+        },
+      ]
+    : []),
+  ...schema,
+];
 ---
 
 <!doctype html>
-<html lang="en" class="no-js">
+<html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-    <!-- Hide-until-revealed only when JS is present; set before first paint
-         so no-JS users and crawlers never see hidden content. -->
-    <script is:inline>
-      document.documentElement.classList.remove("no-js");
-      document.documentElement.classList.add("js");
-    </script>
-
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta
-      name="keywords"
-      content="markdown editor, open source markdown editor, free markdown editor, lightweight markdown editor, tauri markdown editor, markdown editor windows, markdown editor macos, markdown editor linux, markdown editor android, markdown app for android, markdown editor with live preview, markdown editor with AI, markdown editor vim mode, markdown editor chemistry equations, KaTeX, Mermaid, Paperling"
+      name="robots"
+      content={
+        noindex ? "noindex, follow" : "index, follow, max-image-preview:large"
+      }
     />
     <meta name="author" content="Saqlain Abbas" />
-    <meta name="theme-color" content="#f7f1e5" />
+    <meta name="theme-color" content="#f5f2e9" />
     <meta name="color-scheme" content="light" />
     <link rel="canonical" href={canonical} />
-    <link rel="icon" type="image/svg+xml" href={`${base}icon.svg`} />
-
-    <!-- Open Graph -->
+    <link rel="icon" type="image/svg+xml" href={url("icon.svg")} />
+    <link rel="sitemap" href={url("sitemap.xml")} />
+    <link
+      rel="alternate"
+      type="application/atom+xml"
+      title="Paperling releases"
+      href={SITE.repo + "/releases.atom"}
+    />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Paperling" />
-    <meta property="og:title" content="Paperling: Open-Source Markdown Editor with AI Edits" />
+    <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={ogImage} />
-    <meta property="og:image:width" content="1920" />
-    <meta property="og:image:height" content="1030" />
-
-    <!-- Twitter -->
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Paperling. A little space for your next big idea. Free, open-source Markdown editor."
+    />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Paperling: Open-Source Markdown Editor with AI Edits" />
+    <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
-
-    <!-- Structured data, only facts we can stand behind, no fabricated ratings. -->
-    <script type="application/ld+json" set:html={JSON.stringify({
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      name: "Paperling",
-      applicationCategory: "DeveloperApplication",
-      applicationSubCategory: "Markdown Editor",
-      operatingSystem: "Windows, macOS, Linux, Android",
-      softwareVersion: version,
-      description:
-        "A fast, no-setup, open-source Markdown editor with live preview, split view, syntax highlighting, KaTeX math, chemistry equations, Mermaid diagrams, slash commands, wikilinks, and an optional AI assistant. Built with Tauri, Rust, and React.",
-      url: canonical,
-      downloadUrl: "https://github.com/Razee4315/Paperling/releases/latest",
-      softwareHelp: "https://github.com/Razee4315/Paperling#readme",
-      image: ogImage,
-      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-      author: { "@type": "Person", name: "Saqlain Abbas", url: "https://github.com/Razee4315" },
-    })} />
+    <script
+      type="application/ld+json"
+      set:html={JSON.stringify({
+        "@context": "https://schema.org",
+        "@graph": graph,
+      }).replace(/</g, "\\u003c")}
+    />
   </head>
-
-  <body class="grain">
-    <slot />
-
+  <body>
+    <a class="skip-link" href="#content">
+      Skip to content
+    </a>
+    <Nav path={path} />
+    <main id="content" tabindex="-1">
+      {crumbs.length > 0 && (
+        <nav class="wrap breadcrumbs" aria-label="Breadcrumb">
+          <a href={url()}>Home</a>
+          {crumbs.map((c, i) => (
+            <>
+              <span aria-hidden="true">/</span>
+              {i === crumbs.length - 1 ? (
+                <span aria-current="page">{c.label}</span>
+              ) : (
+                <a href={url(c.path)}>{c.label}</a>
+              )}
+            </>
+          ))}
+        </nav>
+      )}
+      <slot />
+    </main>
+    <Footer />
     <script>
       import { initMotion } from "../scripts/motion";
       initMotion();

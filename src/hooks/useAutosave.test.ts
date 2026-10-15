@@ -65,7 +65,7 @@ describe("useAutosave", () => {
     rerender(base({ conflictPending: false, onSaved }));
     await vi.advanceTimersByTimeAsync(1600);
     expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/doc.md", content: "new" });
-    expect(onSaved).toHaveBeenCalledWith(1700000000000, "new");
+    expect(onSaved).toHaveBeenCalledWith(1700000000000, "new", "C:/doc.md");
   });
 
   it("saves after the debounce and reports the new mtime + saved content", async () => {
@@ -78,7 +78,9 @@ describe("useAutosave", () => {
 
     await vi.advanceTimersByTimeAsync(600);
     expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/doc.md", content: "new" });
-    expect(onSaved).toHaveBeenCalledWith(1700000000000, "new");
+    // The path is passed through so the caller can ignore a resolution that
+    // lands after the user switched documents mid-write (TABS-08).
+    expect(onSaved).toHaveBeenCalledWith(1700000000000, "new", "C:/doc.md");
   });
 
   it("coalesces rapid edits — only the latest content is written", async () => {
@@ -110,5 +112,23 @@ describe("useAutosave", () => {
     rerender(base({ content: "b", onError }));
     await vi.advanceTimersByTimeAsync(1600);
     expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useAutosave pre-write guard (EXT-06)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    (invoke as Mock).mockReset().mockResolvedValue(1700000000000);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("skips the write when beforeWrite vetoes it (file changed on disk)", async () => {
+    const onSaved = vi.fn();
+    const beforeWrite = vi.fn().mockResolvedValue(false);
+    renderHook((p: UseAutosaveOptions) => useAutosave(p), { initialProps: base({ onSaved, beforeWrite }) });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(beforeWrite).toHaveBeenCalledWith("C:/doc.md");
+    expect(invoke).not.toHaveBeenCalledWith("save_file", expect.anything());
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });

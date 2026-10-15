@@ -21,6 +21,11 @@ function cleanReleaseNotes(raw: string): string {
     // Cut the generic install instructions (and everything after) if present.
     const inst = s.search(/^#{1,6}\s+Installation\b/im);
     if (inst >= 0) s = s.slice(0, inst).trim();
+    // UPD-03: the dialog is a prompt, not the release page. Credits and anything
+    // after them stay on GitHub (one click away via the "Full release notes"
+    // link), so the list here never needs scrolling.
+    const thanks = s.search(/^#{1,6}\s+Thank you\b/im);
+    if (thanks >= 0) s = s.slice(0, thanks).trim();
     // The dialog header already names the version, so drop a redundant leading
     // "## What's new…" / "## Paperling vX" title line.
     s = s.replace(/^#{1,6}\s+(What's new|Paperling)\b.*\n+/i, "");

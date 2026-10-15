@@ -1,34 +1,177 @@
 ---
+import { Image } from "astro:assets";
 import Base from "../layouts/Base.astro";
-import Nav from "../components/Nav.astro";
-import Hero from "../components/Hero.astro";
-import TrustBar from "../components/TrustBar.astro";
-import Features from "../components/Features.astro";
-import EditorShowcase from "../components/EditorShowcase.astro";
-import Themes from "../components/Themes.astro";
-import PowerFeatures from "../components/PowerFeatures.astro";
-import AIShowcase from "../components/AIShowcase.astro";
-import Stats from "../components/Stats.astro";
-import Download from "../components/Download.astro";
-import OpenSource from "../components/OpenSource.astro";
 import Faq from "../components/Faq.astro";
-import Footer from "../components/Footer.astro";
+import CTA from "../components/CTA.astro";
+import Hero from "../components/Hero.astro";
+import Showcase from "../components/Showcase.astro";
+import Palette from "../components/Palette.astro";
+import StoryNotes from "../components/StoryNotes.astro";
+import CompareCards from "../components/CompareCards.astro";
+import { url, absolute, SITE, faqs } from "../lib/site";
+import { featureIcons } from "../lib/art";
+const schema = [
+  {
+    "@type": "SoftwareApplication",
+    name: "Paperling",
+    applicationCategory: "DeveloperApplication",
+    operatingSystem: "Windows, macOS, Linux, Android",
+    url: absolute(),
+    downloadUrl: SITE.releases,
+    license: SITE.repo + "/blob/main/LICENSE",
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    description:
+      "A free, open-source Markdown reader and editor with live preview, math, diagrams, and optional AI.",
+  },
+];
 ---
 
-<Base>
-  <Nav />
-  <main>
-    <Hero />
-    <TrustBar />
-    <Features />
-    <EditorShowcase />
-    <Themes />
-    <PowerFeatures />
-    <AIShowcase />
-    <Stats />
-    <Download />
-    <OpenSource />
-    <Faq />
-  </main>
-  <Footer />
+<Base schema={schema}>
+  <Hero />
+  <Showcase />
+  <section class="section torn" id="features">
+    <div class="wrap">
+      <div class="section-heading" data-reveal>
+        <div>
+          <h2>
+            Less fiddling.
+            <br />
+            More <em>“there it is.”</em>
+          </h2>
+        </div>
+        <a class="text-link" href={url("features/")}>
+          Explore every feature ↗
+        </a>
+      </div>
+      <div class="feature-grid">
+        <a
+          class="feature-card"
+          href={url("features/focused-writing/")}
+          data-reveal
+        >
+          <span class="card-arrow" aria-hidden="true">
+            ↗
+          </span>
+          <div class="feature-art">
+            <Image
+              src={featureIcons["focused-writing"]}
+              alt=""
+              widths={[150, 300]}
+              sizes="150px"
+            />
+          </div>
+          <h3>
+            A quiet place
+            <br />
+            to get it down.
+          </h3>
+          <p>
+            Focus mode, slash commands, and table tools. Room for the words.
+          </p>
+        </a>
+        <a
+          class="feature-card"
+          href={url("features/math-and-diagrams/")}
+          data-reveal
+        >
+          <span class="card-arrow" aria-hidden="true">
+            ↗
+          </span>
+          <div class="feature-art">
+            <Image
+              src={featureIcons["math-and-diagrams"]}
+              alt=""
+              widths={[150, 300]}
+              sizes="150px"
+            />
+          </div>
+          <h3>
+            For wonderfully
+            <br />
+            complicated ideas.
+          </h3>
+          <p>Math and Mermaid diagrams. Written as text, rendered live.</p>
+        </a>
+        <a
+          class="feature-card"
+          href={url("features/ai-assistant/")}
+          id="ai"
+          data-reveal
+        >
+          <span class="card-arrow" aria-hidden="true">
+            ↗
+          </span>
+          <div class="feature-art">
+            <Image
+              src={featureIcons["ai-assistant"]}
+              alt=""
+              widths={[150, 300]}
+              sizes="150px"
+            />
+          </div>
+          <h3>
+            A little assistance.
+            <br />
+            Your final say.
+          </h3>
+          <p>
+            Optional AI. Review every suggested edit. Provider costs may apply.
+          </p>
+        </a>
+      </div>
+      <h3 class="toolkit-title" data-reveal>
+        Everything else is one search away.
+      </h3>
+      <Palette />
+    </div>
+  </section>
+  <section class="section wrap story-grid" id="open-source">
+    <div class="story-copy" data-reveal>
+      <h2>
+        Made for myself.
+        <br />
+        <em>Shared with you.</em>
+      </h2>
+      <p>
+        “I built Paperling when I was starting my journey. I wanted an easier
+        way to read .md files, so I made one for myself.”
+      </p>
+      <p>— Saqlain, creator of Paperling</p>
+      <a class="text-link" href={url("open-source/")}>
+        The story & the source ↗
+      </a>
+    </div>
+    <StoryNotes />
+  </section>
+  <section class="section compare-section" id="compare">
+    <div class="wrap">
+      <div class="section-heading" data-reveal>
+        <div>
+          <h2>
+            Your editor.
+            <br />
+            <em>Your kind of thinking.</em>
+          </h2>
+        </div>
+        <p>A few honest comparisons. Find what fits you.</p>
+      </div>
+      <CompareCards />
+    </div>
+  </section>
+  <section class="section wrap faq-section" id="faq">
+    <div data-reveal>
+      <h2>
+        Good questions.
+        <br />
+        <em>Straight answers.</em>
+      </h2>
+      <div class="actions">
+        <a class="text-link" href={url("faq/")}>
+          All questions & answers ↗
+        </a>
+      </div>
+    </div>
+    <Faq items={faqs.slice(0, 5)} />
+  </section>
+  <CTA />
 </Base>

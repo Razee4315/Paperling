@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "title": "Paperling",
+        "width": 1000,
+        "height": 700,
+        "minWidth": 600,
+        "minHeight": 400,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 17, "y": 26 },
+        "transparent": false,
+        "center": true,
+        "useHttpsScheme": true,
+        "visible": false,
+        "backgroundColor": "#0a0a0a"
+      }
+    ]
+  }
+}

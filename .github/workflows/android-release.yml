@@ -13,12 +13,14 @@ name: Android Release APK
 #   version — the release tag WITHOUT the v (e.g. "1.0.50"). The APK is
 #   uploaded to the "v<version>" release as Paperling_<version>_aarch64.apk.
 #
-# Signature stability: the keystore is generated on first run and cached
-# under a fixed cache key, shared with release.yml's android job, so every
-# APK from either path updates in place over the previous one. If the
-# cache entry is ever evicted, a new keystore appears and existing
-# installs need one uninstall — move the keystore to a repo secret
-# before that risk matters.
+# Signature stability: the APK is signed with the release keystore from repo
+# secrets (ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD), the same one
+# release.yml uses, and its certificate is checked against the pinned
+# fingerprint before upload (ANDR-SIGN-01/02). A missing secret fails the run
+# instead of minting a new key.
+#
+# upload: false builds, signs and verifies the APK and keeps it as a run
+# artifact without touching any release (a dry run before a real release).
 
 on:
   workflow_dispatch:
@@ -27,6 +29,11 @@ on:
         description: 'Release version without the v (e.g. 1.0.50)'
         required: true
         type: string
+      upload:
+        description: 'Attach the APK to the release (false = dry run: build, sign, verify only)'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -63,27 +70,22 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Restore the release keystore (stable APK signature)
-        uses: actions/cache@v6
-        with:
-          path: ~/.android/paperling-release.keystore
-          key: paperling-android-release-keystore-v1
-
-      - name: Generate the release keystore on first run
+      - name: Restore the release keystore from repo secrets (stable APK signature)
+        # ANDR-SIGN-01: the keystore used to live only in an actions cache, and
+        # GitHub evicts caches after 7 days unused. 1.0.50's key was lost that
+        # way, so 1.0.51 had to change signature (existing installs cannot
+        # update in place). It now comes from repo secrets, and a missing
+        # secret FAILS the job: silently generating a new key would ship an
+        # APK that no existing install can update to.
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          KS="$HOME/.android/paperling-release.keystore"
-          # keytool does not create parent directories; a fresh runner has
-          # no ~/.android yet.
-          mkdir -p "$HOME/.android"
-          if [ ! -f "$KS" ]; then
-            keytool -genkeypair -v \
-              -keystore "$KS" -alias paperling \
-              -keyalg RSA -keysize 2048 -validity 10950 \
-              -storepass paperling-release -keypass paperling-release \
-              -dname "CN=Paperling, OU=Paperling, O=Paperling, L=Internet, ST=Internet, C=US"
-          else
-            echo "Keystore restored from cache — signature stays stable"
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set. Refusing to sign with a new key (existing installs could not update)."
+            exit 1
           fi
+          mkdir -p "$HOME/.android"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$HOME/.android/paperling-release.p12"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -129,14 +131,21 @@ jobs:
         run: node scripts/patch-android-release-signing.mjs src-tauri/gen/android/app/build.gradle.kts
 
       - name: Point signing at the release keystore
-        # keystore.properties lives at the Gradle ROOT (src-tauri/gen/android),
+        # keystore.properties goes to the Gradle ROOT (src-tauri/gen/android),
         # which is where the injected signingConfig looks for it.
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD is not set."
+            exit 1
+          fi
           cat > src-tauri/gen/android/keystore.properties <<EOF
           keyAlias=paperling
-          keyPassword=paperling-release
-          storeFile=$HOME/.android/paperling-release.keystore
-          storePassword=paperling-release
+          keyPassword=$KEYSTORE_PASSWORD
+          storeFile=$HOME/.android/paperling-release.p12
+          storePassword=$KEYSTORE_PASSWORD
+          storeType=pkcs12
           EOF
 
       - name: Patch "Open with Paperling" file handling + system-bar insets
@@ -145,10 +154,11 @@ jobs:
       - name: Build APK (release, aarch64)
         run: bun run tauri android build --target aarch64 --apk
 
-      - name: Upload APK to the release
+      - name: Verify the signature, then upload APK to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
+          UPLOAD: ${{ inputs.upload }}
         run: |
           mkdir -p dist-apk
           APK="$(find src-tauri/gen/android/app/build/outputs/apk -name "*release*.apk" | head -1)"
@@ -157,6 +167,30 @@ jobs:
             find src-tauri/gen/android/app/build/outputs/apk -name "*.apk"
             exit 1
           fi
+          # ANDR-SIGN-02: never publish an APK signed with any other key. The
+          # expected value is the public certificate's SHA-256 (not a secret).
+          EXPECTED="3ad2ec64ee2a6d395919732b45d34ff070aeadf7238ebf15b0835e52f1cb3737"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          APKSIGNER="$(ls -d "$SDK"/build-tools/*/ | sort -V | tail -1)apksigner"
+          "$APKSIGNER" verify --verbose "$APK" | head -5
+          DIGEST="$("$APKSIGNER" verify --print-certs "$APK" | grep -m1 'certificate SHA-256 digest' | awk '{print $NF}')"
+          if [ "$DIGEST" != "$EXPECTED" ]; then
+            echo "::error::APK is signed with $DIGEST, expected $EXPECTED. Not publishing."
+            exit 1
+          fi
+          echo "APK signature verified: $DIGEST"
           cp "$APK" "dist-apk/Paperling_${VERSION}_aarch64.apk"
+          if [ "$UPLOAD" = "false" ]; then
+            echo "Dry run: signed and verified, not attached to any release."
+            exit 0
+          fi
           gh release upload "v${VERSION}" "dist-apk/Paperling_${VERSION}_aarch64.apk" --clobber
           echo "Attached dist-apk/Paperling_${VERSION}_aarch64.apk to v${VERSION}"
+
+      - name: Keep the dry-run APK as a run artifact
+        if: ${{ !inputs.upload }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: paperling-android-release-dryrun
+          path: dist-apk/*.apk
+          retention-days: 14

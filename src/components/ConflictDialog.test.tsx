@@ -1,50 +1,48 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConflictDialog } from "./ConflictDialog";
 
 describe("ConflictDialog", () => {
-    it("resolves through keep-mine and load-from-disk actions", () => {
-        const onKeepMine = vi.fn();
-        const onLoadFromDisk = vi.fn();
-        const onClose = vi.fn();
+    afterEach(cleanup);
 
+    const setup = () => {
+        const handlers = {
+            onKeepMine: vi.fn(),
+            onLoadFromDisk: vi.fn(),
+            onSaveCopy: vi.fn(),
+            onClose: vi.fn(),
+        };
         render(
-            <ConflictDialog
-                isOpen
-                fileName="notes.md"
-                onKeepMine={onKeepMine}
-                onLoadFromDisk={onLoadFromDisk}
-                onClose={onClose}
-            />,
+            <ConflictDialog isOpen fileName="notes.md" {...handlers} />,
         );
-
         expect(screen.getByText("File changed on disk")).toBeInTheDocument();
+        return handlers;
+    };
+
+    it("resolves through the save-a-copy, keep-mine and load-from-disk actions", () => {
+        const h = setup();
+
+        fireEvent.click(screen.getByRole("button", { name: "Save a copy…" }));
+        expect(h.onSaveCopy).toHaveBeenCalledTimes(1);
+        expect(h.onKeepMine).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole("button", { name: "Load from disk" }));
-        expect(onLoadFromDisk).toHaveBeenCalledTimes(1);
-        expect(onKeepMine).not.toHaveBeenCalled();
+        expect(h.onLoadFromDisk).toHaveBeenCalledTimes(1);
+        expect(h.onKeepMine).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole("button", { name: "Keep my version" }));
-        expect(onKeepMine).toHaveBeenCalledTimes(1);
+        expect(h.onKeepMine).toHaveBeenCalledTimes(1);
     });
 
-    it("treats dismissal (Escape) as keeping my version", () => {
-        const onKeepMine = vi.fn();
-        const onLoadFromDisk = vi.fn();
-        const onClose = vi.fn();
-
-        render(
-            <ConflictDialog
-                isOpen
-                fileName="notes.md"
-                onKeepMine={onKeepMine}
-                onLoadFromDisk={onLoadFromDisk}
-                onClose={onClose}
-            />,
-        );
+    it("does NOT resolve via Escape — dismissal must never arm an overwrite (EXT-02)", () => {
+        const h = setup();
 
         fireEvent.keyDown(document, { key: "Escape" });
-        expect(onClose).toHaveBeenCalledTimes(1);
-        expect(onLoadFromDisk).not.toHaveBeenCalled();
+        // The Modal contract still fires onClose (the parent keeps the dialog
+        // open on purpose), but no resolution may run.
+        expect(h.onClose).toHaveBeenCalledTimes(1);
+        expect(h.onKeepMine).not.toHaveBeenCalled();
+        expect(h.onLoadFromDisk).not.toHaveBeenCalled();
+        expect(h.onSaveCopy).not.toHaveBeenCalled();
     });
 });

@@ -42,7 +42,7 @@ describe("Settings → About", () => {
         fireEvent.click(screen.getByRole("button", { name: /about/i }));
 
         // The panel still renders; it just carries no version chip.
-        expect(await screen.findByText("A minimal markdown editor")).toBeInTheDocument();
+        expect(await screen.findByText("A no-setup Markdown reader and editor")).toBeInTheDocument();
         await waitFor(() => expect(screen.queryByText(/^v\d/)).not.toBeInTheDocument());
     });
 });

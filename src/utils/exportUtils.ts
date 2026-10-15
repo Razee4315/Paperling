@@ -138,6 +138,7 @@ const fontSizes: Record<FontSize, { base: string; h1: string; h2: string; h3: st
     small: { base: '14px', h1: '1.875em', h2: '1.5em', h3: '1.125em', lineHeight: '1.6' },
     medium: { base: '16px', h1: '2.25em', h2: '1.75em', h3: '1.25em', lineHeight: '1.7' },
     large: { base: '18px', h1: '2.5em', h2: '2em', h3: '1.375em', lineHeight: '1.8' },
+    xlarge: { base: '20px', h1: '2.5em', h2: '2em', h3: '1.375em', lineHeight: '1.8' },
 };
 
 // Generate CSS for export
@@ -295,7 +296,14 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
             color: ${colors.codeText};
         }
 
+        /* Code stays left-to-right inside RTL text (BIDI-03). */
+        pre, code, kbd {
+            direction: ltr;
+            unicode-bidi: isolate;
+        }
+
         pre {
+            text-align: left;
             background: ${colors.codeBg};
             border: 1px solid ${colors.border};
             border-radius: 0.375rem;
@@ -313,12 +321,24 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
         }
 
         ul, ol {
-            padding-left: 1.5rem;
+            padding-inline-start: 1.5rem;
             margin-bottom: 1rem;
         }
 
         li {
             margin-bottom: 0.25rem;
+        }
+
+        /* GFM task items: the checkbox takes the bullet's place, so a list
+           mixing tasks and plain items keeps its bullets (PREV-01). */
+        li.task-list-item {
+            list-style-type: none;
+        }
+
+        li.task-list-item > input[type="checkbox"] {
+            margin-block: 0 0.2em;
+            margin-inline: -1.4em 0.45em;
+            vertical-align: middle;
         }
 
         li > ul, li > ol {
@@ -327,17 +347,49 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
         }
 
         blockquote {
-            border-left: 4px solid ${colors.accent};
+            border-inline-start: 4px solid ${colors.accent};
             background: ${colors.blockquoteBg};
             padding: 0.5rem 1rem;
             margin: 1rem 0;
             font-style: italic;
             color: ${colors.textSecondary};
-            border-radius: 0 0.25rem 0.25rem 0;
+            border-start-end-radius: 0.25rem;
+            border-end-end-radius: 0.25rem;
         }
 
         blockquote p:last-child {
             margin-bottom: 0;
+        }
+
+        /* Callouts + #tags (SYNTAX-02) — icon-free for portability. */
+        .callout {
+            --callout: #4a8fe7;
+            border-inline-start: 4px solid var(--callout);
+            background: color-mix(in srgb, var(--callout) 10%, transparent);
+            border-start-end-radius: 0.375rem;
+            border-end-end-radius: 0.375rem;
+            padding: 0.6rem 1rem;
+            margin: 1rem 0;
+        }
+        [data-callout="note"], [data-callout="info"], [data-callout="todo"] { --callout: #4a8fe7; }
+        [data-callout="abstract"], [data-callout="summary"], [data-callout="tldr"] { --callout: #2ab3c4; }
+        [data-callout="tip"], [data-callout="hint"], [data-callout="important"] { --callout: #1fb89a; }
+        [data-callout="success"], [data-callout="check"], [data-callout="done"] { --callout: #3fb950; }
+        [data-callout="question"], [data-callout="help"], [data-callout="faq"] { --callout: #d99a1e; }
+        [data-callout="warning"], [data-callout="caution"], [data-callout="attention"] { --callout: #e8792b; }
+        [data-callout="failure"], [data-callout="fail"], [data-callout="missing"], [data-callout="danger"], [data-callout="error"], [data-callout="bug"] { --callout: #e5534b; }
+        [data-callout="example"] { --callout: #9b72e8; }
+        [data-callout="quote"], [data-callout="cite"] { --callout: #8b949e; }
+        .callout-title { font-weight: 600; color: var(--callout); }
+        summary.callout-title { cursor: pointer; }
+        .callout-content { margin-top: 0.35rem; }
+        .callout-content > :last-child { margin-bottom: 0; }
+        .md-tag {
+            padding: 0 0.45em;
+            border-radius: 999px;
+            background: color-mix(in srgb, ${colors.accent} 14%, transparent);
+            color: ${colors.accent};
+            font-size: 0.9em;
         }
 
         hr {
@@ -355,7 +407,7 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
         th, td {
             border: 1px solid ${colors.border};
             padding: 0.5rem 0.75rem;
-            text-align: left;
+            text-align: start;
         }
 
         th {
@@ -377,10 +429,18 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
         .mermaid-rendered {
             margin: 1rem 0;
         }
-        .mermaid-rendered > svg {
+.mermaid-rendered > svg,
+        .mermaid-sizer > svg {
             width: 100%;
             height: auto;
             max-width: none !important;
+        }
+        /* The viewer's sizer pins the diagram to its fit/zoom width (see
+           MermaidBlock). Cap it to the export column so zoomed-in diagrams
+           don't overflow the page. MMV-01. */
+        .mermaid-sizer {
+            max-width: 100%;
+            margin: 0 auto;
         }
 
         /* Task lists */
@@ -430,11 +490,27 @@ export async function prepareExportHtml(rawHtml: string): Promise<string> {
     root.querySelectorAll("button").forEach((b) => b.remove());
     root.querySelectorAll(".material-symbols-outlined").forEach((s) => s.remove());
 
-    root.querySelectorAll("a[href^='wikilink:']").forEach((a) => {
+    // The preview renders wikilinks as href="#" + data-wikilink (the old
+    // `href^='wikilink:'` selector never matched, so exports shipped dead
+    // "#" links). EXPORT-06.
+    root.querySelectorAll("a[data-wikilink], a[href^='wikilink:']").forEach((a) => {
         const span = doc.createElement("span");
         span.textContent = a.textContent;
         a.replaceWith(span);
     });
+
+    // Preview-only plumbing: source-line anchors for scroll sync and any
+    // stray react-markdown `node` attribute. Classes stay — KaTeX and
+    // highlight.js styling depends on them.
+    root.querySelectorAll("[data-source-line], [node], [data-relative-md], [data-heading-id]").forEach((el) => {
+        el.removeAttribute("data-source-line");
+        el.removeAttribute("node");
+        el.removeAttribute("data-relative-md");
+        el.removeAttribute("data-heading-id");
+    });
+    // The preview renders block by block inside display:contents wrappers
+    // (PERF-02); unwrap them so exported HTML is plain markdown output.
+    root.querySelectorAll(".md-block").forEach((wrapper) => wrapper.replaceWith(...Array.from(wrapper.childNodes)));
 
     for (const img of Array.from(root.querySelectorAll("img"))) {
         const src = img.getAttribute("src") || "";
@@ -467,6 +543,12 @@ function escapeHtml(text: string): string {
 }
 
 // Generate standalone HTML document
+// KaTeX's stylesheet inlined into exports: the preview's DOM carries the
+// rendered KaTeX spans, whose layout depends entirely on this CSS. Without it,
+// every formula in an exported HTML/PDF rendered as jumbled, unpositioned
+// spans (EXPORT-01). Font URLs degrade gracefully to system serifs offline.
+import katexCss from "katex/dist/katex.min.css?raw";
+
 export function generateHTML(
     htmlContent: string,
     title: string,
@@ -497,6 +579,7 @@ export function generateHTML(
     <meta name="date" content="${new Date().toISOString()}">
     <title>${safeTitle}</title>
     <style>${css}</style>
+    ${htmlContent.includes('katex') ? `<style>${katexCss}</style>` : ''}
 </head>
 <body>
     <article>
