@@ -35,6 +35,7 @@ jobs:
         continue-on-error: true
         with:
           workspaces: './src-tauri -> target'
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -89,6 +90,7 @@ jobs:
         continue-on-error: true
         with:
           workspaces: './src-tauri -> target'
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

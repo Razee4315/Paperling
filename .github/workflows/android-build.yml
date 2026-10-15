@@ -55,6 +55,9 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
           key: aarch64-linux-android
+          # Keep the shared development cache; PR-specific caches are disposable.
+          # The separate debug-keystore cache below must retain its signing key.
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/android-app' }}
 
       - name: Setup Java 17 (Android Gradle Plugin requirement)
         uses: actions/setup-java@v6
