@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
 import { formatShortcut } from '../config/keybindings';
+import { getRecentFiles, type RecentFile } from '../utils/persistence';
 
 interface MoreMenuProps {
     onOpenFolder?: () => void;
@@ -44,24 +45,74 @@ export function MoreMenu({
 }: MoreMenuProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [isRecentOpen, setIsRecentOpen] = useState(false);
+    const [_recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+    const [submenuSide, setSubmenuSide] = useState<'right' | 'left'>('right');
+
     const menuRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const recentItemRef = useRef<HTMLDivElement>(null);
     const recentButtonRef = useRef<HTMLButtonElement>(null);
+    const closeTimerRef = useRef<number | null>(null);
+
     const onMenuKeyDown = useDropdownKeyboard(isOpen, panelRef, () => {
         setIsRecentOpen(false);
         setIsOpen(false);
     });
 
+    const clearCloseTimer = useCallback(() => {
+        if (closeTimerRef.current !== null) {
+            clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
+    }, []);
+
+    const updateSubmenuSide = useCallback(() => {
+        if (recentItemRef.current) {
+            const rect = recentItemRef.current.getBoundingClientRect();
+            // Submenu width is ~280px (w-72), plus a buffer
+            if (rect.right + 280 > window.innerWidth && rect.left >= 280) {
+                setSubmenuSide('left');
+            } else {
+                setSubmenuSide('right');
+            }
+        }
+    }, []);
+
+    const openRecentSubmenu = useCallback(() => {
+        clearCloseTimer();
+        setRecentFiles(getRecentFiles());
+        updateSubmenuSide();
+        setIsRecentOpen(true);
+    }, [clearCloseTimer, updateSubmenuSide]);
+
+    const handleRecentMouseEnter = useCallback(() => {
+        openRecentSubmenu();
+    }, [openRecentSubmenu]);
+
+    const handleRecentMouseLeave = useCallback(() => {
+        clearCloseTimer();
+        // 150ms bridge timeout so moving between parent item and submenu is seamless
+        closeTimerRef.current = setTimeout(() => {
+            setIsRecentOpen(false);
+        }, 150) as unknown as number;
+    }, [clearCloseTimer]);
+
+    const handleOtherItemMouseEnter = useCallback(() => {
+        clearCloseTimer();
+        setIsRecentOpen(false);
+    }, [clearCloseTimer]);
+
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                clearCloseTimer();
                 setIsRecentOpen(false);
                 setIsOpen(false);
             }
         };
         const handleKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
+                clearCloseTimer();
                 setIsRecentOpen(false);
                 setIsOpen(false);
             }
@@ -73,10 +124,12 @@ export function MoreMenu({
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
             document.removeEventListener('keydown', handleKey);
+            clearCloseTimer();
         };
-    }, [isOpen]);
+    }, [isOpen, clearCloseTimer]);
 
     const run = (action: () => void) => {
+        clearCloseTimer();
         setIsRecentOpen(false);
         setIsOpen(false);
         action();
@@ -95,7 +148,10 @@ export function MoreMenu({
             <button
                 onClick={() => {
                     const next = !isOpen;
-                    if (!next) setIsRecentOpen(false);
+                    if (!next) {
+                        clearCloseTimer();
+                        setIsRecentOpen(false);
+                    }
                     setIsOpen(next);
                 }}
                 aria-label="Options"
@@ -118,6 +174,7 @@ export function MoreMenu({
                     {onOpenFolder && (
                         <button
                             role="menuitem"
+                            onMouseEnter={handleOtherItemMouseEnter}
                             onClick={() => run(onOpenFolder)}
                             className="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
                         >
@@ -129,13 +186,24 @@ export function MoreMenu({
                     )}
 
                     {/* Recent item directly below Open folder */}
-                    <div ref={recentItemRef} className="relative">
+                    <div
+                        ref={recentItemRef}
+                        className="relative"
+                        onMouseEnter={handleRecentMouseEnter}
+                        onMouseLeave={handleRecentMouseLeave}
+                    >
                         <button
                             ref={recentButtonRef}
                             role="menuitem"
                             aria-haspopup="true"
                             aria-expanded={isRecentOpen}
-                            onClick={() => setIsRecentOpen((prev) => !prev)}
+                            onClick={() => {
+                                if (isRecentOpen) {
+                                    setIsRecentOpen(false);
+                                } else {
+                                    openRecentSubmenu();
+                                }
+                            }}
                             className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left rounded-lg transition-colors ${
                                 isRecentOpen ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'hover:bg-[var(--bg-hover)]'
                             }`}
@@ -145,7 +213,7 @@ export function MoreMenu({
                             </span>
                             <span className="flex-1">Recent</span>
                             <span className="material-symbols-outlined text-[16px] text-[var(--text-muted)]" aria-hidden="true">
-                                chevron_right
+                                {submenuSide === 'left' ? 'chevron_left' : 'chevron_right'}
                             </span>
                         </button>
                     </div>
@@ -157,6 +225,7 @@ export function MoreMenu({
                             {it.dividerBefore && <div className="h-px my-1 bg-[var(--border)]" role="separator" />}
                             <button
                                 role="menuitem"
+                                onMouseEnter={handleOtherItemMouseEnter}
                                 onClick={() => run(it.action)}
                                 className="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
                             >
