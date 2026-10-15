@@ -110,8 +110,23 @@ export function MoreMenu({
 
     useEffect(() => {
         if (!isRecentOpen) return;
-        window.addEventListener('resize', updateSubmenuPosition);
-        return () => window.removeEventListener('resize', updateSubmenuPosition);
+        let frame: number | null = null;
+        const handleResize = () => {
+            updateSubmenuPosition();
+            // CHROME-06: the title-bar controls can reflow after the resize
+            // event (responsive labels / host viewport updates). Measure again
+            // on the next frame so the offset uses their settled position.
+            if (frame !== null) cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(() => {
+                frame = null;
+                updateSubmenuPosition();
+            });
+        };
+        window.addEventListener('resize', handleResize);
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            if (frame !== null) cancelAnimationFrame(frame);
+        };
     }, [isRecentOpen, updateSubmenuPosition]);
 
     const closeRecentSubmenu = useCallback(() => {

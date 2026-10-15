@@ -172,5 +172,31 @@ describe('Options recent files (CHROME-06, PR #282)', () => {
         expect(menu.style.width).toBe('244px');
         expect(menu.style.left).toBe('-172px');
     });
+
+    it('remeasures after a resize finishes moving the title-bar controls', () => {
+        let frame: FrameRequestCallback | undefined;
+        vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+            frame = callback;
+            return 42;
+        }));
+        const cancel = vi.fn();
+        vi.stubGlobal('cancelAnimationFrame', cancel);
+        vi.stubGlobal('innerWidth', 600);
+        openMenu();
+        const row = recent().parentElement!;
+        const bounds = vi.spyOn(row, 'getBoundingClientRect');
+        bounds.mockReturnValue({ left: 180, right: 410, top: 90, height: 32 } as DOMRect);
+        const menu = openRecent();
+        fireEvent(window, new Event('resize'));
+        // The responsive toolbar moves after the resize listener has run.
+        bounds.mockReturnValue({ left: 130, right: 360, top: 90, height: 32 } as DOMRect);
+        act(() => frame?.(0));
+        expect(menu.style.left).toBe('-122px');
+        expect(130 + Number.parseFloat(menu.style.left)).toBe(8);
+        fireEvent(window, new Event('resize'));
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft' });
+        expect(cancel).toHaveBeenCalledWith(42);
+    });
+
 });
 
