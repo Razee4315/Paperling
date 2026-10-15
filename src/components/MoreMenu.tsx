@@ -36,7 +36,7 @@ interface MoreMenuItem {
  */
 export function MoreMenu({
     onOpenFolder,
-    onOpenRecent: _onOpenRecent,
+    onOpenRecent,
     onFind,
     onReplace,
     onFindInFiles,
@@ -45,13 +45,14 @@ export function MoreMenu({
 }: MoreMenuProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [isRecentOpen, setIsRecentOpen] = useState(false);
-    const [_recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+    const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
     const [submenuSide, setSubmenuSide] = useState<'right' | 'left'>('right');
 
     const menuRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const recentItemRef = useRef<HTMLDivElement>(null);
     const recentButtonRef = useRef<HTMLButtonElement>(null);
+    const submenuRef = useRef<HTMLDivElement>(null);
     const closeTimerRef = useRef<number | null>(null);
 
     const onMenuKeyDown = useDropdownKeyboard(isOpen, panelRef, () => {
@@ -135,6 +136,13 @@ export function MoreMenu({
         action();
     };
 
+    const handleSelectRecent = (path: string) => {
+        clearCloseTimer();
+        setIsRecentOpen(false);
+        setIsOpen(false);
+        onOpenRecent?.(path);
+    };
+
     const findAndOutputItems: MoreMenuItem[] = [
         { label: 'Find', icon: 'search', shortcut: formatShortcut('find'), action: onFind },
         { label: 'Find and Replace', icon: 'find_replace', shortcut: formatShortcut('replace'), action: onReplace },
@@ -216,6 +224,53 @@ export function MoreMenu({
                                 {submenuSide === 'left' ? 'chevron_left' : 'chevron_right'}
                             </span>
                         </button>
+
+                        {/* Secondary Submenu displaying list of recent files */}
+                        {isRecentOpen && (
+                            <div
+                                ref={submenuRef}
+                                role="menu"
+                                aria-label="Recent files"
+                                onMouseEnter={clearCloseTimer}
+                                onMouseLeave={handleRecentMouseLeave}
+                                className={`absolute top-0 w-72 max-h-80 overflow-y-auto p-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-2xl z-[80] animate-fade-in-down ${
+                                    submenuSide === 'right' ? 'left-full ml-1' : 'right-full mr-1'
+                                }`}
+                            >
+                                {recentFiles.length === 0 ? (
+                                    <div className="px-3 py-3 text-xs text-[var(--text-muted)] italic text-center">
+                                        No recent files
+                                    </div>
+                                ) : (
+                                    recentFiles.map((file) => (
+                                        <button
+                                            key={file.path}
+                                            role="menuitem"
+                                            onClick={() => handleSelectRecent(file.path)}
+                                            title={file.path}
+                                            className="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left rounded-lg hover:bg-[var(--bg-hover)] transition-colors group"
+                                        >
+                                            <span
+                                                className={`material-symbols-outlined text-[18px] w-5 text-center shrink-0 ${
+                                                    file.pinned ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
+                                                }`}
+                                                aria-hidden="true"
+                                            >
+                                                {file.pinned ? 'push_pin' : 'description'}
+                                            </span>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="truncate text-sm font-medium text-[var(--text-primary)] leading-snug">
+                                                    {file.name}
+                                                </div>
+                                                <div className="truncate text-[11px] text-[var(--text-muted)] font-mono leading-tight">
+                                                    {file.path}
+                                                </div>
+                                            </div>
+                                        </button>
+                                    ))
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     <div className="h-px my-1 bg-[var(--border)]" role="separator" />
