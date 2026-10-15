@@ -143,6 +143,50 @@ export function MoreMenu({
         onOpenRecent?.(path);
     };
 
+    const handleRecentKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+        if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            openRecentSubmenu();
+            setTimeout(() => {
+                submenuRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus();
+            }, 0);
+        }
+    };
+
+    const handleSubmenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsRecentOpen(false);
+            recentButtonRef.current?.focus();
+            return;
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsRecentOpen(false);
+            recentButtonRef.current?.focus();
+            return;
+        }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            e.stopPropagation();
+            const items = Array.from(
+                submenuRef.current?.querySelectorAll<HTMLButtonElement>('button:not([disabled])') || []
+            );
+            if (items.length === 0) return;
+            const current = items.indexOf(document.activeElement as HTMLButtonElement);
+            let next: number;
+            if (e.key === 'ArrowDown') {
+                next = current < 0 ? 0 : (current + 1) % items.length;
+            } else {
+                next = current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length;
+            }
+            items[next]?.focus();
+        }
+    };
+
     const findAndOutputItems: MoreMenuItem[] = [
         { label: 'Find', icon: 'search', shortcut: formatShortcut('find'), action: onFind },
         { label: 'Find and Replace', icon: 'find_replace', shortcut: formatShortcut('replace'), action: onReplace },
@@ -212,6 +256,7 @@ export function MoreMenu({
                                     openRecentSubmenu();
                                 }
                             }}
+                            onKeyDown={handleRecentKeyDown}
                             className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left rounded-lg transition-colors ${
                                 isRecentOpen ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'hover:bg-[var(--bg-hover)]'
                             }`}
@@ -231,6 +276,7 @@ export function MoreMenu({
                                 ref={submenuRef}
                                 role="menu"
                                 aria-label="Recent files"
+                                onKeyDown={handleSubmenuKeyDown}
                                 onMouseEnter={clearCloseTimer}
                                 onMouseLeave={handleRecentMouseLeave}
                                 className={`absolute top-0 w-72 max-h-80 overflow-y-auto p-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-2xl z-[80] animate-fade-in-down ${
