@@ -24,7 +24,7 @@ interface MoreMenuItem {
 }
 
 /**
- * The "More" (⋯) dropdown in the title bar. CHROME-04: the bar had grown to a
+ * The "More" / Options (⋯) dropdown in the title bar. CHROME-04: the bar had grown to a
  * folder icon, New, Open, Save, Find, Export, AI and an Edit button, which is
  * more than anyone scans. The everyday actions (New, Open, Save, Export) stay
  * as buttons; everything a mouse user needs less often lives here, so nothing
@@ -75,11 +75,11 @@ export function MoreMenu({ onOpenFolder, onFind, onReplace, onFindInFiles, onSav
         <div ref={menuRef} className="relative no-drag">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                aria-label="More actions"
+                aria-label="Options"
                 aria-expanded={isOpen}
                 aria-haspopup="true"
                 className="chrome-btn flex items-center justify-center w-8 h-8"
-                title="More: open folder, find, save as, print"
+                title="Options: open folder, recent files, find, save as, print"
             >
                 <span className="material-symbols-outlined text-[18px]">more_horiz</span>
             </button>
@@ -89,8 +89,8 @@ export function MoreMenu({ onOpenFolder, onFind, onReplace, onFindInFiles, onSav
                     ref={panelRef}
                     onKeyDown={onMenuKeyDown}
                     role="menu"
-                    aria-label="More actions"
-                    className="absolute right-0 top-full mt-1 w-60 py-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-xl overflow-hidden z-[70] animate-fade-in-down"
+                    aria-label="Options"
+                    className="absolute right-0 top-full mt-1 w-60 p-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-xl z-[70] animate-fade-in-down"
                 >
                     {items.map((it) => (
                         <div key={it.label}>
@@ -98,7 +98,7 @@ export function MoreMenu({ onOpenFolder, onFind, onReplace, onFindInFiles, onSav
                             <button
                                 role="menuitem"
                                 onClick={() => run(it.action)}
-                                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--bg-hover)] transition-colors"
+                                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
                             >
                                 <span className="material-symbols-outlined text-[18px] w-5 text-center text-[var(--text-secondary)]" aria-hidden="true">{it.icon}</span>
                                 <span className="flex-1">{it.label}</span>
