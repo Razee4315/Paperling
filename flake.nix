@@ -25,7 +25,7 @@
         # result is pinned by hash). Add a platform by building once and
         # copying the `got: sha256-...` line nix prints.
         bunDepsHashes = {
-          x86_64-linux = "sha256-dXJVn49sVx/2ba8193ObYVv3i5h6NgZFcD3rfU0sfmw=";
+          x86_64-linux = "sha256-rovlh4qkQjAaEB4CcqsiEYZ1XJZlqNjClfIDWg6cbSU=";
         };
 
         # Dependency fetch (fixed-output, so the sandbox grants network).
