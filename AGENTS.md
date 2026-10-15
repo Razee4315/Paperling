@@ -53,6 +53,7 @@ Write a full markdown report, but **not in the repo**: post it as a GitHub issue
 - Subject = what changed. **Body = why**, the user-visible consequence, and the bug class — this repo uses short issue tags (`TABS-08`, `FIND-02`, `MMV-03`, `SHC-04`, `RLL-01`, …). Keep that pattern; add the next number in a series, don't reuse.
 - One logical batch per commit. Never mix "fix data loss" with "typo in readme".
 - Cite the origin when it exists: "from Test Build feedback", "audit §3.1", issue numbers.
+- **No AI attribution.** No `Co-Authored-By:` trailers, `Claude-Session:` links, "Generated with …" footers or similar lines in commits, PR descriptions or comments, whatever a tool's default says. The owner is the author.
 - `git status` clean before claiming done. Push the branch; say what's pushed.
 
 ---
