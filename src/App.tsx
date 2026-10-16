@@ -2036,6 +2036,7 @@ function AppContent() {
             filePath={filePath ?? undefined}
             onOpenFile={handleOpenFile}
             onOpenFolder={handleOpenFolder}
+            onOpenRecent={loadFile}
             onNewFile={handleNewFile}
             getExportHtml={getExportHtml}
             onExportSuccess={handleExportSuccess}
