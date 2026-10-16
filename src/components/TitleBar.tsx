@@ -14,6 +14,7 @@ interface TitleBarProps {
     filePath?: string;
     onOpenFile?: () => void;
     onOpenFolder?: () => void;
+    onOpenRecent?: (path: string) => void;
     onNewFile?: () => void;
     getExportHtml?: () => Promise<string>;
     onExportSuccess?: (format: string) => void;
@@ -33,7 +34,7 @@ interface TitleBarProps {
     onPrint?: () => void;
 }
 
-function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles, onSave, onSaveAs, onPrint }: TitleBarProps) {
+function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onOpenRecent, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles, onSave, onSaveAs, onPrint }: TitleBarProps) {
     // Whether the AI button's icon shimmers. Some users prefer it plain (#111).
     // Held locally and refreshed from the Settings event rather than threaded
     // down from App, since nothing else on the way needs to know about it.
@@ -209,7 +210,7 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                                 onError={onExportError}
                             />
                             {onFind && onReplace && onFindInFiles && (
-                                <MoreMenu onOpenFolder={onOpenFolder} onFind={onFind} onReplace={onReplace} onFindInFiles={onFindInFiles} onSaveAs={onSaveAs} onPrint={onPrint} />
+                                <MoreMenu onOpenFolder={onOpenFolder} onOpenRecent={onOpenRecent} onFind={onFind} onReplace={onReplace} onFindInFiles={onFindInFiles} onSaveAs={onSaveAs} onPrint={onPrint} />
                             )}
                             {onToggleAI && (
                                 <button

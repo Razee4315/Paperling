@@ -52,6 +52,8 @@ jobs:
         continue-on-error: true
         with:
           workspaces: './src-tauri -> target'
+          # PRs restore main's cache but must not duplicate gigabytes per ref.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
