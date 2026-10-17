@@ -1,6 +1,6 @@
 import { useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState, useTransition, memo, createContext, useContext } from "react";
 import { flushSync } from "react-dom";
-import Markdown, { defaultUrlTransform } from "react-markdown";
+import Markdown, { defaultUrlTransform, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkFlexibleMarkers from "remark-flexible-markers";
 import remarkSupersub from "../utils/remarkSupersub";
@@ -24,6 +24,17 @@ import { splitMarkdownBlocks } from "../utils/markdownBlocks";
 import { getRemoteImages, getReaderEditing } from "../utils/persistence";
 import { useReaderEditor } from "../hooks/useReaderEditor";
 import { matchesBinding } from "../config/keybindings";
+import { orderedListMarkerCharacters } from "../utils/orderedListMarkers";
+
+function OrderedList({ node, children, style, ...props }: React.ComponentProps<"ol"> & ExtraProps) {
+    const values = (node?.children ?? []).flatMap((child) =>
+        child.type === "element" && child.tagName === "li"
+            ? [typeof child.properties.value === "number" || typeof child.properties.value === "string" ? child.properties.value : undefined]
+            : [],
+    );
+    const characters = orderedListMarkerCharacters(props.start, values, props.reversed);
+    return <ol {...props} style={{ ...style, "--ordered-list-marker-characters": characters } as React.CSSProperties}>{children}</ol>;
+}
 
 // Detect KaTeX-style math so we only load the heavy katex bundle when needed.
 // $$...$$ for block math, $...$ for inline math (not preceded/followed by digit
@@ -1104,6 +1115,7 @@ function MarkdownPreviewImpl({
             );
         },
         pre: PreRenderer,
+        ol: OrderedList,
         table: TableRenderer,
         h1: H1Renderer,
         h2: H2Renderer,

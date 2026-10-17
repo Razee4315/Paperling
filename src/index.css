@@ -1298,7 +1298,10 @@ html.touch ::-webkit-scrollbar {
 
 .markdown-body ol {
   list-style-type: decimal;
-  padding-inline-start: 1.5rem;
+  /* PREVIEW-08 (#270): rem stayed at 24px while reading text/zoom grew,
+     pushing outside markers past .markdown-body's horizontal clip. Reserve
+     font-relative space for the actual counter width, plus its dot/gap. */
+  padding-inline-start: max(2.5em, calc(var(--ordered-list-marker-characters, 2) * 1em + 0.5em));
   margin-bottom: 1rem;
 }
 
