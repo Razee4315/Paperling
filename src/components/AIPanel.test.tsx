@@ -3,8 +3,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { AIPanel } from "./AIPanel";
 import { streamChat } from "../utils/aiChat";
 import { getChatSessions } from "../utils/persistence";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 vi.mock("../utils/aiChat", async (original) => ({ ...await original<typeof import("../utils/aiChat")>(), streamChat: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 const props = { isOpen: true, onClose: vi.fn(), note: "old text", docKey: "tab-1", fileName: "a.md", selectionText: "", aiConfig: { endpoint: "http://localhost:1234/v1/chat/completions", model: "local", apiKey: "" }, width: 400, onWidthChange: vi.fn() };
 afterEach(() => { cleanup(); localStorage.clear(); vi.resetAllMocks(); });
 async function send(text: string) {
@@ -173,4 +175,47 @@ it("does not leave an empty reply showing Thinking after the request completed",
     await send("question");
     expect(screen.getByText(/AI returned an empty response/)).toBeInTheDocument();
     expect(screen.queryByText("Thinking…")).toBeNull();
+});
+
+// --- AI-10: assistant markdown gets the document preview's handling. ---
+
+it("blocks a remote image in a reply while 'Load remote images' is off", async () => {
+    localStorage.setItem("paperling:remoteImages", "false");
+    vi.mocked(streamChat).mockImplementation(async (_m, _c, opts) => {
+        opts?.onToken?.("![beacon](https://evil.com/pixel.png)");
+        return "![beacon](https://evil.com/pixel.png)";
+    });
+    render(<AIPanel {...props} />);
+    await send("draw me a picture");
+    expect(screen.getByText(/Remote image blocked/)).toBeInTheDocument();
+    expect(screen.queryByRole("img")).toBeNull();
+});
+
+it("loads a remote image in a reply when 'Load remote images' is on, and honors the toggle live", async () => {
+    localStorage.setItem("paperling:remoteImages", "true");
+    vi.mocked(streamChat).mockImplementation(async (_m, _c, opts) => {
+        opts?.onToken?.("![pic](https://example.com/pic.png)");
+        return "![pic](https://example.com/pic.png)";
+    });
+    render(<AIPanel {...props} />);
+    await send("draw me a picture");
+    expect(screen.getByRole("img", { name: "pic" })).toHaveAttribute("src", "https://example.com/pic.png");
+
+    // The Settings toggle takes effect on the already-rendered reply.
+    localStorage.setItem("paperling:remoteImages", "false");
+    act(() => window.dispatchEvent(new Event("paperling:remote-images-toggle")));
+    expect(screen.getByText(/Remote image blocked/)).toBeInTheDocument();
+    expect(screen.queryByRole("img")).toBeNull();
+});
+
+it("opens a link in a reply through the OS opener instead of navigating", async () => {
+    vi.mocked(openUrl).mockResolvedValue(undefined);
+    vi.mocked(streamChat).mockImplementation(async (_m, _c, opts) => {
+        opts?.onToken?.("[docs](https://example.com/docs)");
+        return "[docs](https://example.com/docs)";
+    });
+    render(<AIPanel {...props} />);
+    await send("give me a link");
+    fireEvent.click(screen.getByRole("link", { name: "docs" }));
+    expect(openUrl).toHaveBeenCalledWith("https://example.com/docs");
 });

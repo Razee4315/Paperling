@@ -15,8 +15,23 @@ export interface ChatMessage {
 
 const AI_CONNECT_TIMEOUT_MS = 120_000;
 
+/**
+ * Mask anything that looks like a bearer credential before an endpoint's error
+ * body is shown in the panel: a hostile endpoint can echo the Authorization
+ * header (or a scary fake of it) inside a 4xx body, and the snippet would
+ * otherwise put it on screen (and into the persisted transcript).
+ */
+export function maskKeyLikeStrings(text: string): string {
+    return text
+        // Header-style forms: "Bearer <v>", "api-key: <v>", "token=<v>".
+        .replace(/\b(bearer|api-key|x-api-key|token)\s*[:=]\s*\S+/gi, "$1 [redacted]")
+        .replace(/\b(bearer)\s+\S+/gi, "$1 [redacted]")
+        // Common vendor key shapes (sk-..., AIza..., gsk_..., xoxb-...).
+        .replace(/\b(sk-[A-Za-z0-9_-]{8,}|AIza[A-Za-z0-9_-]{8,}|gsk_[A-Za-z0-9_-]{8,}|xox[bpars]-[A-Za-z0-9_-]{8,})/g, "[redacted]");
+}
+
 function mapHttpError(status: number, body: string): string {
-    const detail = body.trim().slice(0, 200);
+    const detail = maskKeyLikeStrings(body.trim().slice(0, 200));
     let msg: string;
     if (status === 401 || status === 403) msg = "API key invalid or unauthorized — check Settings → AI.";
     else if (status === 404) msg = "Endpoint not found (404) — check the URL in Settings → AI.";
