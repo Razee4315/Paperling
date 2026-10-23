@@ -26,15 +26,20 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
-      # Crates named by open RUSTSEC advisories on the current lock (zip
-      # symlink/SUID extraction, rustls-webpki/webpki-roots distrusted emSign
-      # intermediates, async-io AsyncFd I/O safety). `cargo update -p` only
-      # moves a crate within the ranges its dependents allow; a fix that needs
-      # a newer major shows up in the deny check below instead of silently
-      # shipping.
+      # Crates named by open RUSTSEC advisories on the current lock (tokio
+      # AsyncFd I/O safety, rustls-webpki emSign verification, webpki-root-certs
+      # distrusted intermediates). The zip advisories are accepted in
+      # deny.toml with a documented rationale — no released
+      # tauri-plugin-updater allows zip 9 yet, so -p zip cannot clear them.
+      # `cargo update -p` only moves a crate within the ranges its dependents
+      # allow; crates that are already newest (or absent) are skipped so one
+      # stuck crate can't block the others.
       - name: Update advisory-named crates
         working-directory: src-tauri
-        run: cargo update -p zip -p async-io -p rustls-webpki -p webpki-roots
+        run: |
+          for crate in tokio rustls-webpki webpki-root-certs webpki-roots zip; do
+            cargo update -p "$crate" || echo "::notice::skipped $crate (not in the lockfile, or already newest within its ranges)"
+          done
 
       - name: Verify the resolved manifest
         working-directory: src-tauri
