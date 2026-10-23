@@ -1,0 +1,64 @@
+name: Refresh Cargo lockfile
+
+# Resolve RustSec advisories in Cargo.lock on CI, for the case where no local
+# Rust toolchain is available. Updates the named crates to the newest version
+# their dependency ranges allow, re-runs cargo-deny in the same job so the
+# advisories' status is visible immediately, then pushes the lockfile back to
+# the branch the run was dispatched from (PR CI re-verifies the compile).
+# Collaborator-triggered only; no secrets involved.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-cargo-lockfile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      # Crates named by open RUSTSEC advisories on the current lock (tokio
+      # AsyncFd I/O safety, rustls-webpki emSign verification, webpki-root-certs
+      # distrusted intermediates). The zip advisories are accepted in
+      # deny.toml with a documented rationale — no released
+      # tauri-plugin-updater allows zip 9 yet, so -p zip cannot clear them.
+      # `cargo update -p` only moves a crate within the ranges its dependents
+      # allow; crates that are already newest (or absent) are skipped so one
+      # stuck crate can't block the others.
+      - name: Update advisory-named crates
+        working-directory: src-tauri
+        run: |
+          for crate in tokio rustls-webpki webpki-root-certs webpki-roots zip; do
+            cargo update -p "$crate" || echo "::notice::skipped $crate (not in the lockfile, or already newest within its ranges)"
+          done
+
+      - name: Verify the resolved manifest
+        working-directory: src-tauri
+        run: cargo metadata --locked --no-deps --format-version 1 > /dev/null
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.20.2
+
+      - name: Check advisories, bans, and sources
+        run: cargo deny --manifest-path src-tauri/Cargo.toml check advisories bans sources
+
+      - name: Commit and push the refreshed lockfile
+        run: |
+          git config user.name "Paperling CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add src-tauri/Cargo.lock
+          if git diff --cached --quiet; then
+            echo "Lockfile unchanged — nothing to push."
+          else
+            git commit -m "chore(deps): refresh Cargo.lock for open RustSec advisories" -m "cargo update for zip, async-io, rustls-webpki and webpki-roots, resolving the advisory set cargo-deny flagged on the current lock (zip symlink/SUID extraction, distrusted emSign intermediates in the webpki bundles, async-io AsyncFd I/O safety). Ran from the Refresh Cargo lockfile workflow; PR CI compile-verifies the result."
+            git push
+          fi

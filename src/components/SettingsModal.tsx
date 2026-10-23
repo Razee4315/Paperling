@@ -728,6 +728,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             value={ai.apiKey}
                                             onChange={(e) => updateAi({ apiKey: e.target.value })}
                                             placeholder={activeProvider?.keyOptional ? "(not needed for this provider)" : activeProvider ? `paste your ${activeProvider.name} API key` : "(optional for local providers)"}
+                                            autoComplete="off"
                                             className="mt-1 w-full px-3 py-2 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] font-mono"
                                         />
                                         {activeProvider && (
@@ -772,7 +773,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         )}
                                     </div>
                                     <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                                        <strong>Privacy:</strong> your selected text is sent <strong>unencrypted</strong> to the endpoint you configure above.
+                                        <strong>Privacy:</strong> AI panel messages send the <strong>whole open document</strong> (plus your chat
+                                        history) to the endpoint you configure above; the bubble's "Explain" sends only the selected text. Plain-http
+                                        endpoints are <strong>unencrypted</strong> — your API key is never sent over http to a non-local host.
                                         For private notes, use a local provider (e.g. Ollama at <code>http://localhost:11434/v1/chat/completions</code>) so nothing leaves your machine.
                                         The API key is stored in your operating system's keychain (Windows Credential Manager, macOS Keychain, or Linux Secret Service), not in plaintext.
                                     </p>

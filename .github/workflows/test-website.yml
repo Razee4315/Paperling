@@ -13,13 +13,13 @@ jobs:
       run:
         working-directory: docs
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0 # WEB-18: sitemap lastmod comes from git history
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
-      - uses: actions/setup-node@v7
+          bun-version: "1.4.0"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
@@ -27,7 +27,7 @@ jobs:
       - run: bun run test
       - run: bun run build
       - run: bun run verify
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: paperling-website-preview
           path: docs/dist

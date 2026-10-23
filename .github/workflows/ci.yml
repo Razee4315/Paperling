@@ -25,6 +25,11 @@ on:
       - "docs/package.json"
       - "docs/bun.lock"
 
+# Build-only workflow: nothing here publishes, so the jobs get a read-only
+# token even if the repo default is ever loosened.
+permissions:
+  contents: read
+
 jobs:
   check:
     strategy:
@@ -36,17 +41,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         # The stable toolchain installs with the minimal profile, which omits
         # clippy — request it explicitly so the lint step below has it.
         with:
           components: clippy
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         # Caching is an optimization — a flaky GitHub cache service must never
         # fail the build (it took down a Windows release once).
         continue-on-error: true
@@ -62,9 +67,9 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: "1.4.0"
 
       - name: Install frontend dependencies
         # --frozen-lockfile makes CI fail if bun.lock doesn't match package.json,
@@ -97,13 +102,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+        run: cargo install cargo-deny --locked --version 0.20.2
 
       - name: Check advisories, bans, and sources
         run: cargo deny --manifest-path src-tauri/Cargo.toml check advisories bans sources
@@ -116,7 +121,7 @@ jobs:
   # Tag verified against github.com/google/osv-scanner-action releases; Dependabot
   # (github-actions ecosystem) will keep it current.
   osv-scan:
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.6.0
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
     permissions:
       contents: read
       security-events: write

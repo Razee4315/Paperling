@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { streamChat, buildAskMessages, buildAgentMessages, parseEdits, type ChatMessage } from "../utils/aiChat";
 import type { AIConfig } from "../utils/aiAssist";
 import {
     getAIHistoryTurns,
     getChatSessions,
+    getRemoteImages,
     setChatSessions,
     setAIPanelWidth,
     AI_PANEL_WIDTH_MIN,
@@ -46,6 +48,55 @@ interface UIMessage {
     role: "user" | "assistant";
     content: string;
 }
+
+// Assistant text is markdown from an external endpoint (and can be steered by
+// whatever document is open, via prompt injection), so it gets the same
+// treatment as preview content. AI-10:
+//  - remote images only load with the user's "Load remote images" consent —
+//    a streaming reply containing ![x](https://…) must not beacon the moment
+//    it renders, and must not bypass a gate the user turned off for documents;
+//  - links go through the OS opener (the document preview's behavior) instead
+//    of relying on the webview's default navigation.
+// Module scope keeps the renderers' identity stable so streamed deltas never
+// remount the whole markdown tree.
+const AI_REMOTE_IMAGE_RE = /^https?:/i;
+
+function AiMarkdownImage({ src, alt }: React.ImgHTMLAttributes<HTMLImageElement>) {
+    const [allowed, setAllowed] = useState(getRemoteImages);
+    useEffect(() => {
+        const onToggle = () => setAllowed(getRemoteImages());
+        window.addEventListener("paperling:remote-images-toggle", onToggle);
+        return () => window.removeEventListener("paperling:remote-images-toggle", onToggle);
+    }, []);
+    if (typeof src !== "string" || src === "") return null;
+    if (AI_REMOTE_IMAGE_RE.test(src) && !allowed) {
+        return (
+            <span className="inline-flex items-center px-2 py-1 text-xs border border-[var(--border-subtle)] rounded-lg text-[var(--text-muted)]">
+                Remote image blocked — enable "Load remote images" in Settings
+            </span>
+        );
+    }
+    return <img src={src} alt={alt || ""} loading="lazy" className="max-w-full h-auto rounded" />;
+}
+
+const AI_MARKDOWN_COMPONENTS = {
+    img: (props: React.ImgHTMLAttributes<HTMLImageElement>) => <AiMarkdownImage {...props} />,
+    a: ({ href, children, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+        const external = typeof href === "string" && /^(https?:|mailto:)/i.test(href);
+        return (
+            <a
+                {...rest}
+                href={external ? href : undefined}
+                onClick={(e) => {
+                    e.preventDefault();
+                    if (external && href) openUrl(href).catch(() => { /* opener unavailable */ });
+                }}
+            >
+                {children}
+            </a>
+        );
+    },
+};
 
 // The number of prior turns sent as conversation context is a user setting
 // (Settings → AI, default 8), read live per send — the document itself is
@@ -498,7 +549,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                                 <div className="max-w-[92%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm w-full">
                                     {m.content ? (
                                         <div className="markdown-body !text-sm [&_*]:!text-sm [&_h1]:!text-base [&_h2]:!text-sm [&_pre]:!text-xs">
-                                            <Markdown remarkPlugins={[remarkGfm]}>{m.content}</Markdown>
+                                            <Markdown remarkPlugins={[remarkGfm]} components={AI_MARKDOWN_COMPONENTS}>{m.content}</Markdown>
                                         </div>
                                     ) : (
                                         <span className="inline-flex gap-1 text-[var(--text-muted)]">

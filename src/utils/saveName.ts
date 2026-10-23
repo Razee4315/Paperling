@@ -12,7 +12,10 @@
 
 /** Characters Windows (the strictest target) forbids in file names. */
 const INVALID_CHARS = /[<>:"/\\|?*\u0000-\u001f]/g;
-const RESERVED_WINDOWS = /^(con|prn|aux|nul|com\d|lpt\d)$/i;
+// Device names are reserved by their STEM, not the whole name: legacy Win32
+// maps "CON.x.md" to the console device too, so the extension must not hide
+// the stem (SEC hardening; SAVE-05 covers the rest of the shape rules).
+const RESERVED_WINDOWS = /^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i;
 const MAX_NAME = 60;
 
 /** Strip inline markdown so "**Big** [idea](x)" becomes "Big idea". */
