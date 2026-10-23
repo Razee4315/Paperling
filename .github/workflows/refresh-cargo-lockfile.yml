@@ -45,6 +45,9 @@ jobs:
         working-directory: src-tauri
         run: cargo metadata --locked --no-deps --format-version 1 > /dev/null
 
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.20.2
+
       - name: Check advisories, bans, and sources
         run: cargo deny --manifest-path src-tauri/Cargo.toml check advisories bans sources
 
