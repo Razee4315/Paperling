@@ -51,12 +51,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "Lockfile unchanged — nothing to push."
           else
-            git commit -m "chore(deps): refresh Cargo.lock for open RustSec advisories
-
-cargo update for zip, async-io, rustls-webpki and webpki-roots, resolving
-the advisory set cargo-deny flagged on the current lock (zip symlink/SUID
-extraction, distrusted emSign intermediates in the webpki bundles, async-io
-AsyncFd I/O safety). Ran from the Refresh Cargo lockfile workflow; PR CI
-compile-verifies the result."
+            git commit -m "chore(deps): refresh Cargo.lock for open RustSec advisories" -m "cargo update for zip, async-io, rustls-webpki and webpki-roots, resolving the advisory set cargo-deny flagged on the current lock (zip symlink/SUID extraction, distrusted emSign intermediates in the webpki bundles, async-io AsyncFd I/O safety). Ran from the Refresh Cargo lockfile workflow; PR CI compile-verifies the result."
             git push
           fi
