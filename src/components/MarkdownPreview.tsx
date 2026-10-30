@@ -226,6 +226,10 @@ function topSourceLine(container: HTMLElement): number | null {
     return sourceLineOf(blocks[ans]);
 }
 
+// .preview-column's px-8, both sides: the margin a wide code block keeps from
+// the pane's edges. RLL-02.
+const PREVIEW_GUTTERS_PX = 64;
+
 type PluginPair = { remark: unknown; rehype: unknown };
 let mathPluginsCache: PluginPair | null = null;
 let mathLoadPromise: Promise<PluginPair> | null = null;
@@ -577,7 +581,8 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) 
     };
 
     return (
-        <div className="relative group">
+        <div className="code-block">
+        <div className="code-block-inner relative group">
             <button
                 type="button"
                 onClick={handleCopy}
@@ -590,6 +595,7 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) 
                 {copied ? "Copied!" : "Copy"}
             </button>
             <pre ref={ref} {...rest}>{children}</pre>
+        </div>
         </div>
     );
 }
@@ -1319,11 +1325,19 @@ function MarkdownPreviewImpl({
     // resize) and whenever the rendered body changes height. ResizeObserver fires
     // on box-size changes; the renderedBody effect covers content growth (which
     // changes scrollHeight without changing the element's own box). PREVIEW-04.
+    // The same observer publishes the pane's usable width, the limit a wide code
+    // block may grow to past the reading column (.code-block-inner, RLL-02).
     useEffect(() => {
         refreshScrollMax();
         const el = mainRef.current;
         if (!el || typeof ResizeObserver === "undefined") return;
-        const ro = new ResizeObserver(refreshScrollMax);
+        const onResize = () => {
+            refreshScrollMax();
+            // Zero width: the pane is hidden (Code view), nothing to measure.
+            if (el.clientWidth > 0) el.style.setProperty("--preview-wide-max", `${el.clientWidth - PREVIEW_GUTTERS_PX}px`);
+        };
+        onResize();
+        const ro = new ResizeObserver(onResize);
         ro.observe(el);
         return () => ro.disconnect();
     }, [refreshScrollMax]);
@@ -1565,6 +1579,9 @@ function MarkdownPreviewImpl({
                     </form>}
                     {reader.notice && <span role="status">{reader.notice}</span>}
                 </div>}
+                {/* The horizontal last-resort clip lives here, at pane width, so a
+                    wide code block can leave the reading column. RLL-02. */}
+                <div className="preview-clip">
                 <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 pt-12 pb-28`}>
                     {hasFrontmatter && (
                         <FrontmatterCard
@@ -1634,6 +1651,7 @@ function MarkdownPreviewImpl({
                             </div>
                         )}
                     </div>
+                </div>
                 </div>
             </main>
 

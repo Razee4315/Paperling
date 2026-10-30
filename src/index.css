@@ -1174,12 +1174,36 @@ html.touch ::-webkit-scrollbar {
   line-height: var(--line-height);
   font-family: var(--font-body);
   font-size: var(--font-size-base);
-  /* No wide child may pan the document sideways — wide tables scroll inside
-     .table-scroll, code blocks inside their pre, math inside .katex-display;
-     this is the last-resort clip (visible+clip is the legal pair that does
-     NOT turn the element into a scroll container, so vertical flow and the
-     scroll-sync fraction are untouched). */
+}
+
+/* No wide child may pan the document sideways — wide tables scroll inside
+   .table-scroll, code blocks inside their pre, math inside .katex-display;
+   this is the last-resort clip (visible+clip is the legal pair that does NOT
+   turn the element into a scroll container, so vertical flow and the
+   scroll-sync fraction are untouched). It sits at pane width, not on
+   .markdown-body, so a wide code block can use the free space. RLL-02. */
+.preview-clip {
   overflow-x: clip;
+}
+
+/* A code block with long lines (a folder tree, a log) grows past the reading
+   column, centred on it, up to the pane's width; the text around it keeps the
+   column. It was cut off at 800px in a 1600px window, with half the screen
+   empty. Lines don't wrap: that breaks anything aligned by columns, so the pre
+   still scrolls when the pane itself is too narrow. --preview-wide-max comes
+   from MarkdownPreview. The flex parent centres an overflowing child without a
+   transform, which would blur the text at odd widths. `direction` keeps that
+   centring (and the Copy button) in place in right-to-left documents. RLL-02. */
+.markdown-body .code-block {
+  display: flex;
+  justify-content: center;
+  direction: ltr;
+}
+.markdown-body .code-block-inner {
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 100%;
+  max-width: var(--preview-wide-max, 100%);
 }
 
 /* Wide tables: the table keeps its natural width and the WRAPPER scrolls, so

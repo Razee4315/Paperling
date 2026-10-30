@@ -23,6 +23,22 @@ afterEach(() => { cleanup(); localStorage.clear(); });
 /** Start a Reader editing session the way the palette command does. */
 const startReaderSession = () => act(() => { window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")); });
 
+describe("wide code blocks (RLL-02, #294)", () => {
+    it("wraps a code block so it can grow past the reading column with its Copy button", async () => {
+        const { container } = renderPreview("```\nsome code\n```");
+        await screen.findByText("some code");
+        const inner = container.querySelector(".code-block > .code-block-inner")!;
+        expect(inner.querySelector("pre")).not.toBeNull();
+        expect(inner.querySelector('button[aria-label="Copy code"]')).not.toBeNull();
+    });
+
+    it("clips at pane width, outside the reading column", async () => {
+        const { container } = renderPreview("text");
+        await screen.findByText("text");
+        expect(container.querySelector(".preview-clip > .preview-column .markdown-body")).not.toBeNull();
+    });
+});
+
 describe("ordered-list marker gutters (PREVIEW-08, #270)", () => {
     it("keeps native numbering and accounts for crossing 99 to 100", async () => {
         const { container } = renderPreview("98. First\n99. Second\n100. Third");
