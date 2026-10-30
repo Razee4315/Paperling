@@ -33,6 +33,7 @@ import { IS_MOBILE, isTauri } from "./utils/platform";
 import { isDocumentPath, isHtmlPath } from "./utils/documentPaths";
 import { EDITOR_COMMAND_EVENT, type FoldCommandId, type TextCommandId } from "./utils/textCommands";
 import { writeRichClipboard } from "./utils/richClipboard";
+import { fileHistory } from "./utils/fileHistory";
 import { useCustomCss } from "./hooks/useCustomCss";
 import { getWorkspaceDirectory, setWorkspaceDirectory } from "./utils/persistence";
 import { isTextDirection, type TextDirection } from "./utils/textDirection";
@@ -55,6 +56,9 @@ const MarkdownPreview = lazy(() =>
 );
 const HtmlPreview = lazy(() =>
   import("./components/HtmlPreview").then((m) => ({ default: m.HtmlPreview }))
+);
+const FileHistoryDialog = lazy(() =>
+  import("./components/FileHistoryDialog").then((m) => ({ default: m.FileHistoryDialog }))
 );
 const FileExplorer = lazy(() =>
     import("./components/FileExplorer").then((m) => ({ default: m.FileExplorer }))
@@ -1590,6 +1594,28 @@ function AppContent() {
     }
   }, [mode, setMode]);
 
+  // File history (HIST-01). A restore is an ordinary edit: it lands in the
+  // buffer, undoable and unsaved. The text it replaces is kept first, so even
+  // an unsaved draft survives the user changing their mind after closing the tab.
+  const [historyTarget, setHistoryTarget] = useState<{ path: string; fileName: string } | null>(null);
+  const openFileHistory = useCallback(() => {
+    if (!filePath) {
+      showToast("Save the file first: history starts once it's on disk", "info");
+      return;
+    }
+    if (proposedDoc != null) {
+      showToast("Finish reviewing the AI changes first", "info");
+      return;
+    }
+    setHistoryTarget({ path: filePath, fileName: fileName ?? "Untitled.md" });
+  }, [fileName, filePath, proposedDoc, showToast]);
+  const handleRestoreVersion = useCallback((text: string) => {
+    if (filePath) void fileHistory.record(filePath, content, "before-restore");
+    handleContentChange(text);
+    setHistoryTarget(null);
+    showToast("Version restored. Save to keep it, or undo to go back", "success");
+  }, [content, filePath, handleContentChange, showToast]);
+
   // Run an editor command from the palette. The caret lives in the editor, so
   // the Reader switches to it first, as "replace" does above. EDIT-01.
   const runEditorCommand = useCallback((id: TextCommandId | FoldCommandId) => {
@@ -1737,6 +1763,7 @@ function AppContent() {
           window.setTimeout(() => window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")), 50);
         },
       });
+      items.push({ id: "file.history", label: "File history", section: "File", icon: "history", keywords: "versions restore previous backup recover timeline undo", run: openFileHistory });
       if (!isHtmlDoc) items.push(
         { id: "file.copyRich", label: "Copy document as rich text", section: "File", icon: "content_copy", keywords: "word gmail docs paste formatted clipboard", run: () => void handleCopyDocument("rich") },
         { id: "file.copyHtml", label: "Copy document as HTML", section: "File", icon: "code", keywords: "source markup clipboard", run: () => void handleCopyDocument("html") },
@@ -1967,7 +1994,7 @@ function AppContent() {
     // separate hook that's gated on the palette actually being open.
     handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
-    loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand, handleCopyDocument,
+    loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand, handleCopyDocument, openFileHistory,
     typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
@@ -2154,6 +2181,7 @@ function AppContent() {
                   { id: "find", label: "Find", icon: "search", onSelect: openFind },
                   { id: "replace", label: "Find and replace", icon: "find_replace", onSelect: openReplace },
                   { id: "stats", label: "Document statistics", icon: "analytics", onSelect: () => setShowStats(true) },
+                  { id: "history", label: "File history", icon: "history", onSelect: openFileHistory },
                   // The AI panel's touch entry point (there is no nav button
                   // for it; the master switch lives in Settings → AI).
                   ...(aiEnabled
@@ -2390,6 +2418,19 @@ function AppContent() {
               nav carries the Read/Edit toggle. Zen hides it on both shells. */}
           {!IS_MOBILE && !zenActive && (
             <ModeToggle mode={mode} onSetMode={setMode} rightPanelWidth={rightPanelWidth} />
+          )}
+
+          {historyTarget && (
+            <Suspense fallback={null}>
+              <FileHistoryDialog
+                isOpen
+                path={historyTarget.path}
+                fileName={historyTarget.fileName}
+                current={content}
+                onRestore={handleRestoreVersion}
+                onClose={() => setHistoryTarget(null)}
+              />
+            </Suspense>
           )}
 
           {/* Sidebar Panels — only mount when actually open so they don't

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { pathKey } from "./tabsModel";
+import { fileHistory } from "./fileHistory";
 
 /**
  * Text-file I/O for documents, layered on the Rust read_file / save_file
@@ -28,9 +29,12 @@ export async function readTextFile<T extends { content: string; path?: string }>
     const data = await invoke<T>("read_file", { path });
     if (data && typeof data.content === "string" && data.content.startsWith(BOM)) {
         bomPaths.add(pathKey(data.path ?? path));
-        return { ...data, content: data.content.slice(BOM.length) };
+        const stripped = data.content.slice(BOM.length);
+        void fileHistory.record(path, stripped, "opened");
+        return { ...data, content: stripped };
     }
     bomPaths.delete(pathKey(path));
+    if (data && typeof data.content === "string") void fileHistory.record(path, data.content, "opened");
     return data;
 }
 
@@ -61,7 +65,9 @@ export async function saveTextFile(path: string, content: string): Promise<numbe
     writesInFlight++;
     writeEpoch++;
     try {
-        return await invoke<number>("save_file", { path, content: out });
+        const mtime = await invoke<number>("save_file", { path, content: out });
+        void fileHistory.record(path, content, "saved");
+        return mtime;
     } finally {
         writesInFlight--;
         writeEpoch++;

@@ -13,6 +13,7 @@ import {
     getWordWrap, setWordWrap,
     getCodeFolding, setCodeFolding,
     getCustomCss, setCustomCss,
+    getFileHistory, setFileHistory,
     getSpellCheck, setSpellCheck,
     getLivePreview, setLivePreview,
     getVimMode, setVimMode,
@@ -59,7 +60,7 @@ const sections: Array<{ id: Section; label: string; icon: string }> = [
 // nothing). SET-05.
 const SECTION_KEYWORDS: Record<Section, string> = {
     appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small",
-    editor: "custom css style stylesheet fold folding arrows collapse typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
+    editor: "file history versions backup recover restore custom css style stylesheet fold folding arrows collapse typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
     shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
     ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
     about: "about version update tour guide help license",
@@ -192,6 +193,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [wordWrap, setWordWrapLocal] = useState(getWordWrap);
     const [codeFolding, setCodeFoldingLocal] = useState(getCodeFolding);
     const [customCss, setCustomCssLocal] = useState(getCustomCss);
+    const [keepHistory, setKeepHistoryLocal] = useState(getFileHistory);
+    const [historyCleared, setHistoryCleared] = useState(false);
     const [spellCheck, setSpellCheckLocal] = useState(getSpellCheck);
     const [livePreview, setLivePreviewLocal] = useState(getLivePreview);
     const [vimMode, setVimModeLocal] = useState(getVimMode);
@@ -598,6 +601,25 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         // file open (same pattern as toggle-ai-panel).
                                         <ToggleRow label="Open files in reader mode" description="Every file opens read-first; editing stays one click away" checked={openInReader}
                                             onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
+                                    )}
+                                    {matches("file history versions local backup recover restore timeline") && (
+                                        <ToggleRow label="Keep file history" description="Save earlier versions of your files on this computer, for 30 days. Find them with File history in the command palette" checked={keepHistory}
+                                            onChange={(v) => { setKeepHistoryLocal(v); setFileHistory(v); }} />
+                                    )}
+                                    {matches("file history versions clear delete privacy") && (
+                                        <div className="flex items-center justify-between gap-4 px-3.5 py-3">
+                                            <div className="flex flex-col items-start min-w-0">
+                                                <span className="text-sm font-medium text-[var(--text-primary)]">Clear file history</span>
+                                                <span className="text-[11px] text-[var(--text-muted)] mt-0.5">Delete every saved version. Your files aren't touched</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => { void import("../utils/fileHistory").then(({ fileHistory }) => fileHistory.clear()).then(() => setHistoryCleared(true)); }}
+                                                className="shrink-0 px-2.5 py-1 text-xs rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                                            >
+                                                {historyCleared ? "Cleared" : "Clear"}
+                                            </button>
+                                        </div>
                                     )}
                                     {matches("reopen last session launch startup recovery") && (
                                         <ToggleRow label="Reopen last session on launch" description="Restore saved tabs on startup. Unsaved work is always recovered" checked={reopenSession}

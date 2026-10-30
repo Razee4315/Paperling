@@ -176,6 +176,12 @@ const KEY_CODE_FOLDING = "paperling:codeFolding";
 export const getCodeFolding = (): boolean => safeGet<boolean>(KEY_CODE_FOLDING, true);
 export const setCodeFolding = (v: boolean): void => safeSet(KEY_CODE_FOLDING, v);
 
+// Keep earlier versions of files on this computer (HIST-01). On by default:
+// it exists for the day you didn't think you'd need it.
+const KEY_FILE_HISTORY = "paperling:fileHistory";
+export const getFileHistory = (): boolean => safeGet<boolean>(KEY_FILE_HISTORY, true);
+export const setFileHistory = (v: boolean): void => safeSet(KEY_FILE_HISTORY, v);
+
 // Settings → Appearance → Custom CSS. Bounded: it lives in localStorage beside
 // everything else, and a paste of a whole framework must not push that out.
 const KEY_CUSTOM_CSS = "paperling:customCss";
