@@ -170,6 +170,12 @@ export const setWordWrap = (v: boolean): void => safeSet(KEY_WORD_WRAP, v);
 export const getSpellCheck = (): boolean => safeGet<boolean>(KEY_SPELL_CHECK, true);
 export const setSpellCheck = (v: boolean): void => safeSet(KEY_SPELL_CHECK, v);
 
+// Fold arrows in the editor's gutter. Off on the phone, where the gutter is
+// narrow and the arrows are too small to tap. EDIT-03.
+const KEY_CODE_FOLDING = "paperling:codeFolding";
+export const getCodeFolding = (): boolean => safeGet<boolean>(KEY_CODE_FOLDING, true);
+export const setCodeFolding = (v: boolean): void => safeSet(KEY_CODE_FOLDING, v);
+
 // LIVE-01: hide Markdown symbols in the editor except on the line being
 // edited. Opt-in: it changes how every line of the editor looks.
 const KEY_LIVE_PREVIEW = "paperling:livePreview";

@@ -22,6 +22,8 @@ import { wikilinkLabel } from "../utils/wikilinkAnchor";
 import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
 import { splitMarkdownBlocks } from "../utils/markdownBlocks";
 import { isUnsafeRelativePath } from "../utils/documentPaths";
+import { slugify } from "../utils/outline";
+import { isTocMarker, tocMarkdown } from "../utils/tableOfContents";
 import { getRemoteImages, getReaderEditing } from "../utils/persistence";
 import { useReaderEditor } from "../hooks/useReaderEditor";
 import { matchesBinding } from "../config/keybindings";
@@ -286,19 +288,6 @@ interface MarkdownPreviewProps {
      *  line (null when cleared), so Ctrl+E can put the caret on it. MODE-03. */
     onReaderSelection?: (sel: { line: number; text: string } | null) => void;
 }
-
-/** Slugify heading text into a stable, URL-safe id (GitHub-style). Unicode
- *  letters/digits (CJK, Cyrillic, accented Latin) are kept so those headings
- *  get distinct anchors and in-document links can resolve — the old ASCII-only
- *  class collapsed every CJK heading to `section`, `section-1`, … (NAV-06). */
-const slugify = (text: string): string =>
-    text
-        .toLowerCase()
-        .trim()
-        .replace(/[^\p{L}\p{N}\s-]/gu, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "");
 
 /* ---------- Wikilink pre-processing (NAV-08) ---------- */
 
@@ -826,6 +815,26 @@ const TableRenderer = ({ node, ...props }: React.HTMLAttributes<HTMLTableElement
 /** One independently rendered markdown block (PERF-02). Memoized on its text
  *  and the (stable) plugin/renderer sets, so an edit elsewhere in the document
  *  never re-parses it. */
+/** What a `[TOC]` paragraph renders. Context, so it follows heading edits in
+ *  other blocks without re-rendering the marker's whole block. */
+const TocContext = createContext<{ markdown: string; remarkPlugins: unknown[]; components: Record<string, unknown> } | null>(null);
+const NO_REHYPE: unknown[] = [];
+
+/**
+ * `[TOC]` swaps at the paragraph, not by rewriting the source text: the block
+ * must keep its line count, or data-source-line would point the Reader's
+ * in-place editing at the wrong lines. The list carries no line anchors, and
+ * <nav> is not a block Reader editing accepts. TOC-05.
+ */
+function TocBlock(props: React.HTMLAttributes<HTMLElement>) {
+    const toc = useContext(TocContext);
+    return (
+        <nav {...props} className="md-toc" aria-label="Table of contents">
+            {toc?.markdown && <MarkdownBlock text={toc.markdown} remarkPlugins={toc.remarkPlugins} rehypePlugins={NO_REHYPE} components={toc.components} />}
+        </nav>
+    );
+}
+
 const MarkdownBlock = memo(function MarkdownBlock({
     text,
     remarkPlugins,
@@ -1118,6 +1127,10 @@ function MarkdownPreviewImpl({
         // The li node is a real source node and always carries a position; the
         // checkbox <input> is SYNTHESIZED by remark-gfm and carries none, so the
         // line must come from here (PREVIEW-07).
+        p: ({ node, children, ...rest }: React.HTMLAttributes<HTMLParagraphElement> & { node?: unknown }) => {
+            void node;
+            return typeof children === "string" && isTocMarker(children) ? <TocBlock {...rest} /> : <p {...rest}>{children}</p>;
+        },
         li: ({ node, children, ...rest }: React.LiHTMLAttributes<HTMLLIElement> & { node?: { position?: { start?: { line?: number } } } }) => (
             <li {...rest}>
                 <TaskLineContext.Provider value={node?.position?.start?.line ?? null}>
@@ -1243,6 +1256,10 @@ function MarkdownPreviewImpl({
     // Top-level blocks of the body (null = render it whole, e.g. footnotes).
     // PERF-02.
     const blocks = useMemo(() => splitMarkdownBlocks(renderedBody), [renderedBody]);
+    const tocValue = useMemo(
+        () => ({ markdown: /\[toc\]/i.test(renderedBody) ? tocMarkdown(renderedBody) : "", remarkPlugins, components }),
+        [renderedBody, remarkPlugins, components],
+    );
     useLayoutEffect(() => {
         mainRef.current?.querySelectorAll<HTMLElement>("[data-source-line]").forEach((element) => {
             if (readerEditing) element.setAttribute("tabindex", "0");
@@ -1610,6 +1627,7 @@ function MarkdownPreviewImpl({
                             if (tag) window.dispatchEvent(new CustomEvent("paperling:search", { detail: { query: `#${tag}` } }));
                         }}
                     >
+                        <TocContext.Provider value={tocValue}>
                         {blocks ? (
                             // Block-by-block (PERF-02): each wrapper is
                             // display:contents (no layout box) and carries the
@@ -1635,6 +1653,7 @@ function MarkdownPreviewImpl({
                                 />
                             </div>
                         )}
+                        </TocContext.Provider>
                     </div>
                 </div>
                 </div>

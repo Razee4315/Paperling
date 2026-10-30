@@ -11,6 +11,7 @@ import {
     getAIConfig, setAIConfig,
     getAIEnabled, setAIEnabled,
     getWordWrap, setWordWrap,
+    getCodeFolding, setCodeFolding,
     getSpellCheck, setSpellCheck,
     getLivePreview, setLivePreview,
     getVimMode, setVimMode,
@@ -188,6 +189,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [typewriter, setTypewriterLocal] = useState(getTypewriterMode);
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
     const [wordWrap, setWordWrapLocal] = useState(getWordWrap);
+    const [codeFolding, setCodeFoldingLocal] = useState(getCodeFolding);
     const [spellCheck, setSpellCheckLocal] = useState(getSpellCheck);
     const [livePreview, setLivePreviewLocal] = useState(getLivePreview);
     const [vimMode, setVimModeLocal] = useState(getVimMode);
@@ -567,6 +569,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     {matches("word wrap") && (
                                         <ToggleRow label="Word wrap" description="Wrap long lines instead of horizontal scroll" checked={wordWrap}
                                             onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
+                                    )}
+                                    {matches("folding fold collapse arrows gutter") && !IS_MOBILE && (
+                                        <ToggleRow label="Fold arrows" description="Show arrows beside headings, lists and code blocks to collapse them" checked={codeFolding}
+                                            onChange={(v) => { setCodeFoldingLocal(v); setCodeFolding(v); fire("paperling:folding-toggle", v); }} />
                                     )}
                                     {/* Typewriter scrolling orbits a physical
                                         keyboard's caret line; on touch it's a

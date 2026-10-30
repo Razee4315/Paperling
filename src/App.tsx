@@ -31,6 +31,7 @@ import { useFileSession } from "./hooks/useFileSession";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { IS_MOBILE, isTauri } from "./utils/platform";
 import { isDocumentPath, isHtmlPath } from "./utils/documentPaths";
+import { EDITOR_COMMAND_EVENT, type FoldCommandId, type TextCommandId } from "./utils/textCommands";
 import { getWorkspaceDirectory, setWorkspaceDirectory } from "./utils/persistence";
 import { isTextDirection, type TextDirection } from "./utils/textDirection";
 import { joinNotesPath } from "./utils/mobileFiles";
@@ -108,6 +109,7 @@ import {
   getTourDone,
   getTypewriterMode,
   getWordWrap,
+  getCodeFolding,
   setAIEnabled,
   setSavedViewMode,
   setSpellCheck,
@@ -116,6 +118,7 @@ import {
   setTourDone,
   setTypewriterMode,
   setWordWrap,
+  setCodeFolding,
   getZenMode,
   setZenMode,
   getReadableLineLength,
@@ -201,6 +204,7 @@ function AppContent() {
   const [typewriterModeEnabled, setTypewriterModeEnabled] = usePersistedState<boolean>(getTypewriterMode, setTypewriterMode);
   const [toolbarVisible, setToolbarVisible] = usePersistedState<boolean>(getToolbarEnabled, setToolbarEnabled);
   const [wordWrapEnabled, setWordWrapEnabled] = usePersistedState<boolean>(getWordWrap, setWordWrap);
+  const [codeFoldingEnabled, setCodeFoldingEnabled] = usePersistedState<boolean>(getCodeFolding, setCodeFolding);
   const [zenMode, setZenModeState] = usePersistedState<boolean>(getZenMode, setZenMode);
   // Live mirrors for the mount-once Settings event listener below, so the
   // Settings toggle routes through the same toggle (with view-mode
@@ -659,6 +663,7 @@ function AppContent() {
       ["paperling:typewriter-toggle", (e) => setTypewriterModeEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:toolbar-toggle", (e) => setToolbarVisible(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:wordwrap-toggle", (e) => setWordWrapEnabled(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:folding-toggle", (e) => setCodeFoldingEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:spellcheck-toggle", (e) => setSpellCheckEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:live-preview-toggle", (e) => setLivePreviewEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:vim-toggle", (e) => setVimModeEnabled(!!(e as CustomEvent).detail?.enabled)],
@@ -1405,6 +1410,7 @@ function AppContent() {
     handleToggleMode, handleToggleSplit, handleToggleFileExplorer, handleToggleTOC,
     toggleFullscreen, toggleZen: handleToggleZen,
     zoomBy, resetZoom,
+    toggleWordWrap: () => setWordWrapEnabled(!wordWrapEnabled),
     openCheatsheet: () => setShowCheatsheet(true),
     openPalette: () => { setPaletteSeed(undefined); setShowPalette(true); },
     openGotoLine: () => { setPaletteSeed(":"); setShowPalette(true); },
@@ -1562,6 +1568,16 @@ function AppContent() {
     }
   }, [mode, setMode]);
 
+  // Run an editor command from the palette. The caret lives in the editor, so
+  // the Reader switches to it first, as "replace" does above. EDIT-01.
+  const runEditorCommand = useCallback((id: TextCommandId | FoldCommandId) => {
+    const send = () => window.dispatchEvent(new CustomEvent(EDITOR_COMMAND_EVENT, { detail: { id } }));
+    if (mode === "preview") {
+      setMode("code");
+      setTimeout(send, 0);
+    } else send();
+  }, [mode, setMode]);
+
   // Build the command palette item list. Rebuilds on relevant state changes —
   // recent files, current file, current view mode, toggles.
   const paletteItems = useMemo<PaletteCommand[]>(() => {
@@ -1699,6 +1715,19 @@ function AppContent() {
           window.setTimeout(() => window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")), 50);
         },
       });
+      items.push(
+        { id: "edit.sortAsc", label: "Sort lines A to Z", section: "Edit", icon: "sort_by_alpha", keywords: "sort ascending order", run: () => runEditorCommand("sortAsc") },
+        { id: "edit.sortDesc", label: "Sort lines Z to A", section: "Edit", icon: "sort_by_alpha", keywords: "sort descending reverse order", run: () => runEditorCommand("sortDesc") },
+        { id: "edit.sortUnique", label: "Sort lines and remove duplicates", section: "Edit", icon: "filter_list", keywords: "unique dedupe", run: () => runEditorCommand("sortUnique") },
+        { id: "edit.upper", label: "Change to UPPERCASE", section: "Edit", icon: "match_case", keywords: "transform case capital", run: () => runEditorCommand("upper") },
+        { id: "edit.lower", label: "Change to lowercase", section: "Edit", icon: "match_case", keywords: "transform case small", run: () => runEditorCommand("lower") },
+        { id: "edit.title", label: "Change to Title Case", section: "Edit", icon: "match_case", keywords: "transform case capitalize", run: () => runEditorCommand("title") },
+        { id: "edit.date", label: "Insert today's date", section: "Edit", icon: "today", keywords: "date now timestamp", run: () => runEditorCommand("date") },
+        { id: "edit.datetime", label: "Insert date and time", section: "Edit", icon: "schedule", keywords: "time now timestamp", run: () => runEditorCommand("datetime") },
+        { id: "edit.toc", label: "Insert or update table of contents", section: "Edit", icon: "toc", keywords: "toc headings contents index", run: () => runEditorCommand("toc") },
+        { id: "edit.foldAll", label: "Fold all", section: "Edit", icon: "unfold_less", keywords: "collapse sections headings", run: () => runEditorCommand("foldAll") },
+        { id: "edit.unfoldAll", label: "Unfold all", section: "Edit", icon: "unfold_more", keywords: "expand sections headings", run: () => runEditorCommand("unfoldAll") },
+      );
       items.push({
         id: "view.split",
         label: "Toggle Split view",
@@ -1912,7 +1941,7 @@ function AppContent() {
     // separate hook that's gated on the palette actually being open.
     handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
-    loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint,
+    loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand,
     typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
@@ -2253,6 +2282,7 @@ function AppContent() {
                 // Ctrl+B, no menu row) so it is always on and cannot be hidden.
                 showToolbar={IS_MOBILE || toolbarVisible}
                 wordWrap={wordWrapEnabled}
+                folding={codeFoldingEnabled && !IS_MOBILE}
                 spellCheck={spellCheckEnabled}
                 livePreview={livePreviewEnabled && !isHtmlDoc}
                 vimMode={vimModeEnabled}

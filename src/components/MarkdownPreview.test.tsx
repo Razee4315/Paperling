@@ -39,6 +39,27 @@ describe("wide code blocks (RLL-02, #294)", () => {
     });
 });
 
+describe("[TOC] marker (TOC-05)", () => {
+    it("renders the document's headings as links", async () => {
+        const { container } = renderPreview("# Title\n\n[TOC]\n\n## Alpha\n\ntext\n\n## Beta\n");
+        await screen.findByRole("link", { name: "Alpha" });
+        expect(container.querySelector('a[href="#beta"]')?.textContent).toBe("Beta");
+        expect(container.textContent).not.toContain("[TOC]");
+    });
+
+    it("leaves a marker in a code block alone", async () => {
+        const { container } = renderPreview("## A\n\n```\n[TOC]\n```\n");
+        await screen.findByText("A");
+        expect(container.querySelector("pre")?.textContent).toContain("[TOC]");
+    });
+
+    it("still works when the document renders whole (it has footnotes)", async () => {
+        const { container } = renderPreview("# T\n\n[TOC]\n\n## Alpha\n\nText[^1]\n\n[^1]: note\n");
+        await screen.findByRole("link", { name: "Alpha" });
+        expect(container.textContent).not.toContain("[TOC]");
+    });
+});
+
 describe("ordered-list marker gutters (PREVIEW-08, #270)", () => {
     it("keeps native numbering and accounts for crossing 99 to 100", async () => {
         const { container } = renderPreview("98. First\n99. Second\n100. Third");

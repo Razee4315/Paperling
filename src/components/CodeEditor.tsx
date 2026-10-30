@@ -12,7 +12,7 @@ import {
 } from "@codemirror/view";
 import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
+import { syntaxHighlighting, HighlightStyle, codeFolding, foldAll, foldGutter, foldKeymap, unfoldAll } from "@codemirror/language";
 import { autocompletion, closeBrackets, closeBracketsKeymap, type CompletionContext, type CompletionResult, type Completion } from "@codemirror/autocomplete";
 import { unifiedMergeView, getChunks, getOriginalDoc } from "@codemirror/merge";
 import { vim } from "@replit/codemirror-vim";
@@ -60,6 +60,7 @@ import { toCmKey, isMac } from "../config/keybindings";
 import { linkAt, type EditorLink } from "../utils/editorLinks";
 import { locateText } from "../utils/revealText";
 import { highlightCaretLine } from "../utils/caretLineHighlight";
+import { EDITOR_COMMAND_EVENT, TEXT_COMMAND_HINTS, textCommandSpec, type FoldCommandId, type TextCommandId } from "../utils/textCommands";
 import type { HandoffOptions, Scroller } from "../utils/scrollSync";
 
 interface CodeEditorProps {
@@ -76,6 +77,8 @@ interface CodeEditorProps {
     typewriterMode?: boolean;
     showToolbar?: boolean;
     wordWrap?: boolean;
+    /** Fold arrows in the gutter. Folding by keyboard stays available. EDIT-03. */
+    folding?: boolean;
     spellCheck?: boolean;
     /** Hide Markdown symbols except on the line being edited. LIVE-01. */
     livePreview?: boolean;
@@ -124,6 +127,18 @@ const editorDefaultKeymap = isMac
               ? { ...binding, run: undefined }
               : binding,
       );
+
+/**
+ * Folding by section, list, quote or code block (EDIT-03). Headings fold from
+ * @codemirror/lang-markdown; this adds the gutter and the keys. CodeMirror's
+ * Ctrl+Alt+[ / ] (fold all) are left out: Ctrl+Alt is AltGr on Windows, and
+ * AltGr+8 is how a German keyboard types "[". They're in the palette instead.
+ */
+const foldKeys = keymap.of(foldKeymap.filter((binding) => !binding.key?.startsWith("Ctrl-Alt-")));
+const foldUI = (gutter: boolean): Extension => [
+    codeFolding({ placeholderText: "⋯" }),
+    gutter ? foldGutter({ openText: "⌄", closedText: "›" }) : [],
+];
 
 const EDITOR_FONT_FAMILY =
     "'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
@@ -189,7 +204,12 @@ const editorTheme = EditorView.theme({
     "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
         backgroundColor: "var(--selection-bg)",
     },
-    ".cm-foldPlaceholder": { backgroundColor: "var(--bg-hover)", color: "var(--text-secondary)", border: "none" },
+    ".cm-foldPlaceholder": { backgroundColor: "var(--bg-hover)", color: "var(--text-secondary)", border: "none", padding: "0 6px", borderRadius: "4px" },
+    ".cm-foldGutter .cm-gutterElement": { cursor: "pointer", width: "16px", textAlign: "center" },
+    // The arrows appear with the pointer, as in VS Code, so the gutter stays
+    // quiet while writing. A closed fold keeps its arrow.
+    ".cm-foldGutter span": { opacity: 0, transition: "opacity 0.15s" },
+    ".cm-gutters:hover .cm-foldGutter span, .cm-foldGutter span[title='Unfold line']": { opacity: 1 },
 });
 
 /** Bold/italic across several cursors (Ctrl+D): wrap every range. Returns
@@ -275,6 +295,7 @@ function CodeEditorImpl({
     typewriterMode,
     showToolbar,
     wordWrap = true,
+    folding = true,
     spellCheck = false,
     livePreview = false,
     vimMode = false,
@@ -366,12 +387,13 @@ function CodeEditorImpl({
     // skipped, or it would throw away the exact position just restored.
     const restoredFromCacheRef = useRef(false);
     // Live setting values for rebuilding extensions on a restored state.
-    const liveSettingsRef = useRef({ wordWrap, spellCheck, vimMode, textDirection, livePreview });
-    liveSettingsRef.current = { wordWrap, spellCheck, vimMode, textDirection, livePreview };
+    const liveSettingsRef = useRef({ wordWrap, folding, spellCheck, vimMode, textDirection, livePreview });
+    liveSettingsRef.current = { wordWrap, folding, spellCheck, vimMode, textDirection, livePreview };
     const buildEditingKeymapRef = useRef<() => Extension>(() => []);
 
     // Reconfigurable extensions.
     const wrapCompRef = useRef(new Compartment());
+    const foldCompRef = useRef(new Compartment());
     const spellCompRef = useRef(new Compartment());
     const livePreviewCompRef = useRef(new Compartment());
     // Vim modal editing (issue #119) — toggled live from Settings.
@@ -474,6 +496,7 @@ function CodeEditorImpl({
         if (!containerRef.current) return;
 
         const wrapComp = wrapCompRef.current;
+        const foldComp = foldCompRef.current;
         const spellComp = spellCompRef.current;
         const livePreviewComp = livePreviewCompRef.current;
         const vimComp = vimCompRef.current;
@@ -490,6 +513,8 @@ function CodeEditorImpl({
             { key: "Enter", run: (v) => runAction(v, handleEnter) },
             { key: toCmKey("bold"), run: (v) => wrapEachRange(v, "**") || (applyResultToView(v, wrapSelection(toEdState(v), "**", "**", "bold")), true) },
             { key: toCmKey("italic"), run: (v) => wrapEachRange(v, "*") || (applyResultToView(v, wrapSelection(toEdState(v), "*", "*", "italic")), true) },
+            { key: toCmKey("strikethrough"), run: (v) => wrapEachRange(v, "~~") || (applyResultToView(v, wrapSelection(toEdState(v), "~~", "~~", "text")), true) },
+            { key: toCmKey("inlineCode"), run: (v) => wrapEachRange(v, "`") || (applyResultToView(v, wrapSelection(toEdState(v), "`", "`", "code")), true) },
             // Ctrl+D: add the next occurrence of the selection/word as another
             // cursor (VS Code). @codemirror/search was bundled but unused.
             { key: toCmKey("selectNextOccurrence"), run: selectNextOccurrence, preventDefault: true },
@@ -684,6 +709,7 @@ function CodeEditorImpl({
                     highlightSelectionMatches({ minSelectionLength: 2 }),
                     editorTheme,
                     wrapComp.of(wordWrap ? EditorView.lineWrapping : []),
+                    foldComp.of(foldUI(folding)),
                     spellComp.of(EditorView.contentAttributes.of(spellAttrs(spellCheck))),
                     livePreviewComp.of(livePreviewExtension(livePreview)),
                     vimComp.of(vimMode ? vim() : []),
@@ -691,6 +717,7 @@ function CodeEditorImpl({
                     mergeComp.of([]),
                     keymapComp.of(buildEditingKeymap()),
                     keymap.of([...closeBracketsKeymap, ...editorDefaultKeymap, ...historyKeymap]),
+                    foldKeys,
                     updateListener,
                     pasteHandler,
                     EditorView.theme({ "&": { outline: "none" } }),
@@ -957,6 +984,7 @@ function CodeEditorImpl({
                 view.dispatch({
                     effects: [
                         wrapCompRef.current.reconfigure(live.wordWrap ? EditorView.lineWrapping : []),
+                        foldCompRef.current.reconfigure(foldUI(live.folding)),
                         spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(live.spellCheck))),
                         livePreviewCompRef.current.reconfigure(livePreviewExtension(live.livePreview)),
                         vimCompRef.current.reconfigure(live.vimMode ? vim() : []),
@@ -996,6 +1024,27 @@ function CodeEditorImpl({
     useEffect(() => {
         viewRef.current?.dispatch({ effects: wrapCompRef.current.reconfigure(wordWrap ? EditorView.lineWrapping : []) });
     }, [wordWrap]);
+    useEffect(() => {
+        viewRef.current?.dispatch({ effects: foldCompRef.current.reconfigure(foldUI(folding)) });
+    }, [folding]);
+    useEffect(() => {
+        const onCommand = (event: Event) => {
+            const view = viewRef.current;
+            const id = (event as CustomEvent<{ id: TextCommandId | FoldCommandId }>).detail?.id;
+            if (!view || !id) return;
+            if (id === "foldAll") { foldAll(view); view.focus(); return; }
+            if (id === "unfoldAll") { unfoldAll(view); view.focus(); return; }
+            // The review's merge view maps chunks onto the proposed text; a
+            // command landing in it would be accepted as part of the proposal.
+            if (reviewingRef.current) return;
+            const spec = textCommandSpec(view.state, id, new Date());
+            if (spec) view.dispatch(spec);
+            else onNoticeRef.current?.(TEXT_COMMAND_HINTS[id] ?? "Nothing to do here");
+            view.focus();
+        };
+        window.addEventListener(EDITOR_COMMAND_EVENT, onCommand);
+        return () => window.removeEventListener(EDITOR_COMMAND_EVENT, onCommand);
+    }, []);
     useEffect(() => {
         viewRef.current?.dispatch({ effects: spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(spellCheck))) });
     }, [spellCheck]);
@@ -1466,7 +1515,10 @@ function CodeEditorImpl({
         if (!v || !cur) return;
         const head = v.state.selection.main.head;
         const caretAt = cur.from + (cmd.caretOffset ?? cmd.snippet.length);
+        // A command item has an empty snippet: this removes the "/query", and
+        // the command then acts at the caret.
         v.dispatch({ changes: { from: cur.from, to: head, insert: cmd.snippet }, selection: { anchor: caretAt } });
+        if (cmd.command) window.dispatchEvent(new CustomEvent(EDITOR_COMMAND_EVENT, { detail: { id: cmd.command } }));
         setSlashState(null);
         setSlashQuery("");
         v.focus();

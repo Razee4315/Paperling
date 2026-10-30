@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { TextCommandId } from "../utils/textCommands";
 
 export interface SlashCommand {
     id: string;
@@ -8,6 +9,8 @@ export interface SlashCommand {
     snippet: string;
     /** Caret offset inside `snippet` after insertion (0 = beginning). */
     caretOffset?: number;
+    /** Run this editor command instead of inserting `snippet`. EDIT-01. */
+    command?: TextCommandId;
     icon: string;
 }
 
@@ -26,6 +29,9 @@ const commands: SlashCommand[] = [
     { id: "chem", label: "Chemistry equation", description: "$\\ce{...}$ (mhchem)", snippet: "$\\ce{}$", caretOffset: 5, icon: "science" },
     { id: "mermaid", label: "Mermaid diagram", description: "```mermaid", snippet: "```mermaid\ngraph LR\n  A --> B\n```\n", caretOffset: 11, icon: "schema" },
     { id: "callout", label: "Callout", description: "> [!NOTE]", snippet: "> [!NOTE]\n> ", caretOffset: 12, icon: "info" },
+    { id: "toc", label: "Table of contents", description: "Linked list of the headings", snippet: "", command: "toc", icon: "toc" },
+    { id: "date", label: "Today's date", description: "2026-10-31", snippet: "", command: "date", icon: "today" },
+    { id: "datetime", label: "Date and time", description: "2026-10-31 14:05", snippet: "", command: "datetime", icon: "schedule" },
 ];
 
 export interface SlashMenuPosition {
