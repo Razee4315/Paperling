@@ -10,8 +10,10 @@
  *
  * Loaded from main.tsx behind `import.meta.env.DEV`, so production bundles
  * never contain it. Test hooks live on `window.__fakefs`:
- *   __fakefs.write(path, text)       simulate an external edit (bumps mtime)
+ *   __fakefs.write(path, text, enc?) simulate an external edit (bumps mtime);
+ *                                    enc is a FileEncoding, kept when omitted
  *   __fakefs.read(path)              what's on "disk"
+ *   __fakefs.encodingOf(path)        the encoding it is stored in
  *   __fakefs.nextOpen = [paths]      answer for the next Open dialog
  *   __fakefs.nextSave = path         answer for the next Save dialog
  *   __fakefs.nextAsk = true|false    answer for the next ask()/confirm()
@@ -22,7 +24,7 @@
 import { loadBufferBackups, saveBufferBackups } from "../utils/bufferBackup";
 import { setReopenSession, setSession } from "../utils/persistence";
 
-type Disk = Record<string, { content: string; modified: number }>;
+type Disk = Record<string, { content: string; modified: number; encoding?: string }>;
 const KEY = "paperling.fakefs.v1";
 const ROOT = "C:\\Notes";
 
@@ -115,6 +117,9 @@ function err(msg: string): never {
     throw msg;
 }
 
+const WINDOWS_1252_EXTRAS = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ";
+const isWindows1252 = (char: string) => char.codePointAt(0)! < 0x100 || WINDOWS_1252_EXTRAS.includes(char);
+
 const callbacks = new Map<number, (v: unknown) => void>();
 let nextCb = 1;
 const listeners = new Map<string, Set<number>>();
@@ -125,8 +130,9 @@ interface Hooks {
     nextAsk: boolean | null;
     latencyMs: number;
     log: { cmd: string; args: unknown }[];
-    write(path: string, text: string): void;
+    write(path: string, text: string, encoding?: string): void;
     read(path: string): string | undefined;
+    encodingOf(path: string): string | undefined;
     emit(event: string, payload: unknown): void;
     reset(): void;
 }
@@ -204,12 +210,16 @@ async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
             }
             const k = find(a.path) ?? err(`File not found: ${a.path}`);
             const f = disk[k];
-            return { path: k, name: baseName(k), content: f.content, size: f.content.length, line_count: f.content.split("\n").length, modified: f.modified };
+            return { path: k, name: baseName(k), content: f.content, size: f.content.length, line_count: f.content.split("\n").length, modified: f.modified, encoding: f.encoding ?? "utf-8" };
         }
         case "save_file": {
             const k = find(a.path) ?? norm(a.path);
+            // Same refusal as save_file: unknown encoding keeps the file's own.
+            const encoding = a.encoding ?? disk[k]?.encoding ?? "utf-8";
+            const unmappable = encoding === "windows-1252" ? [...a.content].find((c) => !isWindows1252(c)) : undefined;
+            if (unmappable) err(`Unrepresentable text: windows-1252 cannot store U+${unmappable.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}`);
             const modified = Math.max(Date.now(), (disk[k]?.modified ?? 0) + 1);
-            disk[k] = { content: a.content, modified };
+            disk[k] = { content: a.content, modified, encoding };
             persist();
             return modified;
         }
@@ -324,14 +334,18 @@ const hooks: Hooks = {
     nextAsk: null,
     latencyMs: 5,
     log: [],
-    write(path, text) {
+    write(path, text, encoding) {
         const k = find(path) ?? norm(path);
-        disk[k] = { content: text, modified: Math.max(Date.now(), (disk[k]?.modified ?? 0) + 1) };
+        disk[k] = { content: text, modified: Math.max(Date.now(), (disk[k]?.modified ?? 0) + 1), encoding: encoding ?? disk[k]?.encoding };
         persist();
     },
     read(path) {
         const k = find(path);
         return k ? disk[k].content : undefined;
+    },
+    encodingOf(path) {
+        const k = find(path);
+        return k ? disk[k].encoding ?? "utf-8" : undefined;
     },
     emit(event, payload) {
         for (const id of listeners.get(event) ?? []) callbacks.get(id)?.({ event, id, payload });

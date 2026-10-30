@@ -74,7 +74,7 @@ export function useAutosave({
     const id = window.setTimeout(async () => {
       try {
         if (beforeWrite && !(await beforeWrite(filePath))) return;
-        const mtime = await saveTextFile(filePath, content);
+        const mtime = await saveTextFile(filePath, content, { background: true });
         onSaved(mtime, content, filePath);
         lastErrorRef.current = 0;
       } catch (err) {

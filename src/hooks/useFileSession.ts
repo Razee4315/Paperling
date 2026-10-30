@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { idleWriteToken, readTextFile, saveTextFile } from "../utils/fileIO";
+import { idleWriteToken, readTextFile, retargetEncodings, saveTextFile, type FileEncoding } from "../utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
@@ -47,6 +47,8 @@ interface FileData {
   line_count: number;
   /** Last-modified time (ms since epoch) — used to detect external edits. */
   modified: number;
+  /** How the file is stored; fileIO keeps it for the save. ENC-03. */
+  encoding?: FileEncoding;
 }
 
 type ShowToast = (message: string, type?: ToastType) => void;
@@ -976,7 +978,7 @@ export function useFileSession({
             }
             continue;
           }
-          const mtime = await saveTextFile(path, tab.content);
+          const mtime = await saveTextFile(path, tab.content, { background: true });
           // Only mark saved if the snapshot still holds exactly what we wrote.
           commitTabs(
             tabsRef.current.map((current) =>
@@ -1428,6 +1430,7 @@ export function useFileSession({
   // deleted; saving it now asks where. FILES-01.
   const retargetPaths = useCallback(
     (oldPath: string, newPath: string | null): number => {
+      retargetEncodings(oldPath, newPath);
       const oldKey = pathKey(oldPath);
       const mapPath = (p: string | null): string | null | undefined => {
         if (!p) return undefined;

@@ -1,6 +1,7 @@
 mod ai;
 mod commands;
 mod pdf;
+mod text_encoding;
 
 use commands::{
     create_folder, exit_app, find_backlinks, get_ai_key, get_file_info, get_incoming_file,

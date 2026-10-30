@@ -1,12 +1,13 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 import { __resetBootForTests, useFileSession, type UseFileSessionOptions } from "./useFileSession";
 import { setReopenSession } from "../utils/persistence";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }));
 
 afterEach(cleanup);
 
@@ -163,6 +164,46 @@ describe("useFileSession", () => {
     expect(result.current.content).toBe("");
     act(() => result.current.activateTab(result.current.tabs[0].id));
     expect(result.current.content).toBe("my first note");
+  });
+
+  it("keeps a file's encoding through a rename (ENC-03)", async () => {
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "read_file" && args?.path) return Promise.resolve({ ...files.get(args.path), encoding: "utf-16le" });
+      if (command === "get_file_info") return Promise.resolve({ modified: 10 });
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/a.md"));
+    act(() => result.current.setContent("edited"));
+
+    act(() => {
+      result.current.retargetPaths("C:/a.md", "C:/renamed.md");
+    });
+    await act(() => result.current.handleSaveFile());
+
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/renamed.md", content: "edited", encoding: "utf-16le" });
+  });
+
+  it("a background tab's autosave never asks about its encoding (ENC-04)", async () => {
+    (ask as Mock).mockReset();
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "read_file" && args?.path) return Promise.resolve({ ...files.get(args.path), encoding: "windows-1252" });
+      if (command === "get_file_info") return Promise.resolve({ modified: 10 });
+      if (command === "save_file") return Promise.reject("Unrepresentable text: windows-1252 cannot store U+4E2D");
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options({ autoSaveEnabled: true })));
+    await act(() => result.current.loadFile("C:/a.md"));
+    act(() => result.current.setContent("中"));
+    await act(() => result.current.loadFile("C:/b.md"));
+
+    await waitFor(
+      () => expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/a.md", content: "中", encoding: "windows-1252" }),
+      { timeout: 3000 },
+    );
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(result.current.tabs.find((tab) => tab.filePath === "C:/a.md")?.content).toBe("中");
   });
 
   it("a save that finds the file changed on disk raises the conflict, and leaving the tab parks it (EXT-04/06)", async () => {
