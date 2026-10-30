@@ -21,6 +21,7 @@ import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
 import { wikilinkLabel } from "../utils/wikilinkAnchor";
 import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
 import { splitMarkdownBlocks } from "../utils/markdownBlocks";
+import { isUnsafeRelativePath } from "../utils/documentPaths";
 import { getRemoteImages, getReaderEditing } from "../utils/persistence";
 import { useReaderEditor } from "../hooks/useReaderEditor";
 import { matchesBinding } from "../config/keybindings";
@@ -387,22 +388,6 @@ const getCachedLocalImageUrl = createLocalImageCache({
     createUrl: (blob) => URL.createObjectURL(blob),
     revokeUrl: (url) => URL.revokeObjectURL(url),
 });
-
-/**
- * Reject paths that would escape the markdown file's directory or name an
- * absolute location. The capabilities allow `**` reads, so we have to enforce
- * the boundary in code: a malicious .md must not be able to use
- * `![pwn](../../../etc/passwd)` to peek at arbitrary files.
- */
-function isUnsafeRelativePath(p: string): boolean {
-    if (!p) return true;
-    if (/\0/.test(p)) return true;
-    // Absolute paths: leading slash, leading backslash, or drive letter.
-    if (/^([a-zA-Z]:|\/|\\)/.test(p)) return true;
-    // Any segment that is exactly `..` (handles foo/../etc, ../etc, etc.).
-    const segments = p.split(/[/\\]+/);
-    return segments.some((seg) => seg === "..");
-}
 
 // Component to handle local image loading
 function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string; baseDir: string | null } & React.ImgHTMLAttributes<HTMLImageElement>) {

@@ -30,7 +30,7 @@ import { useScrollSync } from "./hooks/useScrollSync";
 import { useFileSession } from "./hooks/useFileSession";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { IS_MOBILE, isTauri } from "./utils/platform";
-import { isDocumentPath } from "./utils/documentPaths";
+import { isDocumentPath, isHtmlPath } from "./utils/documentPaths";
 import { getWorkspaceDirectory, setWorkspaceDirectory } from "./utils/persistence";
 import { isTextDirection, type TextDirection } from "./utils/textDirection";
 import { joinNotesPath } from "./utils/mobileFiles";
@@ -49,6 +49,9 @@ import { normalizeMarkdownFileName } from "./utils/mobileFiles";
 // we adapt with the `.then(m => ({ default: m.X }))` shim.
 const MarkdownPreview = lazy(() =>
     import("./components/MarkdownPreview").then((m) => ({ default: m.MarkdownPreview }))
+);
+const HtmlPreview = lazy(() =>
+  import("./components/HtmlPreview").then((m) => ({ default: m.HtmlPreview }))
 );
 const FileExplorer = lazy(() =>
     import("./components/FileExplorer").then((m) => ({ default: m.FileExplorer }))
@@ -456,6 +459,10 @@ function AppContent() {
     }
     handleOpenFile();
   }, [handleOpenFile]);
+
+  // An HTML page is shown rendered in a sandbox, not through the Markdown
+  // pipeline, so Reader editing, export and preview find don't apply. #295.
+  const isHtmlDoc = isHtmlPath(filePath ?? fileName);
 
   // Android "Open with Paperling": the patched MainActivity copies the picked
   // file into app-private storage and calls window.__paperlingOpenFile(path,
@@ -1454,6 +1461,10 @@ function AppContent() {
   // getExportHtml so the dependency below isn't in its temporal dead zone.
   const handleExportHtml = useCallback(async () => {
     if (!fileName) return;
+    if (isHtmlDoc) {
+      showToast("This file is already HTML", "info");
+      return;
+    }
     const raw = await getExportHtml();
     if (!raw) {
       showToast("Nothing to export yet", "error");
@@ -1473,7 +1484,7 @@ function AppContent() {
     } catch (err) {
       showToast(errMessage(err) || "Could not export HTML", "error");
     }
-  }, [fileName, getExportHtml, showToast, theme, font, fontSize, customFont]);
+  }, [fileName, getExportHtml, isHtmlDoc, showToast, theme, font, fontSize, customFont]);
 
   // Print the RENDERED document (not the app window): the export pipeline's
   // standalone HTML — which already carries print CSS, KaTeX styles and
@@ -1481,6 +1492,10 @@ function AppContent() {
   // Ctrl+P is the command palette, so this palette entry is the print path.
   // PRINT-01.
   const handlePrint = useCallback(async () => {
+    if (isHtmlDoc) {
+      showToast("Printing isn't available for HTML files yet", "info");
+      return;
+    }
     const raw = await getExportHtml();
     if (!raw) {
       showToast("Open the document in Reader or Split view to print it", "info");
@@ -1509,7 +1524,7 @@ function AppContent() {
     } catch (err) {
       showToast(errMessage(err) || "Could not print", "error");
     }
-  }, [customFont, fileName, font, fontSize, getExportHtml, showToast]);
+  }, [customFont, fileName, font, fontSize, getExportHtml, isHtmlDoc, showToast]);
 
   // ZOOM-01: say the level whenever it changes, since the shortcut and the
   // wheel have no other visible readout. Skips the initial mount.
@@ -1530,9 +1545,14 @@ function AppContent() {
   // editor, so from reader mode we switch to code mode first. The editor listens
   // for these events (CodeEditor's paperling:open-find / paperling:open-replace).
   const openFind = useCallback(() => {
-    if (mode === "preview") openPreviewFindBar();
+    // The rendered page sits in a sandbox the app can't read, so find runs on
+    // the source. #295.
+    if (mode === "preview" && isHtmlDoc) {
+      setMode("code");
+      setTimeout(() => window.dispatchEvent(new CustomEvent("paperling:open-find")), 0);
+    } else if (mode === "preview") openPreviewFindBar();
     else window.dispatchEvent(new CustomEvent("paperling:open-find"));
-  }, [mode, openPreviewFindBar]);
+  }, [isHtmlDoc, mode, openPreviewFindBar, setMode]);
   const openReplace = useCallback(() => {
     if (mode === "preview") {
       setMode("code");
@@ -1667,7 +1687,7 @@ function AppContent() {
         { id: "view.zoomOut", label: "Zoom out", hint: formatShortcut("zoomOut"), section: "View", icon: "zoom_out", keywords: "smaller text size", run: () => zoomBy(-1) },
         { id: "view.zoomReset", label: "Reset zoom", hint: formatShortcut("zoomReset"), section: "View", icon: "search", keywords: "100% actual size text", run: resetZoom },
       );
-      items.push({
+      if (!isHtmlDoc) items.push({
         id: "edit.reader",
         label: "Edit in place (Reader)",
         section: "View",
@@ -1892,7 +1912,7 @@ function AppContent() {
     // separate hook that's gated on the palette actually being open.
     handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
-    loadFile, filePath, hasFile, showToast, closeTab, handlePrint,
+    loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint,
     typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
@@ -2039,6 +2059,7 @@ function AppContent() {
             onOpenRecent={loadFile}
             onNewFile={handleNewFile}
             getExportHtml={getExportHtml}
+            canExport={!isHtmlDoc}
             onExportSuccess={handleExportSuccess}
             onExportError={handleExportError}
             onToggleAI={aiEnabled ? handleToggleAI : undefined}
@@ -2233,7 +2254,7 @@ function AppContent() {
                 showToolbar={IS_MOBILE || toolbarVisible}
                 wordWrap={wordWrapEnabled}
                 spellCheck={spellCheckEnabled}
-                livePreview={livePreviewEnabled}
+                livePreview={livePreviewEnabled && !isHtmlDoc}
                 vimMode={vimModeEnabled}
                 readableLineLength={readableLineLength}
                 textDirection={textDirection}
@@ -2264,6 +2285,13 @@ function AppContent() {
                   has a background; a brief flash on first render is
                   preferable to a spinner that pre-empts the layout. */}
               <Suspense fallback={null}>
+                {isHtmlDoc ? (
+                  <HtmlPreview
+                    content={mode === "preview" ? content : deferredContent}
+                    fileName={fileName || ""}
+                    filePath={filePath}
+                  />
+                ) : (
                 <MarkdownPreview
                   content={mode === "preview" ? content : deferredContent}
                   liveContent={mode === "preview" ? content : undefined}
@@ -2285,6 +2313,7 @@ function AppContent() {
                   onRendered={handlePreviewRendered}
                   onReaderSelection={handleReaderSelection}
                 />
+                )}
               </Suspense>
 
               {/* Reader-mode find. The same FindBar as the editor, driven by a

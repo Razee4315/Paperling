@@ -17,6 +17,8 @@ interface TitleBarProps {
     onOpenRecent?: (path: string) => void;
     onNewFile?: () => void;
     getExportHtml?: () => Promise<string>;
+    /** False hides Export: an HTML page has no Markdown render to export. */
+    canExport?: boolean;
     onExportSuccess?: (format: string) => void;
     onExportError?: (format: string) => void;
     onToggleAI?: () => void;
@@ -34,7 +36,7 @@ interface TitleBarProps {
     onPrint?: () => void;
 }
 
-function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onOpenRecent, onNewFile, getExportHtml, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles, onSave, onSaveAs, onPrint }: TitleBarProps) {
+function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onOpenRecent, onNewFile, getExportHtml, canExport = true, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles, onSave, onSaveAs, onPrint }: TitleBarProps) {
     // Whether the AI button's icon shimmers. Some users prefer it plain (#111).
     // Held locally and refreshed from the Settings event rather than threaded
     // down from App, since nothing else on the way needs to know about it.
@@ -203,12 +205,14 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                                     <span className="hidden sm:inline">Save</span>
                                 </button>
                             )}
-                            <ExportMenu
-                                fileName={fileName || 'document.md'}
-                                getExportHtml={getExportHtml}
-                                onSuccess={onExportSuccess}
-                                onError={onExportError}
-                            />
+                            {canExport && (
+                                <ExportMenu
+                                    fileName={fileName || 'document.md'}
+                                    getExportHtml={getExportHtml}
+                                    onSuccess={onExportSuccess}
+                                    onError={onExportError}
+                                />
+                            )}
                             {onFind && onReplace && onFindInFiles && (
                                 <MoreMenu onOpenFolder={onOpenFolder} onOpenRecent={onOpenRecent} onFind={onFind} onReplace={onReplace} onFindInFiles={onFindInFiles} onSaveAs={onSaveAs} onPrint={onPrint} />
                             )}

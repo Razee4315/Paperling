@@ -7,7 +7,7 @@ import { errMessage } from "../utils/errors";
 import { saveTextFile } from "../utils/fileIO";
 import { TabContextMenu } from "./TabContextMenu";
 import { samePath } from "../utils/tabsModel";
-import { isPathWithin, parentDirectory } from "../utils/documentPaths";
+import { isDocumentPath, isPathWithin, parentDirectory } from "../utils/documentPaths";
 import mascotCarry from "../assets/mascot/mascot-carry.png";
 import mascotShrug from "../assets/mascot/mascot-shrug.png";
 
@@ -39,9 +39,10 @@ type NameEdit =
     | { mode: "folder"; value: string }
     | { mode: "rename"; entry: FileEntry; value: string };
 
-/** A note name gets `.md` unless it already has a note extension. */
+/** A note name gets `.md` unless it already has an extension the app opens.
+ *  A shorter hard-coded list renamed `page.html` to `page.html.md`. */
 export function withNoteExtension(name: string): string {
-    return /\.(md|markdown|txt|text)$/i.test(name.trim()) ? name.trim() : `${name.trim()}.md`;
+    return isDocumentPath(name.trim()) ? name.trim() : `${name.trim()}.md`;
 }
 
 export function FileExplorer({
