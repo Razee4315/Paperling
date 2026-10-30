@@ -114,6 +114,9 @@ import {
   getToolbarEnabled,
   getTourDone,
   getTypewriterMode,
+  getRecentFolders,
+  addRecentFolder,
+  removeRecentFolder,
   getWordWrap,
   getCodeFolding,
   setAIEnabled,
@@ -886,9 +889,20 @@ function AppContent() {
   const openWorkspace = useCallback((directory: string) => {
     setWorkspaceDirectoryLocal(directory);
     setWorkspaceDirectory(directory);
+    addRecentFolder(directory);
     setShowFileExplorer(true);
     if (IS_MOBILE) { setShowTOC(false); setShowBacklinks(false); }
   }, []);
+  // A recent folder may have been moved or deleted since. FILES-11.
+  const openRecentFolder = useCallback(async (directory: string) => {
+    const info = await invoke<{ is_dir: boolean }>("get_file_info", { path: directory }).catch(() => null);
+    if (info?.is_dir) {
+      openWorkspace(directory);
+    } else {
+      removeRecentFolder(directory);
+      showToast("That folder is no longer there", "error");
+    }
+  }, [openWorkspace, showToast]);
   const handleOpenFolder = useCallback(async () => {
     try {
       const directory = await open({ directory: true, multiple: false, title: "Open folder" });
@@ -1970,6 +1984,21 @@ function AppContent() {
       run: handleOpenTutorial,
     });
 
+    // === Recent folders ===
+    if (!IS_MOBILE) {
+      for (const directory of getRecentFolders()) {
+        items.push({
+          id: `recentFolder.${directory}`,
+          label: directory.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || directory,
+          hint: directory,
+          section: "Recent folders",
+          icon: "folder",
+          keywords: `open folder workspace ${directory}`,
+          run: () => void openRecentFolder(directory),
+        });
+      }
+    }
+
     // === Recent files ===
     const recents = getRecentFiles();
     for (const r of recents) {
@@ -1994,7 +2023,7 @@ function AppContent() {
     // separate hook that's gated on the palette actually being open.
     handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
-    loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand, handleCopyDocument, openFileHistory,
+    loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand, handleCopyDocument, openFileHistory, openRecentFolder,
     typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
@@ -2264,6 +2293,7 @@ function AppContent() {
               onOpenSettings={() => setShowSettings(true)}
               onFileDrop={handleFileDrop}
               onOpenRecent={loadFile}
+              onOpenRecentFolder={IS_MOBILE ? undefined : (path) => void openRecentFolder(path)}
             />
           </div>
         )

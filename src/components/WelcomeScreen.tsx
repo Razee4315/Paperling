@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, TauriEvent } from "@tauri-apps/api/event";
-import { clearRecentFiles, getRecentFiles, pinRecentFile, removeRecentFile, unpinRecentFile, type RecentFile } from "../utils/persistence";
+import { clearRecentFiles, getRecentFiles, getRecentFolders, pinRecentFile, removeRecentFile, unpinRecentFile, type RecentFile } from "../utils/persistence";
 import { IS_MOBILE } from "../utils/platform";
 import { isDocumentPath } from "../utils/documentPaths";
 import { MascotIdle } from "./MascotIdle";
@@ -14,6 +14,8 @@ interface WelcomeScreenProps {
     onOpenSettings?: () => void;
     onFileDrop: (path: string) => void;
     onOpenRecent?: (path: string) => void;
+    /** Reopen a folder from the recent list. FILES-11. */
+    onOpenRecentFolder?: (path: string) => void;
 }
 
 const formatRelative = (ts: number): string => {
@@ -32,8 +34,9 @@ const parentFolderOf = (path: string): string => {
     return segs.slice(-2).join("/") || segs.join("/");
 };
 
-export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSettings, onFileDrop, onOpenRecent }: WelcomeScreenProps) {
+export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSettings, onFileDrop, onOpenRecent, onOpenRecentFolder }: WelcomeScreenProps) {
     const [recents, setRecents] = useState<RecentFile[]>([]);
+    const [recentFolders] = useState(getRecentFolders);
     const [missing, setMissing] = useState<Set<string>>(new Set());
     // Highlight while a markdown file is dragged over the welcome screen so
     // the user gets immediate visual confirmation that the drop will be
@@ -242,6 +245,22 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                         )}
                     </p>
     
+                    {recentFolders.length > 0 && onOpenRecentFolder && (
+                        <div className="w-full flex flex-wrap items-center justify-center gap-1.5 mt-4" aria-label="Recent folders" role="group">
+                            {recentFolders.slice(0, 4).map((path) => (
+                                <button
+                                    key={path}
+                                    onClick={() => onOpenRecentFolder(path)}
+                                    title={path}
+                                    className="btn-press flex items-center gap-1 max-w-[180px] px-2 py-1 rounded-[var(--radius-sm)] border border-[var(--border)] text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                                >
+                                    <span className="material-symbols-outlined text-[14px]" aria-hidden="true">folder</span>
+                                    <span className="truncate">{path.replace(/[/\\]+$/, "").split(/[/\\]/).pop()}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
                     {recents.length > 0 && onOpenRecent && (
                         <div className="w-full mt-4 text-left">
                             <div className="flex items-center justify-between mb-2 px-1">

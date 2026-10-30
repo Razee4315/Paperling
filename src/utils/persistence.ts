@@ -55,6 +55,18 @@ const safeSet = (key: string, value: unknown): void => {
     } catch {/* storage may be full / disabled */}
 };
 
+// Folders opened as a workspace, newest first. FILES-11.
+const KEY_RECENT_FOLDERS = "paperling:recentFolders";
+const MAX_RECENT_FOLDERS = 8;
+export const getRecentFolders = (): string[] => {
+    const list = safeGet<unknown>(KEY_RECENT_FOLDERS, []);
+    return Array.isArray(list) ? list.filter((p): p is string => typeof p === "string") : [];
+};
+export const addRecentFolder = (path: string): void =>
+    safeSet(KEY_RECENT_FOLDERS, [path, ...getRecentFolders().filter((p) => p !== path)].slice(0, MAX_RECENT_FOLDERS));
+export const removeRecentFolder = (path: string): void =>
+    safeSet(KEY_RECENT_FOLDERS, getRecentFolders().filter((p) => p !== path));
+
 export interface RecentFile {
     path: string;
     name: string;
