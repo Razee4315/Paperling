@@ -60,6 +60,7 @@ import { toCmKey, isMac } from "../config/keybindings";
 import { linkAt, type EditorLink } from "../utils/editorLinks";
 import { locateText } from "../utils/revealText";
 import { highlightCaretLine } from "../utils/caretLineHighlight";
+import { loadEmojiNames, matchEmojiPrefix, rankEmoji } from "../utils/emoji";
 import { EDITOR_COMMAND_EVENT, TEXT_COMMAND_HINTS, textCommandSpec, type FoldCommandId, type TextCommandId } from "../utils/textCommands";
 import type { HandoffOptions, Scroller } from "../utils/scrollSync";
 
@@ -139,6 +140,21 @@ const foldUI = (gutter: boolean): Extension => [
     codeFolding({ placeholderText: "⋯" }),
     gutter ? foldGutter({ openText: "⌄", closedText: "›" }) : [],
 ];
+
+/** `:rock` offers 🚀, and picking one inserts the emoji itself, which reads the
+ *  same in every app, where a shortcode only renders in some. EMOJI-01. */
+async function emojiCompletionSource(context: CompletionContext): Promise<CompletionResult | null> {
+    const line = context.state.doc.lineAt(context.pos);
+    const match = matchEmojiPrefix(line.text.slice(0, context.pos - line.from));
+    if (!match) return null;
+    const ranked = rankEmoji(await loadEmojiNames(), match.query);
+    if (ranked.length === 0) return null;
+    return {
+        from: line.from + match.from,
+        filter: false,
+        options: ranked.map(({ name, emoji }) => ({ label: `:${name}:`, detail: emoji, apply: emoji })),
+    };
+}
 
 const EDITOR_FONT_FAMILY =
     "'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
@@ -700,7 +716,7 @@ function CodeEditorImpl({
                     // Multiple cursors (Ctrl+D, Ctrl/Cmd+click). Without this
                     // facet CodeMirror silently keeps only the main range.
                     CMEditorState.allowMultipleSelections.of(true),
-                    autocompletion({ override: [wikiCompletionSource], icons: false, aboveCursor: false }),
+                    autocompletion({ override: [wikiCompletionSource, emojiCompletionSource], icons: false, aboveCursor: false }),
                     markdown(),
                     syntaxHighlighting(markdownHighlight),
                     findHighlightField,

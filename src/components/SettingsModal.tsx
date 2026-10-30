@@ -12,6 +12,7 @@ import {
     getAIEnabled, setAIEnabled,
     getWordWrap, setWordWrap,
     getCodeFolding, setCodeFolding,
+    getCustomCss, setCustomCss,
     getSpellCheck, setSpellCheck,
     getLivePreview, setLivePreview,
     getVimMode, setVimMode,
@@ -58,7 +59,7 @@ const sections: Array<{ id: Section; label: string; icon: string }> = [
 // nothing). SET-05.
 const SECTION_KEYWORDS: Record<Section, string> = {
     appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small",
-    editor: "typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
+    editor: "custom css style stylesheet fold folding arrows collapse typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
     shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
     ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
     about: "about version update tour guide help license",
@@ -190,6 +191,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
     const [wordWrap, setWordWrapLocal] = useState(getWordWrap);
     const [codeFolding, setCodeFoldingLocal] = useState(getCodeFolding);
+    const [customCss, setCustomCssLocal] = useState(getCustomCss);
     const [spellCheck, setSpellCheckLocal] = useState(getSpellCheck);
     const [livePreview, setLivePreviewLocal] = useState(getLivePreview);
     const [vimMode, setVimModeLocal] = useState(getVimMode);
@@ -626,6 +628,24 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     {matches("zen mode") && (
                                         <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}
                                             onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
+                                    )}
+                                    {matches("custom css style stylesheet theme") && (
+                                        <label className="block px-3.5 py-3">
+                                            <span className="text-sm font-medium text-[var(--text-primary)]">Custom CSS</span>
+                                            <span className="block text-[11px] text-[var(--text-muted)] mt-0.5">Your own styles, applied to the whole app. Target the page with .markdown-body and the editor with .cm-editor</span>
+                                            <textarea
+                                                value={customCss}
+                                                spellCheck={false}
+                                                rows={5}
+                                                placeholder=".markdown-body h1 { color: tomato; }"
+                                                onChange={(e) => {
+                                                    setCustomCssLocal(e.target.value);
+                                                    setCustomCss(e.target.value);
+                                                    window.dispatchEvent(new CustomEvent("paperling:custom-css-change"));
+                                                }}
+                                                className="mt-2 w-full px-2 py-1.5 font-mono text-xs rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] resize-y"
+                                            />
+                                        </label>
                                     )}
                                 </SettingsGroup>
                             </div>

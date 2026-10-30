@@ -176,6 +176,13 @@ const KEY_CODE_FOLDING = "paperling:codeFolding";
 export const getCodeFolding = (): boolean => safeGet<boolean>(KEY_CODE_FOLDING, true);
 export const setCodeFolding = (v: boolean): void => safeSet(KEY_CODE_FOLDING, v);
 
+// Settings → Appearance → Custom CSS. Bounded: it lives in localStorage beside
+// everything else, and a paste of a whole framework must not push that out.
+const KEY_CUSTOM_CSS = "paperling:customCss";
+const MAX_CUSTOM_CSS_CHARS = 100_000;
+export const getCustomCss = (): string => safeGet<string>(KEY_CUSTOM_CSS, "");
+export const setCustomCss = (v: string): void => safeSet(KEY_CUSTOM_CSS, v.slice(0, MAX_CUSTOM_CSS_CHARS));
+
 // LIVE-01: hide Markdown symbols in the editor except on the line being
 // edited. Opt-in: it changes how every line of the editor looks.
 const KEY_LIVE_PREVIEW = "paperling:livePreview";

@@ -32,6 +32,8 @@ import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { IS_MOBILE, isTauri } from "./utils/platform";
 import { isDocumentPath, isHtmlPath } from "./utils/documentPaths";
 import { EDITOR_COMMAND_EVENT, type FoldCommandId, type TextCommandId } from "./utils/textCommands";
+import { writeRichClipboard } from "./utils/richClipboard";
+import { useCustomCss } from "./hooks/useCustomCss";
 import { getWorkspaceDirectory, setWorkspaceDirectory } from "./utils/persistence";
 import { isTextDirection, type TextDirection } from "./utils/textDirection";
 import { joinNotesPath } from "./utils/mobileFiles";
@@ -178,6 +180,7 @@ const THEME_CHOICES: { id: Theme; label: string }[] = [
 
 function AppContent() {
   const { theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom, font, fontSize, customFont } = useTheme();
+  useCustomCss();
 
   // Publishes --keyboard-inset (the on-screen keyboard's height) and keeps
   // focused fields visible. Desktop-safe: without a visualViewport the hook
@@ -1492,6 +1495,25 @@ function AppContent() {
     }
   }, [fileName, getExportHtml, isHtmlDoc, showToast, theme, font, fontSize, customFont]);
 
+  // Copy the rendered document, through the same pipeline as export so images
+  // are inlined and the app's chrome is stripped. COPY-02.
+  const handleCopyDocument = useCallback(async (kind: "rich" | "html") => {
+    const raw = await getExportHtml();
+    if (!raw) {
+      showToast("Nothing to copy yet", "error");
+      return;
+    }
+    try {
+      const { prepareExportHtml } = await import("./utils/exportUtils");
+      const cleaned = await prepareExportHtml(raw);
+      if (kind === "rich") await writeRichClipboard(cleaned, content);
+      else await navigator.clipboard.writeText(cleaned);
+      showToast(kind === "rich" ? "Copied as rich text" : "Copied as HTML", "success");
+    } catch (err) {
+      showToast(errMessage(err) || "Could not copy", "error");
+    }
+  }, [content, getExportHtml, showToast]);
+
   // Print the RENDERED document (not the app window): the export pipeline's
   // standalone HTML — which already carries print CSS, KaTeX styles and
   // inlined images — goes into an off-screen iframe that prints itself.
@@ -1715,6 +1737,10 @@ function AppContent() {
           window.setTimeout(() => window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")), 50);
         },
       });
+      if (!isHtmlDoc) items.push(
+        { id: "file.copyRich", label: "Copy document as rich text", section: "File", icon: "content_copy", keywords: "word gmail docs paste formatted clipboard", run: () => void handleCopyDocument("rich") },
+        { id: "file.copyHtml", label: "Copy document as HTML", section: "File", icon: "code", keywords: "source markup clipboard", run: () => void handleCopyDocument("html") },
+      );
       items.push(
         { id: "edit.sortAsc", label: "Sort lines A to Z", section: "Edit", icon: "sort_by_alpha", keywords: "sort ascending order", run: () => runEditorCommand("sortAsc") },
         { id: "edit.sortDesc", label: "Sort lines Z to A", section: "Edit", icon: "sort_by_alpha", keywords: "sort descending reverse order", run: () => runEditorCommand("sortDesc") },
@@ -1941,7 +1967,7 @@ function AppContent() {
     // separate hook that's gated on the palette actually being open.
     handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
-    loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand,
+    loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand, handleCopyDocument,
     typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
@@ -2089,6 +2115,7 @@ function AppContent() {
             onNewFile={handleNewFile}
             getExportHtml={getExportHtml}
             canExport={!isHtmlDoc}
+            onCopyDocument={handleCopyDocument}
             onExportSuccess={handleExportSuccess}
             onExportError={handleExportError}
             onToggleAI={aiEnabled ? handleToggleAI : undefined}

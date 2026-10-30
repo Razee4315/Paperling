@@ -24,6 +24,7 @@ import { splitMarkdownBlocks } from "../utils/markdownBlocks";
 import { isUnsafeRelativePath } from "../utils/documentPaths";
 import { slugify } from "../utils/outline";
 import { isTocMarker, tocMarkdown } from "../utils/tableOfContents";
+import { hasEmojiShortcode, loadEmojiNames, rehypeEmoji, type EmojiNames } from "../utils/emoji";
 import { getRemoteImages, getReaderEditing } from "../utils/persistence";
 import { useReaderEditor } from "../hooks/useReaderEditor";
 import { matchesBinding } from "../config/keybindings";
@@ -817,8 +818,7 @@ const TableRenderer = ({ node, ...props }: React.HTMLAttributes<HTMLTableElement
  *  never re-parses it. */
 /** What a `[TOC]` paragraph renders. Context, so it follows heading edits in
  *  other blocks without re-rendering the marker's whole block. */
-const TocContext = createContext<{ markdown: string; remarkPlugins: unknown[]; components: Record<string, unknown> } | null>(null);
-const NO_REHYPE: unknown[] = [];
+const TocContext = createContext<{ markdown: string; remarkPlugins: unknown[]; rehypePlugins: unknown[]; components: Record<string, unknown> } | null>(null);
 
 /**
  * `[TOC]` swaps at the paragraph, not by rewriting the source text: the block
@@ -830,7 +830,7 @@ function TocBlock(props: React.HTMLAttributes<HTMLElement>) {
     const toc = useContext(TocContext);
     return (
         <nav {...props} className="md-toc" aria-label="Table of contents">
-            {toc?.markdown && <MarkdownBlock text={toc.markdown} remarkPlugins={toc.remarkPlugins} rehypePlugins={NO_REHYPE} components={toc.components} />}
+            {toc?.markdown && <MarkdownBlock text={toc.markdown} remarkPlugins={toc.remarkPlugins} rehypePlugins={toc.rehypePlugins} components={toc.components} />}
         </nav>
     );
 }
@@ -1196,6 +1196,15 @@ function MarkdownPreviewImpl({
         return () => { cancelled = true; };
     }, [renderBody, mathPlugins]);
 
+    // Same for the emoji table, once a document looks like it has a :shortcode:.
+    const [emojiNames, setEmojiNames] = useState<EmojiNames | null>(null);
+    useEffect(() => {
+        if (emojiNames || !hasEmojiShortcode(renderBody)) return;
+        let cancelled = false;
+        loadEmojiNames().then((names) => { if (!cancelled) setEmojiNames(names); }).catch(() => { /* shortcodes stay as text */ });
+        return () => { cancelled = true; };
+    }, [renderBody, emojiNames]);
+
     // Order matters: GFM first (its tokenizer must own `~~strike~~` before
     // the supersub text pass sees single tildes), math next when active
     // (`$a~b$` becomes an inlineMath node the text-level plugins skip), then the
@@ -1212,8 +1221,10 @@ function MarkdownPreviewImpl({
         const base = mathPlugins
             ? [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], mathPlugins.rehype, [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds]
             : [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds];
+        // rehypeEmoji stays behind rehypeHeadingIds: see utils/emoji.ts.
+        if (emojiNames) base.push([rehypeEmoji, { names: emojiNames }]);
         return textDirection === "auto" ? [...base, rehypeBlockDirection] : base;
-    }, [mathPlugins, textDirection]);
+    }, [mathPlugins, textDirection, emojiNames]);
 
     // Render the heavy markdown tree from a deferred copy of the body, updated
     // inside a transition. A burst of edits (already coalesced by App's debounce)
@@ -1257,8 +1268,13 @@ function MarkdownPreviewImpl({
     // PERF-02.
     const blocks = useMemo(() => splitMarkdownBlocks(renderedBody), [renderedBody]);
     const tocValue = useMemo(
-        () => ({ markdown: /\[toc\]/i.test(renderedBody) ? tocMarkdown(renderedBody) : "", remarkPlugins, components }),
-        [renderedBody, remarkPlugins, components],
+        () => ({
+            markdown: /\[toc\]/i.test(renderedBody) ? tocMarkdown(renderedBody) : "",
+            remarkPlugins,
+            rehypePlugins: emojiNames ? [[rehypeEmoji, { names: emojiNames }]] : [],
+            components,
+        }),
+        [renderedBody, remarkPlugins, components, emojiNames],
     );
     useLayoutEffect(() => {
         mainRef.current?.querySelectorAll<HTMLElement>("[data-source-line]").forEach((element) => {

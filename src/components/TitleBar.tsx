@@ -19,6 +19,7 @@ interface TitleBarProps {
     getExportHtml?: () => Promise<string>;
     /** False hides Export: an HTML page has no Markdown render to export. */
     canExport?: boolean;
+    onCopyDocument?: (kind: "rich" | "html") => void;
     onExportSuccess?: (format: string) => void;
     onExportError?: (format: string) => void;
     onToggleAI?: () => void;
@@ -36,7 +37,7 @@ interface TitleBarProps {
     onPrint?: () => void;
 }
 
-function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onOpenRecent, onNewFile, getExportHtml, canExport = true, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles, onSave, onSaveAs, onPrint }: TitleBarProps) {
+function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onOpenRecent, onNewFile, getExportHtml, canExport = true, onCopyDocument, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles, onSave, onSaveAs, onPrint }: TitleBarProps) {
     // Whether the AI button's icon shimmers. Some users prefer it plain (#111).
     // Held locally and refreshed from the Settings event rather than threaded
     // down from App, since nothing else on the way needs to know about it.
@@ -211,6 +212,7 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                                     getExportHtml={getExportHtml}
                                     onSuccess={onExportSuccess}
                                     onError={onExportError}
+                                    onCopy={onCopyDocument}
                                 />
                             )}
                             {onFind && onReplace && onFindInFiles && (
