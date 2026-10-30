@@ -17,6 +17,8 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 Thanks to @leewaichong for all three.
 
+- **Files that aren't UTF-8 now open.** PowerShell output, Notepad "Unicode" and old Windows-1252 notes open normally and save back in the same encoding; if you type something that encoding can't hold, Paperling asks before converting to UTF-8 (#297).
+
 ## [1.1.1] - 2026-10-09
 
 - **macOS: a real Mac window.** The red, yellow and green buttons are back, at the left of the title bar, and the green one (or `⌃⌘F`) takes Paperling into true fullscreen, with the menu bar and the Dock out of the way (#262).
