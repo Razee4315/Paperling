@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeDiagramSvg } from "./diagramSanitize";
+import { sanitizeDiagramSvg, stripRemoteDiagramImages } from "./diagramSanitize";
 
 // The shape of a real mermaid 12 strict-mode render: root svg with id/viewBox,
 // a scoped <style>, defs with a marker + gradient, plain paths, and an
@@ -67,5 +67,40 @@ describe("sanitizeDiagramSvg", () => {
         const out = sanitizeDiagramSvg(inline, { allowRemoteImages: false });
         expect(out).toContain("data:image/png;base64");
         expect(out).toContain("#localRef");
+    });
+});
+
+describe("stripRemoteDiagramImages (MMV-09)", () => {
+    const remote = "https://evil.example/beacon.png?id=1";
+
+    it.each([
+        ["an image shape", `A@{ img: "${remote}", label: "Pic", pos: "t" }`],
+        ["an unquoted image shape", `A@{ img: ${remote}, label: "Pic" }`],
+        ["an <img> in a label", `A["<img src='${remote}'/>"]`],
+        ["an <img> with mermaid's entity quotes", `A["<img src=#quot;${remote}#quot;/>"]`],
+        ["an <img> with HTML entity quotes", `A["<img src=&quot;${remote}&quot;/>"]`],
+        ["a CSS url()", `%%{init: {"themeCSS": ".node { fill: url(${remote}); }"}}%%`],
+        ["a protocol-relative url", `A@{ img: "//evil.example/beacon.png" }`],
+        ["upper case", `A["<IMG SRC='HTTPS://EVIL.EXAMPLE/B.PNG'/>"]`],
+    ])("removes the url from %s", (_name, code) => {
+        const out = stripRemoteDiagramImages(code);
+        expect(out.toLowerCase()).not.toContain("evil.example");
+        expect(out).toContain("data:image/gif");
+    });
+
+    it("keeps the quotes balanced so the diagram still parses", () => {
+        expect(stripRemoteDiagramImages(`A@{ img: "${remote}", h: 60 }`)).toMatch(/img: "data:image\/gif[^"]*", h: 60 }/);
+        expect(stripRemoteDiagramImages(`A["<img src=#quot;${remote}#quot;/>"]`)).toMatch(/src=#quot;data:image\/gif[^#]*#quot;\/>/);
+    });
+
+    it("leaves everything that doesn't load an image alone", () => {
+        const code = [
+            "graph TD",
+            '  A["See https://example.com/docs for details"] --> B',
+            '  click A "https://example.com/open" "Open"',
+            '  C@{ img: "data:image/png;base64,iVBOR", label: "Inline" }',
+            "  style A fill:#f9f,stroke:#333",
+        ].join("\n");
+        expect(stripRemoteDiagramImages(code)).toBe(code);
     });
 });
