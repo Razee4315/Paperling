@@ -131,6 +131,7 @@ Dark, Light, Paper, and Dracula.
 - **Crash-safe** — unsaved changes, even in never-saved notes, come back after a crash or force-quit
 - **File history** — earlier versions of each file, kept locally for 30 days, with a diff and one-click restore
 - **HTML files** — open `.html` pages rendered with their own styles, in a sandbox where scripts can't run
+- **File encodings** — UTF-16 and Windows-1252 notes open normally and save back unchanged
 - **Copy as rich text or HTML** — paste a whole document into Word, Gmail or Google Docs with its formatting
 - **Recent files** on the welcome screen — missing files marked
 - **Restore last opened file** on launch
