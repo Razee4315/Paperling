@@ -11,18 +11,26 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 ## [Unreleased]
 
-- **Open HTML files.** `.html` pages open rendered with their own styles, in a locked-down view where scripts can't run (#295).
-- **File history.** Paperling keeps earlier versions of your files on this computer, with a diff and one-click restore. Find it in the command palette.
-- **Fold** headings, lists and code blocks. **Emoji shortcodes** like `:rocket:` render and autocomplete. **Tables of contents** with `[TOC]` or a palette command.
-- **Wide code blocks** use the free space beside the reading column instead of being cut off (#294).
-- **Also new:** copy as rich text or HTML, sort lines, change case, insert the date, a filter in the Files panel, recent folders, and custom CSS.
-- **Notes refresh on their own.** A note changed by another program (a terminal, a sync tool, an agent) updates within a couple of seconds while Paperling is on screen, not only when you click back into it (#263).
-- **Drag tabs on macOS** to reorder them; Move left / Move right are in the tab menu everywhere (#263).
-- **Images refresh** when the file changes on disk (#266), and **copying from Reader** no longer pastes icon names like "link" (#267).
+## [1.2.0] - 2026-10-31
 
-Thanks to @leewaichong for all three.
+Paperling 1.2 opens more of your files, keeps earlier versions of them, and fills in the everyday gaps.
 
-- **Files that aren't UTF-8 now open.** PowerShell output, Notepad "Unicode" and old Windows-1252 notes open normally and save back in the same encoding; if you type something that encoding can't hold, Paperling asks before converting to UTF-8 (#297).
+- **Open HTML files.** Pages show with their own styles, in a locked-down view where scripts can't run (#295).
+- **File history.** Earlier versions of your files stay on this computer, with a diff and one-click restore. Find it in the command palette.
+- **More files open.** UTF-16 and Windows-1252 notes open normally and save back the same way (#297).
+- **Notes refresh on their own** when another program changes them (#263), and images update when you come back to the window (#266).
+- **Editing.** Fold sections, `:rocket:` emoji shortcodes, tables of contents with `[TOC]`, sort lines, change case, and insert the date.
+- **Your files.** Recent files in the Options menu (#281), recent folders, and a filter in the Files panel.
+- **Sharing.** Copy as rich text or HTML, and add your own custom CSS.
+- **Fixes** for wide code blocks (#294), clipped list numbers (#270), dragging tabs on macOS (#263) and copying from Reader (#267), plus stricter handling of remote images and safer saves.
+
+Your current settings are kept when you update.
+
+**[Full release notes](https://github.com/Razee4315/Paperling/blob/main/release-notes/v1.2.0.md)**
+
+### Thank you
+
+To @leewaichong and @itshakemd for their fixes and features, and to @310394-source for the report that fixed ordered lists.
 
 ## [1.1.1] - 2026-10-09
 
