@@ -153,4 +153,52 @@ describe("useExternalChangeWatcher", () => {
     expect(invoke).not.toHaveBeenCalled();
     expect(o.reload).not.toHaveBeenCalled();
   });
+
+  // --- EXT-10: the mtime baseline can be unusable (0) — never treat that as
+  // "unchanged"; decide by content instead. ---
+
+  it("re-anchors a lost mtime by reloading a clean buffer, even when the baseline mtime is 0", async () => {
+    (invoke as Mock).mockResolvedValue({ modified: 200 });
+    const o = setup({ knownMtimeRef: ref(0) });
+    await focus();
+    expect(o.reload).toHaveBeenCalledWith("C:/doc.md");
+    expect(o.onReloaded).toHaveBeenCalledWith("focus");
+    expect(o.knownMtimeRef.current).toBe(200); // re-armed for ordinary mtime detection
+  });
+
+  it("raises the conflict when the baseline mtime is 0, the buffer is dirty, and the disk content differs", async () => {
+    (invoke as Mock).mockImplementation((cmd: string) =>
+      cmd === "get_file_info"
+        ? Promise.resolve({ modified: 200 })
+        : Promise.resolve({ path: "C:/doc.md", content: "external edit" }),
+    );
+    const o = setup({ knownMtimeRef: ref(0), contentRef: ref("typed"), originalContentRef: ref("same") });
+    await focus();
+    expect(o.onConflict).toHaveBeenCalled();
+    expect(o.reload).not.toHaveBeenCalled();
+    expect(o.knownMtimeRef.current).toBe(200); // adopted so Keep-mine can absorb
+  });
+
+  it("stays quiet when the baseline mtime is 0, the buffer is dirty, but the disk content matches", async () => {
+    // The on-disk mtime may simply have been missing all along; only a real
+    // content difference deserves the dialog.
+    (invoke as Mock).mockImplementation((cmd: string) =>
+      cmd === "get_file_info"
+        ? Promise.resolve({ modified: 200 })
+        : Promise.resolve({ path: "C:/doc.md", content: "same" }),
+    );
+    const o = setup({ knownMtimeRef: ref(0), contentRef: ref("typed"), originalContentRef: ref("same") });
+    await focus();
+    expect(o.onConflict).not.toHaveBeenCalled();
+    expect(o.reload).not.toHaveBeenCalled();
+  });
+
+  it("does not re-read a file that reports no mtime on either side (the write guard covers it)", async () => {
+    (invoke as Mock).mockResolvedValue({ modified: 0 });
+    const o = setup({ knownMtimeRef: ref(0) });
+    await focus();
+    expect(invoke).toHaveBeenCalledTimes(1); // the stat only — no read_file
+    expect(o.reload).not.toHaveBeenCalled();
+    expect(o.onConflict).not.toHaveBeenCalled();
+  });
 });

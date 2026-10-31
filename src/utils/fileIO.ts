@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { errMessage } from "./errors";
 import { pathKey } from "./tabsModel";
+import { fileHistory } from "./fileHistory";
 
 /**
  * Text-file I/O for documents, layered on the Rust read_file / save_file
@@ -94,9 +95,12 @@ export async function readTextFile<T extends { content: string; path?: string; e
     if (data) rememberEncoding(pathKey(data.path ?? path), data.encoding);
     if (data && typeof data.content === "string" && data.content.startsWith(BOM)) {
         bomPaths.add(pathKey(data.path ?? path));
-        return { ...data, content: data.content.slice(BOM.length) };
+        const stripped = data.content.slice(BOM.length);
+        void fileHistory.record(path, stripped, "opened");
+        return { ...data, content: stripped };
     }
     bomPaths.delete(pathKey(path));
+    if (data && typeof data.content === "string") void fileHistory.record(path, data.content, "opened");
     return data;
 }
 
@@ -191,11 +195,15 @@ async function convertToUtf8(path: string, content: string, refusal: RegExpExecA
 export async function saveTextFile(path: string, content: string, { background = false }: SaveOptions = {}): Promise<number> {
     const out = hadBom(path) && !content.startsWith(BOM) ? BOM + content : content;
     const encoding = encodings.get(pathKey(path));
+    let mtime: number;
     try {
-        return await writeDocument({ path, content: out, ...(encoding ? { encoding } : {}) });
+        mtime = await writeDocument({ path, content: out, ...(encoding ? { encoding } : {}) });
     } catch (error) {
         const refusal = UNREPRESENTABLE.exec(errMessage(error));
         if (!refusal) throw error;
-        return convertToUtf8(path, out, refusal, background);
+        mtime = await convertToUtf8(path, out, refusal, background);
     }
+    // Only after a write landed: a refused attempt saved nothing to remember.
+    void fileHistory.record(path, content, "saved");
+    return mtime;
 }

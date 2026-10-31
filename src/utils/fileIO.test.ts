@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
+import { fileHistory } from "./fileHistory";
 import {
   encodingLabel,
   idleWriteToken,
@@ -12,6 +13,7 @@ import {
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn() }));
+vi.mock("./fileHistory", () => ({ fileHistory: { record: vi.fn() } }));
 
 /** save_file's refusal, as pinned by refused_encodings_never_touch_the_file. */
 const REFUSED = "Unrepresentable text: windows-1252 cannot store U+4E2D";
@@ -66,6 +68,14 @@ describe("fileIO encodings (ENC-03)", () => {
     expect(data.content).toBe("x");
     await saveTextFile("C:/Enc/Bom.md", "edited");
     expect(saves()).toEqual([{ path: "C:/Enc/Bom.md", content: "\uFEFFedited", encoding: "utf-8-bom" }]);
+  });
+
+  it("gives file history the text without its BOM", async () => {
+    (fileHistory.record as Mock).mockClear();
+    backend("utf-8-bom");
+    await readTextFile("C:/Enc/Bom-history.md");
+    await saveTextFile("C:/Enc/Bom-history.md", "edited");
+    expect(fileHistory.record).toHaveBeenLastCalledWith("C:/Enc/Bom-history.md", "edited", "saved");
   });
 
   it("names the encoding for the status bar, and nothing for plain UTF-8", async () => {
@@ -186,6 +196,28 @@ describe("fileIO text an encoding can't hold (ENC-04)", () => {
     await expect(saveTextFile("C:/Conv/Deleted.md", "中")).rejects.toThrow(/changed on disk/);
 
     expect(saves()).toHaveLength(1);
+  });
+
+  it("adds to file history only once a write has landed", async () => {
+    const saved = () => (fileHistory.record as Mock).mock.calls.filter(([, , reason]) => reason === "saved");
+    (fileHistory.record as Mock).mockClear();
+    backend("windows-1252", [1, 1, 1]);
+    await readTextFile("C:/Conv/History.md");
+
+    (ask as Mock).mockResolvedValue(false);
+    await expect(saveTextFile("C:/Conv/History.md", "中")).rejects.toThrow();
+    expect(saved()).toEqual([]);
+
+    await expect(saveTextFile("C:/Conv/History.md", "中", { background: true })).rejects.toThrow();
+    expect(saved()).toEqual([]);
+
+    (ask as Mock).mockResolvedValue(true);
+    await saveTextFile("C:/Conv/History.md", "中");
+    expect(saved()).toEqual([["C:/Conv/History.md", "中", "saved"]]);
+
+    await saveTextFile("C:/Conv/History.md", "plain");
+    expect(saved().at(-1)).toEqual(["C:/Conv/History.md", "plain", "saved"]);
+    expect(saved()).toHaveLength(2);
   });
 
   it("passes every other save failure through untouched", async () => {

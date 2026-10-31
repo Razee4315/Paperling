@@ -7,7 +7,7 @@ import { errMessage } from "../utils/errors";
 import { saveTextFile } from "../utils/fileIO";
 import { TabContextMenu } from "./TabContextMenu";
 import { samePath } from "../utils/tabsModel";
-import { isPathWithin, parentDirectory } from "../utils/documentPaths";
+import { isDocumentPath, isPathWithin, parentDirectory } from "../utils/documentPaths";
 import mascotCarry from "../assets/mascot/mascot-carry.png";
 import mascotShrug from "../assets/mascot/mascot-shrug.png";
 
@@ -33,15 +33,22 @@ interface FileExplorerProps {
     onNotify?: (message: string, type: "success" | "error" | "info") => void;
 }
 
+/** The entries matching a filter, keeping the listing's order. FILES-12. */
+export function filterEntries<T extends { name: string }>(entries: T[], query: string): T[] {
+    const q = query.trim().toLowerCase();
+    return q ? entries.filter((entry) => entry.name.toLowerCase().includes(q)) : entries;
+}
+
 /** Inline name editor state: creating a note/folder, or renaming an entry. */
 type NameEdit =
     | { mode: "note"; value: string }
     | { mode: "folder"; value: string }
     | { mode: "rename"; entry: FileEntry; value: string };
 
-/** A note name gets `.md` unless it already has a note extension. */
+/** A note name gets `.md` unless it already has an extension the app opens.
+ *  A shorter hard-coded list renamed `page.html` to `page.html.md`. */
 export function withNoteExtension(name: string): string {
-    return /\.(md|markdown|txt|text)$/i.test(name.trim()) ? name.trim() : `${name.trim()}.md`;
+    return isDocumentPath(name.trim()) ? name.trim() : `${name.trim()}.md`;
 }
 
 export function FileExplorer({
@@ -62,6 +69,10 @@ export function FileExplorer({
     const panelRef = useRef<HTMLElement>(null);
     const [nameEdit, setNameEdit] = useState<NameEdit | null>(null);
     const [menu, setMenu] = useState<{ entry: FileEntry; x: number; y: number } | null>(null);
+    const [filter, setFilter] = useState("");
+    // A filter belongs to the folder it was typed in.
+    useEffect(() => setFilter(""), [currentViewDir]);
+    const visibleFiles = filterEntries(files, filter);
 
     // Get directory from current file path
     const getDirectory = parentDirectory;
@@ -331,6 +342,32 @@ export function FileExplorer({
                 </div>
             </div>
 
+            {/* Filter this folder. Only worth the row once it can't be scanned
+                at a glance; a typed filter keeps it open. */}
+            {(files.length > 7 || filter) && (
+                <div className="shrink-0 px-3 py-2 border-b border-[var(--border-subtle)]">
+                    <input
+                        value={filter}
+                        onChange={(e) => setFilter(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                const first = visibleFiles.find((entry) => !entry.is_dir) ?? visibleFiles[0];
+                                if (first) handleEntryClick(first);
+                            } else if (e.key === "Escape" && filter) {
+                                // First Escape clears; the next one closes the panel.
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.nativeEvent.stopImmediatePropagation();
+                                setFilter("");
+                            }
+                        }}
+                        placeholder="Filter this folder"
+                        aria-label="Filter files in this folder"
+                        className="w-full px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+                    />
+                </div>
+            )}
+
             {/* Content */}
             <div className="flex-1 min-h-0 overflow-y-auto">
                 {/* System document picker (mobile). A labeled row, not a header
@@ -372,9 +409,11 @@ export function FileExplorer({
                         <img src={mascotCarry} alt="" aria-hidden="true" draggable={false} className="w-20 h-20 object-contain select-none opacity-90" />
                         <span>Folder is empty</span>
                     </div>
+                ) : visibleFiles.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-[var(--text-secondary)]">Nothing here matches "{filter.trim()}"</div>
                 ) : (
                     <ul className="py-2" role="listbox" aria-label="Files and folders">
-                        {files.map((file, index) => {
+                        {visibleFiles.map((file, index) => {
                             const isActive = !file.is_dir && samePath(file.path, currentFilePath);
                             if (nameEdit?.mode === "rename" && nameEdit.entry.path === file.path) {
                                 return (

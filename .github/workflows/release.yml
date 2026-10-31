@@ -20,7 +20,7 @@ jobs:
       notes: ${{ steps.notes.outputs.notes }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
@@ -89,8 +89,11 @@ jobs:
       # the generic blurb if the section comes out empty.
       - name: Extract release notes from CHANGELOG
         id: notes
+        # The version goes through `env` instead of direct interpolation so a
+        # crafted value in tauri.conf.json can never become shell code here.
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
         run: |
-          VERSION="${{ steps.bump.outputs.version }}"
           # Print only THIS version's section — the lines between its
           # "## [VERSION]" heading and the next "## [" heading — so the release
           # notes are scoped to just this release, not the whole history.
@@ -145,19 +148,19 @@ jobs:
 
     steps:
       - name: Checkout repository (with bumped version)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Add macOS cross-compile target
         if: matrix.platform == 'macos-latest'
         run: rustup target add x86_64-apple-darwin
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         # Caching is an optimization — a flaky GitHub cache service must never
         # fail the release build (it took down a Windows release once).
         continue-on-error: true
@@ -171,15 +174,15 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: "1.4.0"
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
       - name: Build and Release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Updater artifact signing — the matching pubkey lives in
@@ -230,24 +233,24 @@ jobs:
       VERSION: ${{ needs.check-and-bump.outputs.version }}
     steps:
       - name: Checkout repository (with bumped version)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: aarch64-linux-android
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         continue-on-error: true
         with:
           workspaces: './src-tauri -> target'
           key: aarch64-linux-android
 
       - name: Setup Java 17 (Android Gradle Plugin requirement)
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
         with:
           distribution: temurin
           java-version: 17
@@ -270,9 +273,9 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$HOME/.android/paperling-release.p12"
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: "1.4.0"
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile

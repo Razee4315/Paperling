@@ -865,7 +865,7 @@ fn is_note_file(path: &std::path::Path) -> bool {
         .map(|e| {
             let e = e.to_ascii_lowercase();
             // Keep in step with DOCUMENT_EXTENSIONS in src/utils/documentPaths.ts.
-            matches!(e.as_str(), "md" | "markdown" | "mdown" | "mkd" | "mdx" | "txt" | "text")
+            matches!(e.as_str(), "md" | "markdown" | "mdown" | "mkd" | "mdx" | "txt" | "text" | "html" | "htm")
         })
         .unwrap_or(false)
 }

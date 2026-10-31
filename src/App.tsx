@@ -31,7 +31,11 @@ import { useFileSession } from "./hooks/useFileSession";
 import { useEncodingLabel } from "./hooks/useEncodingLabel";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { IS_MOBILE, isTauri } from "./utils/platform";
-import { isDocumentPath } from "./utils/documentPaths";
+import { isDocumentPath, isHtmlPath } from "./utils/documentPaths";
+import { EDITOR_COMMAND_EVENT, type FoldCommandId, type TextCommandId } from "./utils/textCommands";
+import { writeRichClipboard } from "./utils/richClipboard";
+import { fileHistory } from "./utils/fileHistory";
+import { useCustomCss } from "./hooks/useCustomCss";
 import { getWorkspaceDirectory, setWorkspaceDirectory } from "./utils/persistence";
 import { isTextDirection, type TextDirection } from "./utils/textDirection";
 import { joinNotesPath } from "./utils/mobileFiles";
@@ -50,6 +54,12 @@ import { normalizeMarkdownFileName } from "./utils/mobileFiles";
 // we adapt with the `.then(m => ({ default: m.X }))` shim.
 const MarkdownPreview = lazy(() =>
     import("./components/MarkdownPreview").then((m) => ({ default: m.MarkdownPreview }))
+);
+const HtmlPreview = lazy(() =>
+  import("./components/HtmlPreview").then((m) => ({ default: m.HtmlPreview }))
+);
+const FileHistoryDialog = lazy(() =>
+  import("./components/FileHistoryDialog").then((m) => ({ default: m.FileHistoryDialog }))
 );
 const FileExplorer = lazy(() =>
     import("./components/FileExplorer").then((m) => ({ default: m.FileExplorer }))
@@ -105,7 +115,11 @@ import {
   getToolbarEnabled,
   getTourDone,
   getTypewriterMode,
+  getRecentFolders,
+  addRecentFolder,
+  removeRecentFolder,
   getWordWrap,
+  getCodeFolding,
   setAIEnabled,
   setSavedViewMode,
   setSpellCheck,
@@ -114,6 +128,7 @@ import {
   setTourDone,
   setTypewriterMode,
   setWordWrap,
+  setCodeFolding,
   getZenMode,
   setZenMode,
   getReadableLineLength,
@@ -173,6 +188,7 @@ const THEME_CHOICES: { id: Theme; label: string }[] = [
 
 function AppContent() {
   const { theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom, font, fontSize, customFont } = useTheme();
+  useCustomCss();
 
   // Publishes --keyboard-inset (the on-screen keyboard's height) and keeps
   // focused fields visible. Desktop-safe: without a visualViewport the hook
@@ -199,6 +215,7 @@ function AppContent() {
   const [typewriterModeEnabled, setTypewriterModeEnabled] = usePersistedState<boolean>(getTypewriterMode, setTypewriterMode);
   const [toolbarVisible, setToolbarVisible] = usePersistedState<boolean>(getToolbarEnabled, setToolbarEnabled);
   const [wordWrapEnabled, setWordWrapEnabled] = usePersistedState<boolean>(getWordWrap, setWordWrap);
+  const [codeFoldingEnabled, setCodeFoldingEnabled] = usePersistedState<boolean>(getCodeFolding, setCodeFolding);
   const [zenMode, setZenModeState] = usePersistedState<boolean>(getZenMode, setZenMode);
   // Live mirrors for the mount-once Settings event listener below, so the
   // Settings toggle routes through the same toggle (with view-mode
@@ -460,6 +477,10 @@ function AppContent() {
     handleOpenFile();
   }, [handleOpenFile]);
 
+  // An HTML page is shown rendered in a sandbox, not through the Markdown
+  // pipeline, so Reader editing, export and preview find don't apply. #295.
+  const isHtmlDoc = isHtmlPath(filePath ?? fileName);
+
   // Android "Open with Paperling": the patched MainActivity copies the picked
   // file into app-private storage and calls window.__paperlingOpenFile(path,
   // name) (defined inline in index.html). This effect is the app half of that
@@ -655,6 +676,7 @@ function AppContent() {
       ["paperling:typewriter-toggle", (e) => setTypewriterModeEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:toolbar-toggle", (e) => setToolbarVisible(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:wordwrap-toggle", (e) => setWordWrapEnabled(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:folding-toggle", (e) => setCodeFoldingEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:spellcheck-toggle", (e) => setSpellCheckEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:live-preview-toggle", (e) => setLivePreviewEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:vim-toggle", (e) => setVimModeEnabled(!!(e as CustomEvent).detail?.enabled)],
@@ -870,9 +892,20 @@ function AppContent() {
   const openWorkspace = useCallback((directory: string) => {
     setWorkspaceDirectoryLocal(directory);
     setWorkspaceDirectory(directory);
+    addRecentFolder(directory);
     setShowFileExplorer(true);
     if (IS_MOBILE) { setShowTOC(false); setShowBacklinks(false); }
   }, []);
+  // A recent folder may have been moved or deleted since. FILES-11.
+  const openRecentFolder = useCallback(async (directory: string) => {
+    const info = await invoke<{ is_dir: boolean }>("get_file_info", { path: directory }).catch(() => null);
+    if (info?.is_dir) {
+      openWorkspace(directory);
+    } else {
+      removeRecentFolder(directory);
+      showToast("That folder is no longer there", "error");
+    }
+  }, [openWorkspace, showToast]);
   const handleOpenFolder = useCallback(async () => {
     try {
       const directory = await open({ directory: true, multiple: false, title: "Open folder" });
@@ -1401,6 +1434,7 @@ function AppContent() {
     handleToggleMode, handleToggleSplit, handleToggleFileExplorer, handleToggleTOC,
     toggleFullscreen, toggleZen: handleToggleZen,
     zoomBy, resetZoom,
+    toggleWordWrap: () => setWordWrapEnabled(!wordWrapEnabled),
     openCheatsheet: () => setShowCheatsheet(true),
     openPalette: () => { setPaletteSeed(undefined); setShowPalette(true); },
     openGotoLine: () => { setPaletteSeed(":"); setShowPalette(true); },
@@ -1457,6 +1491,10 @@ function AppContent() {
   // getExportHtml so the dependency below isn't in its temporal dead zone.
   const handleExportHtml = useCallback(async () => {
     if (!fileName) return;
+    if (isHtmlDoc) {
+      showToast("This file is already HTML", "info");
+      return;
+    }
     const raw = await getExportHtml();
     if (!raw) {
       showToast("Nothing to export yet", "error");
@@ -1476,7 +1514,26 @@ function AppContent() {
     } catch (err) {
       showToast(errMessage(err) || "Could not export HTML", "error");
     }
-  }, [fileName, getExportHtml, showToast, theme, font, fontSize, customFont]);
+  }, [fileName, getExportHtml, isHtmlDoc, showToast, theme, font, fontSize, customFont]);
+
+  // Copy the rendered document, through the same pipeline as export so images
+  // are inlined and the app's chrome is stripped. COPY-02.
+  const handleCopyDocument = useCallback(async (kind: "rich" | "html") => {
+    const raw = await getExportHtml();
+    if (!raw) {
+      showToast("Nothing to copy yet", "error");
+      return;
+    }
+    try {
+      const { prepareExportHtml } = await import("./utils/exportUtils");
+      const cleaned = await prepareExportHtml(raw);
+      if (kind === "rich") await writeRichClipboard(cleaned, content);
+      else await navigator.clipboard.writeText(cleaned);
+      showToast(kind === "rich" ? "Copied as rich text" : "Copied as HTML", "success");
+    } catch (err) {
+      showToast(errMessage(err) || "Could not copy", "error");
+    }
+  }, [content, getExportHtml, showToast]);
 
   // Print the RENDERED document (not the app window): the export pipeline's
   // standalone HTML — which already carries print CSS, KaTeX styles and
@@ -1484,6 +1541,10 @@ function AppContent() {
   // Ctrl+P is the command palette, so this palette entry is the print path.
   // PRINT-01.
   const handlePrint = useCallback(async () => {
+    if (isHtmlDoc) {
+      showToast("Printing isn't available for HTML files yet", "info");
+      return;
+    }
     const raw = await getExportHtml();
     if (!raw) {
       showToast("Open the document in Reader or Split view to print it", "info");
@@ -1512,7 +1573,7 @@ function AppContent() {
     } catch (err) {
       showToast(errMessage(err) || "Could not print", "error");
     }
-  }, [customFont, fileName, font, fontSize, getExportHtml, showToast]);
+  }, [customFont, fileName, font, fontSize, getExportHtml, isHtmlDoc, showToast]);
 
   // ZOOM-01: say the level whenever it changes, since the shortcut and the
   // wheel have no other visible readout. Skips the initial mount.
@@ -1533,9 +1594,14 @@ function AppContent() {
   // editor, so from reader mode we switch to code mode first. The editor listens
   // for these events (CodeEditor's paperling:open-find / paperling:open-replace).
   const openFind = useCallback(() => {
-    if (mode === "preview") openPreviewFindBar();
+    // The rendered page sits in a sandbox the app can't read, so find runs on
+    // the source. #295.
+    if (mode === "preview" && isHtmlDoc) {
+      setMode("code");
+      setTimeout(() => window.dispatchEvent(new CustomEvent("paperling:open-find")), 0);
+    } else if (mode === "preview") openPreviewFindBar();
     else window.dispatchEvent(new CustomEvent("paperling:open-find"));
-  }, [mode, openPreviewFindBar]);
+  }, [isHtmlDoc, mode, openPreviewFindBar, setMode]);
   const openReplace = useCallback(() => {
     if (mode === "preview") {
       setMode("code");
@@ -1543,6 +1609,38 @@ function AppContent() {
     } else {
       window.dispatchEvent(new CustomEvent("paperling:open-replace"));
     }
+  }, [mode, setMode]);
+
+  // File history (HIST-01). A restore is an ordinary edit: it lands in the
+  // buffer, undoable and unsaved. The text it replaces is kept first, so even
+  // an unsaved draft survives the user changing their mind after closing the tab.
+  const [historyTarget, setHistoryTarget] = useState<{ path: string; fileName: string } | null>(null);
+  const openFileHistory = useCallback(() => {
+    if (!filePath) {
+      showToast("Save the file first: history starts once it's on disk", "info");
+      return;
+    }
+    if (proposedDoc != null) {
+      showToast("Finish reviewing the AI changes first", "info");
+      return;
+    }
+    setHistoryTarget({ path: filePath, fileName: fileName ?? "Untitled.md" });
+  }, [fileName, filePath, proposedDoc, showToast]);
+  const handleRestoreVersion = useCallback((text: string) => {
+    if (filePath) void fileHistory.record(filePath, content, "before-restore");
+    handleContentChange(text);
+    setHistoryTarget(null);
+    showToast("Version restored. Save to keep it, or undo to go back", "success");
+  }, [content, filePath, handleContentChange, showToast]);
+
+  // Run an editor command from the palette. The caret lives in the editor, so
+  // the Reader switches to it first, as "replace" does above. EDIT-01.
+  const runEditorCommand = useCallback((id: TextCommandId | FoldCommandId) => {
+    const send = () => window.dispatchEvent(new CustomEvent(EDITOR_COMMAND_EVENT, { detail: { id } }));
+    if (mode === "preview") {
+      setMode("code");
+      setTimeout(send, 0);
+    } else send();
   }, [mode, setMode]);
 
   // Build the command palette item list. Rebuilds on relevant state changes —
@@ -1670,7 +1768,7 @@ function AppContent() {
         { id: "view.zoomOut", label: "Zoom out", hint: formatShortcut("zoomOut"), section: "View", icon: "zoom_out", keywords: "smaller text size", run: () => zoomBy(-1) },
         { id: "view.zoomReset", label: "Reset zoom", hint: formatShortcut("zoomReset"), section: "View", icon: "search", keywords: "100% actual size text", run: resetZoom },
       );
-      items.push({
+      if (!isHtmlDoc) items.push({
         id: "edit.reader",
         label: "Edit in place (Reader)",
         section: "View",
@@ -1682,6 +1780,24 @@ function AppContent() {
           window.setTimeout(() => window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")), 50);
         },
       });
+      items.push({ id: "file.history", label: "File history", section: "File", icon: "history", keywords: "versions restore previous backup recover timeline undo", run: openFileHistory });
+      if (!isHtmlDoc) items.push(
+        { id: "file.copyRich", label: "Copy document as rich text", section: "File", icon: "content_copy", keywords: "word gmail docs paste formatted clipboard", run: () => void handleCopyDocument("rich") },
+        { id: "file.copyHtml", label: "Copy document as HTML", section: "File", icon: "code", keywords: "source markup clipboard", run: () => void handleCopyDocument("html") },
+      );
+      items.push(
+        { id: "edit.sortAsc", label: "Sort lines A to Z", section: "Edit", icon: "sort_by_alpha", keywords: "sort ascending order", run: () => runEditorCommand("sortAsc") },
+        { id: "edit.sortDesc", label: "Sort lines Z to A", section: "Edit", icon: "sort_by_alpha", keywords: "sort descending reverse order", run: () => runEditorCommand("sortDesc") },
+        { id: "edit.sortUnique", label: "Sort lines and remove duplicates", section: "Edit", icon: "filter_list", keywords: "unique dedupe", run: () => runEditorCommand("sortUnique") },
+        { id: "edit.upper", label: "Change to UPPERCASE", section: "Edit", icon: "match_case", keywords: "transform case capital", run: () => runEditorCommand("upper") },
+        { id: "edit.lower", label: "Change to lowercase", section: "Edit", icon: "match_case", keywords: "transform case small", run: () => runEditorCommand("lower") },
+        { id: "edit.title", label: "Change to Title Case", section: "Edit", icon: "match_case", keywords: "transform case capitalize", run: () => runEditorCommand("title") },
+        { id: "edit.date", label: "Insert today's date", section: "Edit", icon: "today", keywords: "date now timestamp", run: () => runEditorCommand("date") },
+        { id: "edit.datetime", label: "Insert date and time", section: "Edit", icon: "schedule", keywords: "time now timestamp", run: () => runEditorCommand("datetime") },
+        { id: "edit.toc", label: "Insert or update table of contents", section: "Edit", icon: "toc", keywords: "toc headings contents index", run: () => runEditorCommand("toc") },
+        { id: "edit.foldAll", label: "Fold all", section: "Edit", icon: "unfold_less", keywords: "collapse sections headings", run: () => runEditorCommand("foldAll") },
+        { id: "edit.unfoldAll", label: "Unfold all", section: "Edit", icon: "unfold_more", keywords: "expand sections headings", run: () => runEditorCommand("unfoldAll") },
+      );
       items.push({
         id: "view.split",
         label: "Toggle Split view",
@@ -1871,6 +1987,21 @@ function AppContent() {
       run: handleOpenTutorial,
     });
 
+    // === Recent folders ===
+    if (!IS_MOBILE) {
+      for (const directory of getRecentFolders()) {
+        items.push({
+          id: `recentFolder.${directory}`,
+          label: directory.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || directory,
+          hint: directory,
+          section: "Recent folders",
+          icon: "folder",
+          keywords: `open folder workspace ${directory}`,
+          run: () => void openRecentFolder(directory),
+        });
+      }
+    }
+
     // === Recent files ===
     const recents = getRecentFiles();
     for (const r of recents) {
@@ -1895,7 +2026,7 @@ function AppContent() {
     // separate hook that's gated on the palette actually being open.
     handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
-    loadFile, filePath, hasFile, showToast, closeTab, handlePrint,
+    loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand, handleCopyDocument, openFileHistory, openRecentFolder,
     typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
     theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
   ]);
@@ -2042,6 +2173,8 @@ function AppContent() {
             onOpenRecent={loadFile}
             onNewFile={handleNewFile}
             getExportHtml={getExportHtml}
+            canExport={!isHtmlDoc}
+            onCopyDocument={handleCopyDocument}
             onExportSuccess={handleExportSuccess}
             onExportError={handleExportError}
             onToggleAI={aiEnabled ? handleToggleAI : undefined}
@@ -2080,6 +2213,7 @@ function AppContent() {
                   { id: "find", label: "Find", icon: "search", onSelect: openFind },
                   { id: "replace", label: "Find and replace", icon: "find_replace", onSelect: openReplace },
                   { id: "stats", label: "Document statistics", icon: "analytics", onSelect: () => setShowStats(true) },
+                  { id: "history", label: "File history", icon: "history", onSelect: openFileHistory },
                   // The AI panel's touch entry point (there is no nav button
                   // for it; the master switch lives in Settings → AI).
                   ...(aiEnabled
@@ -2162,6 +2296,7 @@ function AppContent() {
               onOpenSettings={() => setShowSettings(true)}
               onFileDrop={handleFileDrop}
               onOpenRecent={loadFile}
+              onOpenRecentFolder={IS_MOBILE ? undefined : (path) => void openRecentFolder(path)}
             />
           </div>
         )
@@ -2235,8 +2370,9 @@ function AppContent() {
                 // Ctrl+B, no menu row) so it is always on and cannot be hidden.
                 showToolbar={IS_MOBILE || toolbarVisible}
                 wordWrap={wordWrapEnabled}
+                folding={codeFoldingEnabled && !IS_MOBILE}
                 spellCheck={spellCheckEnabled}
-                livePreview={livePreviewEnabled}
+                livePreview={livePreviewEnabled && !isHtmlDoc}
                 vimMode={vimModeEnabled}
                 readableLineLength={readableLineLength}
                 textDirection={textDirection}
@@ -2267,6 +2403,13 @@ function AppContent() {
                   has a background; a brief flash on first render is
                   preferable to a spinner that pre-empts the layout. */}
               <Suspense fallback={null}>
+                {isHtmlDoc ? (
+                  <HtmlPreview
+                    content={mode === "preview" ? content : deferredContent}
+                    fileName={fileName || ""}
+                    filePath={filePath}
+                  />
+                ) : (
                 <MarkdownPreview
                   content={mode === "preview" ? content : deferredContent}
                   liveContent={mode === "preview" ? content : undefined}
@@ -2288,6 +2431,7 @@ function AppContent() {
                   onRendered={handlePreviewRendered}
                   onReaderSelection={handleReaderSelection}
                 />
+                )}
               </Suspense>
 
               {/* Reader-mode find. The same FindBar as the editor, driven by a
@@ -2307,6 +2451,19 @@ function AppContent() {
               nav carries the Read/Edit toggle. Zen hides it on both shells. */}
           {!IS_MOBILE && !zenActive && (
             <ModeToggle mode={mode} onSetMode={setMode} rightPanelWidth={rightPanelWidth} />
+          )}
+
+          {historyTarget && (
+            <Suspense fallback={null}>
+              <FileHistoryDialog
+                isOpen
+                path={historyTarget.path}
+                fileName={historyTarget.fileName}
+                current={content}
+                onRestore={handleRestoreVersion}
+                onClose={() => setHistoryTarget(null)}
+              />
+            </Suspense>
           )}
 
           {/* Sidebar Panels — only mount when actually open so they don't

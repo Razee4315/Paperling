@@ -60,6 +60,7 @@ export const BINDINGS = {
     zoomIn: { key: "=", mod: true },
     zoomOut: { key: "-", mod: true },
     zoomReset: { key: "0", mod: true },
+    toggleWordWrap: { key: "z", alt: true },
     cheatsheet: { key: "?" },
 
     // Tab cycling — literal Ctrl on ALL platforms (⌘Tab is the OS app-switcher).
@@ -73,6 +74,8 @@ export const BINDINGS = {
     // Editor (CodeMirror owns these via toCmKey; find/replace also drive the bar)
     bold: { key: "b", mod: true },
     italic: { key: "i", mod: true },
+    strikethrough: { key: "x", mod: true, shift: true },
+    inlineCode: { key: "`", mod: true },
     link: { key: "k", mod: true },
     blockquote: { key: "/", mod: true },
     find: { key: "f", mod: true },
@@ -236,7 +239,10 @@ export function matchesBinding(e: KeyboardEvent, id: BindingId): boolean {
 
 /** Match a single combo. `matchesBinding` layers the aliases on top of this. */
 function matchesOne(e: KeyboardEvent, b: Binding): boolean {
-    if (e.key.toLowerCase() !== b.key.toLowerCase()) return false;
+    // ⌥ on macOS turns a letter into a symbol (⌥Z reports "Ω"), so an Alt combo
+    // there matches on the physical key instead.
+    const macAltLetter = isMac && !!b.alt && /^[a-z]$/i.test(b.key) && e.code === `Key${b.key.toUpperCase()}`;
+    if (e.key.toLowerCase() !== b.key.toLowerCase() && !macAltLetter) return false;
 
     // Primary/secondary modifier resolution.
     const secondaryDown = isMac ? e.ctrlKey : e.metaKey;

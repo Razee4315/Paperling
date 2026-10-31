@@ -97,7 +97,7 @@ function persist() {
 const norm = (p: string) => p.replace(/\//g, "\\");
 const baseName = (p: string) => norm(p).split("\\").pop() ?? p;
 const dirName = (p: string) => { const n = norm(p); return n.slice(0, n.lastIndexOf("\\")); };
-const isNote = (p: string) => /\.(md|markdown|txt|text)$/i.test(p);
+const isNote = (p: string) => /\.(md|markdown|txt|text|html|htm)$/i.test(p);
 const find = (p: string) => {
     const k = Object.keys(disk).find((x) => x.toLowerCase() === norm(p).toLowerCase());
     return k;

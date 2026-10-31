@@ -1,7 +1,8 @@
 import { useEffect, type RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribeExternalChecks, type ExternalCheckTrigger } from "../utils/externalCheck";
-import { idleWriteToken } from "../utils/fileIO";
+import { decideDiskChange } from "../utils/diskGuard";
+import { idleWriteToken, readTextFile } from "../utils/fileIO";
 
 export interface UseExternalChangeWatcherOptions {
   /** Path of the open file, or null. Read live via ref (listener mounts once). */
@@ -62,13 +63,29 @@ export function useExternalChangeWatcher({
         const info = await invoke<{ modified: number }>("get_file_info", { path });
         if (idleWriteToken() !== writeToken) return;
         const known = knownMtimeRef.current ?? 0;
-        if (known > 0 && info.modified > known) {
-          // Update first so a failed/declined reload doesn't re-toast forever.
-          knownMtimeRef.current = info.modified;
-          if (contentRef.current === originalContentRef.current) {
-            if ((await reload(path)) === false) onConflict();
-            else onReloaded(trigger);
-          } else {
+        const decision = decideDiskChange(known, info?.modified ?? 0);
+        if (decision.kind === "unchanged") return;
+        // A file reporting NO mtime at all can't be re-anchored here — every
+        // tick would re-read it. The pre-write guard (EXT-10) covers it at
+        // save time, so the watcher only handles a usable on-disk mtime.
+        if (decision.kind === "compare" && !(info.modified > 0)) return;
+        // Update first so a failed/declined reload doesn't re-toast forever.
+        // Adopting a mtime that just came back usable also re-arms ordinary
+        // mtime detection from now on. EXT-10.
+        knownMtimeRef.current = info.modified;
+        if (contentRef.current === originalContentRef.current) {
+          if ((await reload(path)) === false) onConflict();
+          else onReloaded(trigger);
+        } else if (decision.kind === "changed") {
+          onConflict();
+        } else {
+          // mtime couldn't decide (our baseline was unusable): the on-disk
+          // mtime may simply have been missing all along, so confirm the
+          // change by content before raising the dialog. The write would be
+          // guarded anyway (EXT-10), but detecting at focus time matches how
+          // every other external change is surfaced.
+          const disk = await readTextFile<{ content: string }>(path).catch(() => null);
+          if (disk !== null && typeof disk.content === "string" && disk.content !== originalContentRef.current) {
             onConflict();
           }
         }

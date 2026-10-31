@@ -11,6 +11,11 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 ## [Unreleased]
 
+- **Open HTML files.** `.html` pages open rendered with their own styles, in a locked-down view where scripts can't run (#295).
+- **File history.** Paperling keeps earlier versions of your files on this computer, with a diff and one-click restore. Find it in the command palette.
+- **Fold** headings, lists and code blocks. **Emoji shortcodes** like `:rocket:` render and autocomplete. **Tables of contents** with `[TOC]` or a palette command.
+- **Wide code blocks** use the free space beside the reading column instead of being cut off (#294).
+- **Also new:** copy as rich text or HTML, sort lines, change case, insert the date, a filter in the Files panel, recent folders, and custom CSS.
 - **Notes refresh on their own.** A note changed by another program (a terminal, a sync tool, an agent) updates within a couple of seconds while Paperling is on screen, not only when you click back into it (#263).
 - **Drag tabs on macOS** to reorder them; Move left / Move right are in the tab menu everywhere (#263).
 - **Images refresh** when the file changes on disk (#266), and **copying from Reader** no longer pastes icon names like "link" (#267).

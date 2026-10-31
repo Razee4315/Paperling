@@ -89,11 +89,15 @@ Dark, Light, Paper, and Dracula.
 - **Lists and tasks from the keyboard** — Tab / Shift+Tab nest items, numbered lists renumber, Ctrl+Enter ticks a task
 - **Right-to-left languages** — Arabic, Hebrew, Persian and Urdu lines read right-to-left automatically; Ctrl+Right Shift / Ctrl+Left Shift switch the direction
 - **Smart paste** — URL → link, rich HTML → markdown, TSV → GFM table
+- **Folding** — collapse headings, lists and code blocks from the gutter or Ctrl+Shift+[ / ]
+- **Text commands** — sort lines, change case, and insert the date, from the palette or the slash menu
+- **Table of contents** — insert one that stays linked and refreshes, or write `[TOC]`
+- **Emoji** — `:rocket:` renders, and typing `:roc` offers matches
 
 ### <img src="images/art/icon-flask.png" width="26" alt=""> Preview
 
 - **GitHub Flavored Markdown** with task lists, tables, strikethrough
-- **Code blocks** with syntax highlighting and one-click copy
+- **Code blocks** with syntax highlighting and one-click copy; wide ones grow past the reading column
 - **Math** via KaTeX (`$inline$`, `$$block$$`) — loaded only when needed
 - **Chemistry** via mhchem — `$\ce{2 H2 + O2 -> 2 H2O}$`, ions, isotopes, Kröger-Vink defects
 - **Mermaid diagrams** (` ```mermaid `) — flowcharts, sequence, class, state, gantt, ER, mindmaps; zoom, pan, fullscreen, copy as PNG, save as SVG
@@ -125,9 +129,12 @@ Dark, Light, Paper, and Dracula.
 - **Auto-save** (optional, debounced) with status indicator
 - **External-change detection** — reload or keep your version when the file changes outside the app; Paperling never silently overwrites newer work
 - **Crash-safe** — unsaved changes, even in never-saved notes, come back after a crash or force-quit
+- **File history** — earlier versions of each file, kept locally for 30 days, with a diff and one-click restore
+- **HTML files** — open `.html` pages rendered with their own styles, in a sandbox where scripts can't run
+- **Copy as rich text or HTML** — paste a whole document into Word, Gmail or Google Docs with its formatting
 - **Recent files** on the welcome screen — missing files marked
 - **Restore last opened file** on launch
-- **File Explorer** with folder navigation, new note / new folder, rename (F2) and move to trash
+- **File Explorer** with folder navigation, a filter, recent folders, new note / new folder, rename (F2) and move to trash
 - **Custom keyboard shortcuts** — rebind any command in Settings → Shortcuts
 - **Outline pane** that follows the cursor
 - **Backlinks panel** showing which notes in the current folder link to the open file
@@ -137,6 +144,7 @@ Dark, Light, Paper, and Dracula.
 - **Seven themes** — Dark, Graphite, Nord, Midnight, Light, Paper, Dracula — with an adjustable accent color
 - **Five bundled fonts plus custom system fonts** — Inter, Merriweather, Lora, Source Serif, Fira Sans, or a locally installed family
 - **Four font sizes** and an optional **readable line length** column
+- **Custom CSS** — add your own styles in Settings
 - **WCAG-friendly** — visible focus rings, `prefers-reduced-motion` respected
 
 ### <img src="images/art/icon-bolt.png" width="26" alt=""> Platform

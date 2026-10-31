@@ -32,8 +32,10 @@ struct CliFile(Mutex<LaunchFile>);
 /// Markdown under its common extensions, compared case-insensitively. A
 /// double-clicked `README.MD` (common on Windows) used to be ignored, so the
 /// app opened the last session instead of the file. BOOT-04. Plain `.txt` is
-/// deliberately absent: Paperling is not registered for it.
-const LAUNCH_EXTENSIONS: [&str; 5] = ["md", "markdown", "mdown", "mkd", "mdx"];
+/// deliberately absent: Paperling is not registered for it. HTML is here for
+/// "Open with", though not in fileAssociations: Paperling must not compete with
+/// the browser as the default app for web pages (#295).
+const LAUNCH_EXTENSIONS: [&str; 7] = ["md", "markdown", "mdown", "mkd", "mdx", "html", "htm"];
 
 fn is_markdown(path: &str) -> bool {
     std::path::Path::new(path)
