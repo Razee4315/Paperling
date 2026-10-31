@@ -23,13 +23,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         # Caching is an optimization — a flaky GitHub cache service must never
         # fail the build (mirrors ci.yml / release.yml).
         continue-on-error: true
@@ -38,9 +38,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: "1.4.0"
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -60,7 +60,7 @@ jobs:
           -OutFile "dist/Paperling-portable-test.zip"
 
       - name: Upload installers as run artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: paperling-windows-x64-test
           path: |
@@ -78,24 +78,24 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust (with Intel cross-compile target)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: x86_64-apple-darwin
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         continue-on-error: true
         with:
           workspaces: './src-tauri -> target'
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: "1.4.0"
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -107,7 +107,7 @@ jobs:
         run: bun run tauri build --target universal-apple-darwin
 
       - name: Upload macOS bundle as run artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: paperling-macos-universal-test
           path: |

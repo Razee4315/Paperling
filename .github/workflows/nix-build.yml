@@ -28,13 +28,18 @@ concurrency:
   group: nix-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
+# Build-only workflow: the flake build publishes nothing, so the job gets a
+# read-only token even if the repo default is ever loosened.
+permissions:
+  contents: read
+
 jobs:
   nix-build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@d9186cbdca7adedf113a159fa91f725a27866771 # v31
         with:
           nix_path: nixpkgs=channel:nixpkgs-unstable
 

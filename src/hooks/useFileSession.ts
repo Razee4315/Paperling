@@ -8,6 +8,7 @@ import type { ToastType } from "./useToast";
 import { useAutosave } from "./useAutosave";
 import { useExternalChangeWatcher } from "./useExternalChangeWatcher";
 import { subscribeExternalChecks, type ExternalCheckTrigger } from "../utils/externalCheck";
+import { decideDiskChange } from "../utils/diskGuard";
 import { IS_MOBILE } from "../utils/platform";
 import { errMessage } from "../utils/errors";
 import { DOWNLOADS_SENTINEL, saveToDownloads } from "../utils/nativePicker";
@@ -171,6 +172,14 @@ export function useFileSession({
   // Maps path → the on-disk mtime seen when it was parked, so "Keep mine" can
   // absorb exactly that change (EXT-04/05).
   const parkedAutosavePathsRef = useRef<Map<string, number>>(new Map());
+  // One-shot "keep mine" records for files whose mtime never comes back usable
+  // (EXT-10): after the user resolves a content-compared conflict with
+  // "keep mine", the next write to that path is granted without re-asking
+  // (with a real mtime EXT-04's absorb does this; an unusable mtime can't be
+  // absorbed, so the grant is tracked here instead). The entry is consumed by
+  // the next granted write, so a LATER external change asks again — the same
+  // behavior a usable mtime gives.
+  const keepMineMtimelessRef = useRef<Set<string>>(new Set());
   // Latest content + originalContent are read via refs inside `loadFile` so
   // its identity stays stable across keystrokes. Without this, every typed
   // character would change `loadFile`'s reference and churn its listeners.
@@ -716,15 +725,35 @@ export function useFileSession({
     }
   }, [loadFile]);
 
-  // The on-disk mtime of `path` when it is NEWER than what the active buffer
-  // last read or wrote, else null (unchanged, untracked, or stat failed — the
-  // write itself then surfaces real errors). Shared pre-write guard for the
-  // active tab's manual save and autosave. EXT-06.
+  // The on-disk state of `path` relative to what the active buffer last read
+  // or wrote: null (unchanged / safe to write), or the on-disk mtime that
+  // raised the conflict. Shared pre-write guard for the active tab's manual
+  // save and autosave. EXT-06.
+  //
+  // When mtime can't decide (a 0 on either side — pre-epoch stamps, some
+  // network/FAT filesystems), the decision falls back to comparing the file's
+  // current content with the content the buffer believes is on disk, so an
+  // external edit is never overwritten without the conflict dialog. EXT-10.
+  // A read failure on the fallback leaves the write to surface real errors,
+  // exactly as the stat-failure path always has.
   const diskChangedSince = useCallback(async (path: string): Promise<number | null> => {
     try {
       const info = await invoke<{ modified: number }>("get_file_info", { path });
-      const known = knownMtimeRef.current;
-      return known > 0 && typeof info?.modified === "number" && info.modified > known ? info.modified : null;
+      const decision = decideDiskChange(knownMtimeRef.current, info?.modified ?? 0);
+      if (decision.kind === "unchanged") return null;
+      if (decision.kind === "changed") return decision.diskMtime;
+      const original = originalContentRef.current;
+      if (typeof original !== "string") return null;
+      if (keepMineMtimelessRef.current.has(pathKey(path))) {
+        // The user already chose "keep mine" for this mtime-less file; this
+        // write is the one they consented to. Consumed here so a later
+        // external change asks again.
+        keepMineMtimelessRef.current.delete(pathKey(path));
+        return null;
+      }
+      const disk = await readTextFile<{ content: string }>(path).catch(() => null);
+      if (disk === null || typeof disk.content !== "string") return null;
+      return disk.content === original ? null : (info?.modified ?? 0);
     } catch {
       return null;
     }
@@ -873,8 +902,12 @@ export function useFileSession({
     if (path) parkedAutosavePathsRef.current.delete(path);
     // Absorb the disk change the user just chose to overwrite; otherwise the
     // pre-write guard would see it again and re-raise the dialog. EXT-04.
+    // A conflict raised by the EXT-10 content fallback can carry diskMtime 0
+    // (the file reports no usable mtime) — there is nothing to absorb, so the
+    // next write gets a one-shot grant instead of re-asking.
     const diskMtime = conflictPromptRef.current?.diskMtime;
     if (diskMtime !== undefined && diskMtime > knownMtimeRef.current) knownMtimeRef.current = diskMtime;
+    else if (diskMtime !== undefined && diskMtime <= 0 && path) keepMineMtimelessRef.current.add(pathKey(path));
     setConflictPrompt(null);
   }, [setConflictPrompt]);
   const handleConflictLoadFromDisk = useCallback(() => {
@@ -965,7 +998,8 @@ export function useFileSession({
         if (parkedAutosavePathsRef.current.has(path)) continue;
         try {
           const info = await invoke<{ modified: number }>("get_file_info", { path });
-          if (tab.knownMtime > 0 && info.modified > tab.knownMtime) {
+          const decision = decideDiskChange(tab.knownMtime, info?.modified ?? 0);
+          if (decision.kind === "changed") {
             const alreadyParked = parkedAutosavePathsRef.current.has(path);
             parkedAutosavePathsRef.current.set(path, info.modified);
             if (!alreadyParked) {
@@ -975,6 +1009,29 @@ export function useFileSession({
               );
             }
             continue;
+          }
+          if (decision.kind === "compare") {
+            // mtime can't decide for this file (EXT-10): compare content. A
+            // one-shot "keep mine" grant stands for this write; otherwise a
+            // disk version that differs from what the tab believes is on disk
+            // parks the autosave exactly like a detected mtime change.
+            const key = pathKey(path);
+            if (keepMineMtimelessRef.current.has(key)) {
+              keepMineMtimelessRef.current.delete(key);
+            } else {
+              const disk = await readTextFile<{ content: string }>(path).catch(() => null);
+              if (disk !== null && typeof disk.content === "string" && disk.content !== tab.originalContent) {
+                const alreadyParked = parkedAutosavePathsRef.current.has(path);
+                parkedAutosavePathsRef.current.set(path, info?.modified ?? 0);
+                if (!alreadyParked) {
+                  showToast(
+                    `"${tab.fileName}" changed on disk in a background tab. Its autosave is paused until you review the changes.`,
+                    "error",
+                  );
+                }
+                continue;
+              }
+            }
           }
           const mtime = await saveTextFile(path, tab.content);
           // Only mark saved if the snapshot still holds exactly what we wrote.
@@ -1015,8 +1072,16 @@ export function useFileSession({
           // an earlier stat in this pass was in flight.
           const latest = tabsRef.current.find((current) => current.id === tab.id);
           if (!latest || latest.id === activeTabIdRef.current || latest.filePath !== tab.filePath) continue;
-          if (!(latest.knownMtime > 0 && info.modified > latest.knownMtime)) continue;
+          const decision = decideDiskChange(latest.knownMtime, info.modified);
+          if (decision.kind === "unchanged") continue;
+          // A file that reports NO mtime at all can't be re-anchored here:
+          // refreshing or comparing it on every tick would just re-read it
+          // forever. The pre-write guard (EXT-10) covers it at save time.
+          if (decision.kind === "compare" && !(info.modified > 0)) continue;
           if (latest.content === latest.originalContent) {
+            // Clean: refresh from disk. Identical content makes this a cheap
+            // re-read that also re-anchors a lost mtime; different content
+            // shows the newer version. EXT-10 covers the mtime-less case.
             const fileData = await readTextFile<FileData>(tab.filePath!);
             commitTabs(
               tabsRef.current.map((current) =>
@@ -1031,16 +1096,27 @@ export function useFileSession({
                   : current,
               ),
             );
-          } else if (!parkedAutosavePathsRef.current.has(tab.filePath!)) {
-            // Park — do NOT absorb the new mtime into the snapshot. Absorbing
-            // it made the background-autosave guard see "nothing new" and
-            // overwrite the very change this branch just warned about.
-            // Switching to the tab raises the conflict dialog. EXT-05.
-            parkedAutosavePathsRef.current.set(tab.filePath!, info.modified);
-            showToast(
-              `"${tab.fileName}" changed on disk in a background tab. Its autosave is paused until you review the changes.`,
-              "error",
-            );
+          } else {
+            // Dirty. With a usable mtime the stat itself proves a change;
+            // otherwise compare the disk content against what the tab believes
+            // is on disk — only a real difference parks the autosave. EXT-10.
+            let changed = decision.kind === "changed";
+            if (!changed) {
+              const disk = await readTextFile<{ content: string }>(tab.filePath!).catch(() => null);
+              changed = disk !== null && typeof disk.content === "string" && disk.content !== latest.originalContent;
+            }
+            if (!changed) continue;
+            if (!parkedAutosavePathsRef.current.has(tab.filePath!)) {
+              // Park — do NOT absorb the new mtime into the snapshot. Absorbing
+              // it made the background-autosave guard see "nothing new" and
+              // overwrite the very change this branch just warned about.
+              // Switching to the tab raises the conflict dialog. EXT-05.
+              parkedAutosavePathsRef.current.set(tab.filePath!, info.modified);
+              showToast(
+                `"${tab.fileName}" changed on disk in a background tab. Its autosave is paused until you review the changes.`,
+                "error",
+              );
+            }
           }
         } catch {
           // Missing files and stat failures are surfaced when the tab is saved.

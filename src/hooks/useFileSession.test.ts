@@ -196,6 +196,50 @@ describe("useFileSession", () => {
     expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/b.md", content: "my bravo edits" });
   });
 
+  it("a save on a file that never reports mtime compares content instead of writing blind (EXT-10)", async () => {
+    // FAT/network-style filesystem: the file's mtime comes back 0 from open,
+    // stat AND save. The mtime guard can't decide, so the pre-write check
+    // reads the file: identical content writes, an external edit raises the
+    // conflict, and Keep-mine grants exactly one write.
+    let externalChanged = false;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "read_file" && args?.path === "C:/m.md") {
+        return Promise.resolve({
+          path: "C:/m.md",
+          name: "m.md",
+          content: externalChanged ? "external" : "base",
+          size: 4,
+          line_count: 1,
+          modified: 0,
+        });
+      }
+      if (command === "get_file_info") return Promise.resolve({ modified: 0 });
+      if (command === "save_file") return Promise.resolve(0); // even saves can't report mtime
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/m.md"));
+    act(() => result.current.setContent("my edits"));
+
+    // No external change: the content comparison passes and the write lands.
+    await act(() => result.current.handleSaveFile());
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/m.md", content: "my edits" });
+
+    // An external edit on the mtime-less file must NOT be silently
+    // overwritten by the next save — the exact hole EXT-10 closed.
+    externalChanged = true;
+    act(() => result.current.setContent("my edits v2"));
+    await act(() => result.current.handleSaveFile());
+    expect(result.current.conflictPrompt?.fileName).toBe("m.md");
+    expect(invoke).not.toHaveBeenCalledWith("save_file", { path: "C:/m.md", content: "my edits v2" });
+
+    // Keep mine on an mtime-less file grants one write; a later external
+    // change would ask again (the grant is consumed, not permanent).
+    act(() => result.current.handleConflictKeepMine());
+    await act(() => result.current.handleSaveFile());
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/m.md", content: "my edits v2" });
+  });
+
   it("an external reload keeps what the user typed while the file was being read (EXT-09)", async () => {
     let releaseRead: (() => void) | null = null;
     let diskMtime = 10;

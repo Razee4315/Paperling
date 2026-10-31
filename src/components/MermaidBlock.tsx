@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, memo } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../context/ThemeContext";
 import { copyDiagramAsPng, saveDiagramSvg } from "../utils/diagramExport";
+import { sanitizeDiagramSvg } from "../utils/diagramSanitize";
+import { getRemoteImages } from "../utils/persistence";
 
 // Single shared mermaid module promise — loaded only on first use.
 let mermaidPromise: Promise<typeof import("mermaid")["default"]> | null = null;
@@ -86,7 +88,7 @@ async function renderPlainSvg(code: string, theme: string): Promise<string> {
     const base = { startOnLoad: false, securityLevel: "strict" as const, theme: themeToMermaid(theme), fontFamily: "var(--font-body)" };
     mermaid.initialize({ ...base, htmlLabels: false, flowchart: { htmlLabels: false } });
     try {
-        return (await mermaid.render(id, code)).svg;
+        return sanitizeDiagramSvg((await mermaid.render(id, code)).svg);
     } finally {
         removeRenderLeftovers(id);
         mermaid.initialize({ ...base, htmlLabels: true, flowchart: { htmlLabels: true } });
@@ -304,7 +306,8 @@ function MermaidView({
         >
             {toolbar}
             <div className={`mermaid-sizer mx-auto ${contain ? "my-auto" : ""}`} style={{ width }}>
-                {/* mermaid output is from our own module (securityLevel: strict) — safe to inject as HTML */}
+                {/* mermaid output is double-sanitized: strict mode at render,
+                    then a DOMPurify pass (MMV-08) before it reaches this DOM */}
                 <div
                     className="mermaid-rendered flex justify-center"
                     dangerouslySetInnerHTML={{ __html: svg }}
@@ -322,10 +325,24 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
     const [svg, setSvg] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [fullscreen, setFullscreen] = useState(false);
+    // Diagrams honor the same "Load remote images" consent as document images
+    // (AI-10): a malicious diagram embedding an https image must not beacon
+    // on render when the user turned remote images off.
+    const [remoteAllowed, setRemoteAllowed] = useState(getRemoteImages);
+    useEffect(() => {
+        const onToggle = () => setRemoteAllowed(getRemoteImages());
+        window.addEventListener("paperling:remote-images-toggle", onToggle);
+        return () => window.removeEventListener("paperling:remote-images-toggle", onToggle);
+    }, []);
     const fsCloseRef = useRef<HTMLButtonElement>(null);
     // Focus returns here (the diagram's wrapper) when fullscreen closes.
     const fsTriggerRef = useRef<HTMLDivElement>(null);
     const idRef = useRef<string>(newMermaidId());
+
+    // The cache holds the structurally-sanitized render; the consent gate is
+    // applied when SERVING, so flipping the setting re-gates an already-cached
+    // diagram without re-rendering it.
+    const gateForDisplay = (raw: string) => (remoteAllowed ? raw : sanitizeDiagramSvg(raw, { allowRemoteImages: false }));
 
     useEffect(() => {
         let cancelled = false;
@@ -336,7 +353,7 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
         const cacheKey = `${mermaidTheme}\u0000${code}`;
         const cached = svgCache.get(cacheKey);
         if (cached !== undefined) {
-            setSvg(rekeySvg(cached.svg, cached.id, idRef.current));
+            setSvg(gateForDisplay(rekeySvg(cached.svg, cached.id, idRef.current)));
             return;
         }
         // A fresh id per ATTEMPT: after a failed render mermaid can leave an
@@ -362,12 +379,16 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
             })
             .then((result) => {
                 if (cancelled) return;
-                svgCache.set(cacheKey, { svg: result.svg, id: renderId });
+                // Second sanitize pass (MMV-08): mermaid's strict mode is the
+                // primary defense; this keeps a future strict-mode escape from
+                // reaching the DOM, the PNG/SVG exports, or the cache.
+                const svg = sanitizeDiagramSvg(result.svg);
+                svgCache.set(cacheKey, { svg, id: renderId });
                 if (svgCache.size > SVG_CACHE_CAP) {
                     const oldest = svgCache.keys().next().value;
                     if (oldest !== undefined) svgCache.delete(oldest);
                 }
-                setSvg(result.svg);
+                setSvg(gateForDisplay(svg));
             })
             .catch((err: unknown) => {
                 removeRenderLeftovers(renderId);
@@ -376,7 +397,7 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
                 setError(msg);
             });
         return () => { cancelled = true; };
-    }, [code, theme]);
+    }, [code, theme, remoteAllowed]);
 
     // Fullscreen lifecycle: Escape exits, focus moves to the close button and
     // back to the trigger on close.
