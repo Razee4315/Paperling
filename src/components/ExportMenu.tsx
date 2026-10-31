@@ -21,11 +21,13 @@ interface ExportMenuProps {
     getExportHtml?: () => Promise<string>;
     onSuccess?: (format: string) => void;
     onError?: (format: string) => void;
+    /** Copy the rendered document: rich text, or its HTML source. COPY-02. */
+    onCopy?: (kind: "rich" | "html") => void;
 }
 
 type ExportFormat = 'html' | 'pdf' | 'docx';
 
-export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: ExportMenuProps) {
+export function ExportMenu({ fileName, getExportHtml, onSuccess, onError, onCopy }: ExportMenuProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const { theme, font, customFont, fontSize } = useTheme();
@@ -128,7 +130,7 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: Expo
 
             {/* Simple Dropdown Menu */}
             {isOpen && !disabled && (
-                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label="Export formats" className="absolute left-0 top-full mt-1 w-44 py-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-[70] animate-fade-in-down">
+                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label="Export formats" className="absolute left-0 top-full mt-1 w-48 py-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-[70] animate-fade-in-down">
                     <button
                         role="menuitem"
                         onClick={() => handleExport('html')}
@@ -153,6 +155,27 @@ export function ExportMenu({ fileName, getExportHtml, onSuccess, onError }: Expo
                         <span className="material-symbols-outlined text-[22px] w-6 text-center text-[var(--accent)]" aria-hidden="true">description</span>
                         <span>Word (.docx)</span>
                     </button>
+                    {onCopy && (
+                        <>
+                            <button
+                                role="menuitem"
+                                onClick={() => { setIsOpen(false); onCopy("rich"); }}
+                                title="Paste into Word, Gmail or Google Docs with the formatting intact"
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left border-t border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] transition-colors"
+                            >
+                                <span className="material-symbols-outlined text-[22px] w-6 text-center text-[var(--accent)]" aria-hidden="true">content_copy</span>
+                                <span>Copy as rich text</span>
+                            </button>
+                            <button
+                                role="menuitem"
+                                onClick={() => { setIsOpen(false); onCopy("html"); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--bg-hover)] transition-colors"
+                            >
+                                <span className="material-symbols-outlined text-[22px] w-6 text-center text-[var(--accent)]" aria-hidden="true">code</span>
+                                <span>Copy as HTML</span>
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
         </div>

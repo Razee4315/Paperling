@@ -21,6 +21,10 @@ import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
 import { wikilinkLabel } from "../utils/wikilinkAnchor";
 import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
 import { splitMarkdownBlocks } from "../utils/markdownBlocks";
+import { isUnsafeRelativePath } from "../utils/documentPaths";
+import { slugify } from "../utils/outline";
+import { isTocMarker, tocMarkdown } from "../utils/tableOfContents";
+import { hasEmojiShortcode, loadEmojiNames, rehypeEmoji, type EmojiNames } from "../utils/emoji";
 import { getRemoteImages, getReaderEditing } from "../utils/persistence";
 import { useReaderEditor } from "../hooks/useReaderEditor";
 import { matchesBinding } from "../config/keybindings";
@@ -226,6 +230,10 @@ function topSourceLine(container: HTMLElement): number | null {
     return sourceLineOf(blocks[ans]);
 }
 
+// .preview-column's px-8, both sides: the margin a wide code block keeps from
+// the pane's edges. RLL-02.
+const PREVIEW_GUTTERS_PX = 64;
+
 type PluginPair = { remark: unknown; rehype: unknown };
 let mathPluginsCache: PluginPair | null = null;
 let mathLoadPromise: Promise<PluginPair> | null = null;
@@ -281,19 +289,6 @@ interface MarkdownPreviewProps {
      *  line (null when cleared), so Ctrl+E can put the caret on it. MODE-03. */
     onReaderSelection?: (sel: { line: number; text: string } | null) => void;
 }
-
-/** Slugify heading text into a stable, URL-safe id (GitHub-style). Unicode
- *  letters/digits (CJK, Cyrillic, accented Latin) are kept so those headings
- *  get distinct anchors and in-document links can resolve — the old ASCII-only
- *  class collapsed every CJK heading to `section`, `section-1`, … (NAV-06). */
-const slugify = (text: string): string =>
-    text
-        .toLowerCase()
-        .trim()
-        .replace(/[^\p{L}\p{N}\s-]/gu, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "");
 
 /* ---------- Wikilink pre-processing (NAV-08) ---------- */
 
@@ -383,22 +378,6 @@ const getCachedLocalImageUrl = createLocalImageCache({
     createUrl: (blob) => URL.createObjectURL(blob),
     revokeUrl: (url) => URL.revokeObjectURL(url),
 });
-
-/**
- * Reject paths that would escape the markdown file's directory or name an
- * absolute location. The capabilities allow `**` reads, so we have to enforce
- * the boundary in code: a malicious .md must not be able to use
- * `![pwn](../../../etc/passwd)` to peek at arbitrary files.
- */
-function isUnsafeRelativePath(p: string): boolean {
-    if (!p) return true;
-    if (/\0/.test(p)) return true;
-    // Absolute paths: leading slash, leading backslash, or drive letter.
-    if (/^([a-zA-Z]:|\/|\\)/.test(p)) return true;
-    // Any segment that is exactly `..` (handles foo/../etc, ../etc, etc.).
-    const segments = p.split(/[/\\]+/);
-    return segments.some((seg) => seg === "..");
-}
 
 // Component to handle local image loading
 function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string; baseDir: string | null } & React.ImgHTMLAttributes<HTMLImageElement>) {
@@ -577,7 +556,8 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) 
     };
 
     return (
-        <div className="relative group">
+        <div className="code-block">
+        <div className="code-block-inner relative group">
             <button
                 type="button"
                 onClick={handleCopy}
@@ -590,6 +570,7 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) 
                 {copied ? "Copied!" : "Copy"}
             </button>
             <pre ref={ref} {...rest}>{children}</pre>
+        </div>
         </div>
     );
 }
@@ -835,6 +816,25 @@ const TableRenderer = ({ node, ...props }: React.HTMLAttributes<HTMLTableElement
 /** One independently rendered markdown block (PERF-02). Memoized on its text
  *  and the (stable) plugin/renderer sets, so an edit elsewhere in the document
  *  never re-parses it. */
+/** What a `[TOC]` paragraph renders. Context, so it follows heading edits in
+ *  other blocks without re-rendering the marker's whole block. */
+const TocContext = createContext<{ markdown: string; remarkPlugins: unknown[]; rehypePlugins: unknown[]; components: Record<string, unknown> } | null>(null);
+
+/**
+ * `[TOC]` swaps at the paragraph, not by rewriting the source text: the block
+ * must keep its line count, or data-source-line would point the Reader's
+ * in-place editing at the wrong lines. The list carries no line anchors, and
+ * <nav> is not a block Reader editing accepts. TOC-05.
+ */
+function TocBlock(props: React.HTMLAttributes<HTMLElement>) {
+    const toc = useContext(TocContext);
+    return (
+        <nav {...props} className="md-toc" aria-label="Table of contents">
+            {toc?.markdown && <MarkdownBlock text={toc.markdown} remarkPlugins={toc.remarkPlugins} rehypePlugins={toc.rehypePlugins} components={toc.components} />}
+        </nav>
+    );
+}
+
 const MarkdownBlock = memo(function MarkdownBlock({
     text,
     remarkPlugins,
@@ -1127,6 +1127,10 @@ function MarkdownPreviewImpl({
         // The li node is a real source node and always carries a position; the
         // checkbox <input> is SYNTHESIZED by remark-gfm and carries none, so the
         // line must come from here (PREVIEW-07).
+        p: ({ node, children, ...rest }: React.HTMLAttributes<HTMLParagraphElement> & { node?: unknown }) => {
+            void node;
+            return typeof children === "string" && isTocMarker(children) ? <TocBlock {...rest} /> : <p {...rest}>{children}</p>;
+        },
         li: ({ node, children, ...rest }: React.LiHTMLAttributes<HTMLLIElement> & { node?: { position?: { start?: { line?: number } } } }) => (
             <li {...rest}>
                 <TaskLineContext.Provider value={node?.position?.start?.line ?? null}>
@@ -1192,6 +1196,15 @@ function MarkdownPreviewImpl({
         return () => { cancelled = true; };
     }, [renderBody, mathPlugins]);
 
+    // Same for the emoji table, once a document looks like it has a :shortcode:.
+    const [emojiNames, setEmojiNames] = useState<EmojiNames | null>(null);
+    useEffect(() => {
+        if (emojiNames || !hasEmojiShortcode(renderBody)) return;
+        let cancelled = false;
+        loadEmojiNames().then((names) => { if (!cancelled) setEmojiNames(names); }).catch(() => { /* shortcodes stay as text */ });
+        return () => { cancelled = true; };
+    }, [renderBody, emojiNames]);
+
     // Order matters: GFM first (its tokenizer must own `~~strike~~` before
     // the supersub text pass sees single tildes), math next when active
     // (`$a~b$` becomes an inlineMath node the text-level plugins skip), then the
@@ -1208,8 +1221,10 @@ function MarkdownPreviewImpl({
         const base = mathPlugins
             ? [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], mathPlugins.rehype, [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds]
             : [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds];
+        // rehypeEmoji stays behind rehypeHeadingIds: see utils/emoji.ts.
+        if (emojiNames) base.push([rehypeEmoji, { names: emojiNames }]);
         return textDirection === "auto" ? [...base, rehypeBlockDirection] : base;
-    }, [mathPlugins, textDirection]);
+    }, [mathPlugins, textDirection, emojiNames]);
 
     // Render the heavy markdown tree from a deferred copy of the body, updated
     // inside a transition. A burst of edits (already coalesced by App's debounce)
@@ -1252,6 +1267,15 @@ function MarkdownPreviewImpl({
     // Top-level blocks of the body (null = render it whole, e.g. footnotes).
     // PERF-02.
     const blocks = useMemo(() => splitMarkdownBlocks(renderedBody), [renderedBody]);
+    const tocValue = useMemo(
+        () => ({
+            markdown: /\[toc\]/i.test(renderedBody) ? tocMarkdown(renderedBody) : "",
+            remarkPlugins,
+            rehypePlugins: emojiNames ? [[rehypeEmoji, { names: emojiNames }]] : [],
+            components,
+        }),
+        [renderedBody, remarkPlugins, components, emojiNames],
+    );
     useLayoutEffect(() => {
         mainRef.current?.querySelectorAll<HTMLElement>("[data-source-line]").forEach((element) => {
             if (readerEditing) element.setAttribute("tabindex", "0");
@@ -1319,11 +1343,19 @@ function MarkdownPreviewImpl({
     // resize) and whenever the rendered body changes height. ResizeObserver fires
     // on box-size changes; the renderedBody effect covers content growth (which
     // changes scrollHeight without changing the element's own box). PREVIEW-04.
+    // The same observer publishes the pane's usable width, the limit a wide code
+    // block may grow to past the reading column (.code-block-inner, RLL-02).
     useEffect(() => {
         refreshScrollMax();
         const el = mainRef.current;
         if (!el || typeof ResizeObserver === "undefined") return;
-        const ro = new ResizeObserver(refreshScrollMax);
+        const onResize = () => {
+            refreshScrollMax();
+            // Zero width: the pane is hidden (Code view), nothing to measure.
+            if (el.clientWidth > 0) el.style.setProperty("--preview-wide-max", `${el.clientWidth - PREVIEW_GUTTERS_PX}px`);
+        };
+        onResize();
+        const ro = new ResizeObserver(onResize);
         ro.observe(el);
         return () => ro.disconnect();
     }, [refreshScrollMax]);
@@ -1565,6 +1597,9 @@ function MarkdownPreviewImpl({
                     </form>}
                     {reader.notice && <span role="status">{reader.notice}</span>}
                 </div>}
+                {/* The horizontal last-resort clip lives here, at pane width, so a
+                    wide code block can leave the reading column. RLL-02. */}
+                <div className="preview-clip">
                 <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 pt-12 pb-28`}>
                     {hasFrontmatter && (
                         <FrontmatterCard
@@ -1608,6 +1643,7 @@ function MarkdownPreviewImpl({
                             if (tag) window.dispatchEvent(new CustomEvent("paperling:search", { detail: { query: `#${tag}` } }));
                         }}
                     >
+                        <TocContext.Provider value={tocValue}>
                         {blocks ? (
                             // Block-by-block (PERF-02): each wrapper is
                             // display:contents (no layout box) and carries the
@@ -1633,7 +1669,9 @@ function MarkdownPreviewImpl({
                                 />
                             </div>
                         )}
+                        </TocContext.Provider>
                     </div>
+                </div>
                 </div>
             </main>
 

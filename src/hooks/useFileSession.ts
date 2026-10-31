@@ -38,7 +38,7 @@ import {
 } from "../utils/tabsModel";
 import { loadBufferBackups, saveBufferBackups } from "../utils/bufferBackup";
 import { dirOf, joinPath, lastUsedDirectory, suggestFileName } from "../utils/saveName";
-import { DOCUMENT_EXTENSIONS } from "../utils/documentPaths";
+import { DOCUMENT_EXTENSIONS, isHtmlPath } from "../utils/documentPaths";
 
 interface FileData {
   path: string;
@@ -543,7 +543,11 @@ export function useFileSession({
     (defaultName: string | null, defaultDir?: string | null): Promise<string | null> => {
       if (promptSavePath) return promptSavePath(defaultName, defaultDir);
       return save({
-        filters: [{ name: "Markdown", extensions: ["md"] }],
+        // An HTML page keeps its type: a Markdown-only filter made Save As of
+        // page.html offer page.html.md. #295.
+        filters: isHtmlPath(defaultName)
+          ? [{ name: "HTML", extensions: ["html", "htm"] }]
+          : [{ name: "Markdown", extensions: ["md"] }],
         defaultPath: defaultName && defaultDir ? joinPath(defaultDir, defaultName) : defaultName ?? undefined,
       }).then((selected) => (typeof selected === "string" ? selected : null));
     },
@@ -713,7 +717,7 @@ export function useFileSession({
       // Plain-text files open too (rendered as markdown). TABS-11 / TXT-01.
       const selected = await open({
         multiple: true,
-        filters: [{ name: "Markdown & text", extensions: [...DOCUMENT_EXTENSIONS] }],
+        filters: [{ name: "Markdown, text & HTML", extensions: [...DOCUMENT_EXTENSIONS] }],
         // Start next to the open note (or the last one used), not wherever
         // the OS dialog was last. SAVE-05.
         defaultPath: dirOf(filePathRef.current) ?? lastUsedDirectory(getRecentFiles()) ?? undefined,

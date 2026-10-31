@@ -55,6 +55,18 @@ const safeSet = (key: string, value: unknown): void => {
     } catch {/* storage may be full / disabled */}
 };
 
+// Folders opened as a workspace, newest first. FILES-11.
+const KEY_RECENT_FOLDERS = "paperling:recentFolders";
+const MAX_RECENT_FOLDERS = 8;
+export const getRecentFolders = (): string[] => {
+    const list = safeGet<unknown>(KEY_RECENT_FOLDERS, []);
+    return Array.isArray(list) ? list.filter((p): p is string => typeof p === "string") : [];
+};
+export const addRecentFolder = (path: string): void =>
+    safeSet(KEY_RECENT_FOLDERS, [path, ...getRecentFolders().filter((p) => p !== path)].slice(0, MAX_RECENT_FOLDERS));
+export const removeRecentFolder = (path: string): void =>
+    safeSet(KEY_RECENT_FOLDERS, getRecentFolders().filter((p) => p !== path));
+
 export interface RecentFile {
     path: string;
     name: string;
@@ -169,6 +181,25 @@ export const getWordWrap = (): boolean => safeGet<boolean>(KEY_WORD_WRAP, true);
 export const setWordWrap = (v: boolean): void => safeSet(KEY_WORD_WRAP, v);
 export const getSpellCheck = (): boolean => safeGet<boolean>(KEY_SPELL_CHECK, true);
 export const setSpellCheck = (v: boolean): void => safeSet(KEY_SPELL_CHECK, v);
+
+// Fold arrows in the editor's gutter. Off on the phone, where the gutter is
+// narrow and the arrows are too small to tap. EDIT-03.
+const KEY_CODE_FOLDING = "paperling:codeFolding";
+export const getCodeFolding = (): boolean => safeGet<boolean>(KEY_CODE_FOLDING, true);
+export const setCodeFolding = (v: boolean): void => safeSet(KEY_CODE_FOLDING, v);
+
+// Keep earlier versions of files on this computer (HIST-01). On by default:
+// it exists for the day you didn't think you'd need it.
+const KEY_FILE_HISTORY = "paperling:fileHistory";
+export const getFileHistory = (): boolean => safeGet<boolean>(KEY_FILE_HISTORY, true);
+export const setFileHistory = (v: boolean): void => safeSet(KEY_FILE_HISTORY, v);
+
+// Settings → Appearance → Custom CSS. Bounded: it lives in localStorage beside
+// everything else, and a paste of a whole framework must not push that out.
+const KEY_CUSTOM_CSS = "paperling:customCss";
+const MAX_CUSTOM_CSS_CHARS = 100_000;
+export const getCustomCss = (): string => safeGet<string>(KEY_CUSTOM_CSS, "");
+export const setCustomCss = (v: string): void => safeSet(KEY_CUSTOM_CSS, v.slice(0, MAX_CUSTOM_CSS_CHARS));
 
 // LIVE-01: hide Markdown symbols in the editor except on the line being
 // edited. Opt-in: it changes how every line of the editor looks.

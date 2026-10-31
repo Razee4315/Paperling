@@ -23,6 +23,43 @@ afterEach(() => { cleanup(); localStorage.clear(); });
 /** Start a Reader editing session the way the palette command does. */
 const startReaderSession = () => act(() => { window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")); });
 
+describe("wide code blocks (RLL-02, #294)", () => {
+    it("wraps a code block so it can grow past the reading column with its Copy button", async () => {
+        const { container } = renderPreview("```\nsome code\n```");
+        await screen.findByText("some code");
+        const inner = container.querySelector(".code-block > .code-block-inner")!;
+        expect(inner.querySelector("pre")).not.toBeNull();
+        expect(inner.querySelector('button[aria-label="Copy code"]')).not.toBeNull();
+    });
+
+    it("clips at pane width, outside the reading column", async () => {
+        const { container } = renderPreview("text");
+        await screen.findByText("text");
+        expect(container.querySelector(".preview-clip > .preview-column .markdown-body")).not.toBeNull();
+    });
+});
+
+describe("[TOC] marker (TOC-05)", () => {
+    it("renders the document's headings as links", async () => {
+        const { container } = renderPreview("# Title\n\n[TOC]\n\n## Alpha\n\ntext\n\n## Beta\n");
+        await screen.findByRole("link", { name: "Alpha" });
+        expect(container.querySelector('a[href="#beta"]')?.textContent).toBe("Beta");
+        expect(container.textContent).not.toContain("[TOC]");
+    });
+
+    it("leaves a marker in a code block alone", async () => {
+        const { container } = renderPreview("## A\n\n```\n[TOC]\n```\n");
+        await screen.findByText("A");
+        expect(container.querySelector("pre")?.textContent).toContain("[TOC]");
+    });
+
+    it("still works when the document renders whole (it has footnotes)", async () => {
+        const { container } = renderPreview("# T\n\n[TOC]\n\n## Alpha\n\nText[^1]\n\n[^1]: note\n");
+        await screen.findByRole("link", { name: "Alpha" });
+        expect(container.textContent).not.toContain("[TOC]");
+    });
+});
+
 describe("ordered-list marker gutters (PREVIEW-08, #270)", () => {
     it("keeps native numbering and accounts for crossing 99 to 100", async () => {
         const { container } = renderPreview("98. First\n99. Second\n100. Third");
