@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { useAutosave, type UseAutosaveOptions } from "./useAutosave";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn() }));
 
 const base = (over: Partial<UseAutosaveOptions> = {}): UseAutosaveOptions => ({
   enabled: true,
@@ -23,6 +25,19 @@ describe("useAutosave", () => {
     (invoke as Mock).mockReset().mockResolvedValue(1700000000000);
   });
   afterEach(() => vi.useRealTimers());
+
+  it("reports text the file's encoding can't hold without opening a dialog (ENC-04)", async () => {
+    (invoke as Mock).mockRejectedValue("Unrepresentable text: windows-1252 cannot store U+4E2D");
+    const onSaved = vi.fn();
+    const onError = vi.fn();
+    renderHook((p: UseAutosaveOptions) => useAutosave(p), { initialProps: base({ onSaved, onError }) });
+
+    await vi.advanceTimersByTimeAsync(1600);
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.stringMatching(/^Not saved: "doc\.md".*Save it yourself/));
+  });
 
   it("does not save when disabled", async () => {
     renderHook((p: UseAutosaveOptions) => useAutosave(p), { initialProps: base({ enabled: false }) });

@@ -1,3 +1,4 @@
+use crate::text_encoding::{decode_text, encode_text, first_newline_is_crlf, TextEncoding};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::ipc::Response;
@@ -31,6 +32,11 @@ pub enum CommandError {
     WriteError(String),
     #[error("File too large: {0}")]
     TooLarge(String),
+    /// The document holds a character its file's encoding cannot store, so
+    /// nothing was written. fileIO.ts matches this exact wording to ask before
+    /// converting. ENC-04.
+    #[error("Unrepresentable text: {0} cannot store U+{1:04X}")]
+    Unrepresentable(&'static str, u32),
 }
 
 impl Serialize for CommandError {
@@ -53,6 +59,8 @@ pub struct FileData {
     /// Last-modified time, ms since the Unix epoch. Lets the frontend detect
     /// external edits (file changed on disk while open) on window focus.
     pub modified: u64,
+    /// How the file is stored; a save hands this back to keep it. ENC-03.
+    pub encoding: TextEncoding,
 }
 
 /// Line-ending convention of a file.
@@ -77,16 +85,21 @@ async fn detect_file_eol(path: &str) -> Eol {
         Ok(n) => n,
         Err(_) => return Eol::Lf,
     };
-    for i in 0..n {
-        if buf[i] == b'\n' {
-            return if i > 0 && buf[i - 1] == b'\r' {
-                Eol::Crlf
-            } else {
-                Eol::Lf
-            };
-        }
+    if first_newline_is_crlf(&buf[..n]) {
+        Eol::Crlf
+    } else {
+        Eol::Lf
     }
-    Eol::Lf
+}
+
+/// A file's encoding as stored on disk, for a save whose caller never read it.
+/// A file that won't decode was not readable as text anyway, so it stays plain
+/// UTF-8, which is what every save did before encodings were tracked. ENC-03.
+async fn detect_file_encoding(path: &str) -> TextEncoding {
+    match tokio::fs::read(path).await {
+        Ok(bytes) => decode_text(bytes).map_or(TextEncoding::Utf8, |(_, encoding)| encoding),
+        Err(_) => TextEncoding::Utf8,
+    }
 }
 
 /// Re-apply a file's line ending to editor content (which CodeMirror always
@@ -305,9 +318,10 @@ async fn read_file_inner(path: String) -> Result<FileData, CommandError> {
         )));
     }
 
-    let raw = tokio::fs::read_to_string(&file_path)
+    let bytes = tokio::fs::read(&file_path)
         .await
         .map_err(|e| CommandError::ReadError(e.to_string()))?;
+    let (raw, encoding) = decode_text(bytes).map_err(CommandError::ReadError)?;
 
     // Hand the frontend LF-only content. CodeMirror normalises every line
     // break to `\n` anyway, so serving CRLF verbatim made the editor's first
@@ -331,6 +345,7 @@ async fn read_file_inner(path: String) -> Result<FileData, CommandError> {
         size: metadata.len(),
         line_count,
         modified: mtime_ms(&metadata),
+        encoding,
     })
 }
 
@@ -343,6 +358,9 @@ async fn read_file_inner(path: String) -> Result<FileData, CommandError> {
 /// `.paperling-tmp` file. (std/tokio rename replaces the target on Windows
 /// via MoveFileEx + MOVEFILE_REPLACE_EXISTING, and is atomic on POSIX.)
 ///
+/// `encoding` is what the frontend remembered from reading the file; without
+/// it the file's own encoding is kept, the way its line ending is. ENC-03.
+///
 /// Mobile builds first confine `path` to the app's private storage
 /// (SECURITY-02); desktop accepts any path (by design).
 #[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
@@ -351,27 +369,21 @@ pub async fn save_file(
     app: tauri::AppHandle,
     path: String,
     content: String,
+    encoding: Option<TextEncoding>,
 ) -> Result<u64, CommandError> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     ensure_mobile_path_allowed(&app, std::path::Path::new(&path))
         .map_err(CommandError::WriteError)?;
-    save_file_inner(path, content).await
+    save_file_inner(path, content, encoding).await
 }
 
 /// The save_file body, app-handle-free so the unit tests can drive it without
 /// a Tauri harness.
-async fn save_file_inner(path: String, content: String) -> Result<u64, CommandError> {
-    // Mirror the read-side limit. Refusing to write a >50 MB markdown file
-    // protects the user from accidentally truncating something pasted from
-    // another tool, and matches what `read_file` would refuse to load back.
-    if content.len() as u64 > MAX_TEXT_FILE_BYTES {
-        return Err(CommandError::TooLarge(format!(
-            "Document is {} MB; maximum is {} MB",
-            content.len() / (1024 * 1024),
-            MAX_TEXT_FILE_BYTES / (1024 * 1024),
-        )));
-    }
-
+async fn save_file_inner(
+    path: String,
+    content: String,
+    encoding: Option<TextEncoding>,
+) -> Result<u64, CommandError> {
     // Write through a symlink to its target instead of replacing the link.
     // SAVE-04.
     let path = resolve_save_target(&path).await;
@@ -388,6 +400,29 @@ async fn save_file_inner(path: String, content: String) -> Result<u64, CommandEr
         content
     };
 
+    let encoding = match encoding {
+        Some(encoding) => encoding,
+        None if file_exists => detect_file_encoding(&path).await,
+        None => TextEncoding::Utf8,
+    };
+    // Encode before touching the disk: a character the encoding can't store
+    // stops the save here with the file exactly as it was. ENC-04.
+    let bytes = encode_text(content, encoding)
+        .map_err(|c| CommandError::Unrepresentable(encoding.name(), c as u32))?;
+
+    // Mirror the read-side limit. Refusing to write a >50 MB markdown file
+    // protects the user from accidentally truncating something pasted from
+    // another tool, and matches what `read_file` would refuse to load back.
+    // Measured on the encoded bytes, the same thing `read_file` measures:
+    // UTF-16 doubles ASCII, so a 30 MB document would save and never reopen.
+    if bytes.len() as u64 > MAX_TEXT_FILE_BYTES {
+        return Err(CommandError::TooLarge(format!(
+            "Document is {} MB; maximum is {} MB",
+            bytes.len() / (1024 * 1024),
+            MAX_TEXT_FILE_BYTES / (1024 * 1024),
+        )));
+    }
+
     // Same directory as the target so the rename never crosses a filesystem
     // boundary (cross-device renames aren't atomic and can fail outright).
     let tmp = unique_temp_path(&path, "paperling-tmp");
@@ -402,7 +437,7 @@ async fn save_file_inner(path: String, content: String) -> Result<u64, CommandEr
             Ok(f) => f,
             Err(e) => return Err(CommandError::WriteError(e.to_string())),
         };
-        if let Err(e) = f.write_all(content.as_bytes()).await {
+        if let Err(e) = f.write_all(&bytes).await {
             let _ = tokio::fs::remove_file(&tmp).await;
             return Err(CommandError::WriteError(e.to_string()));
         }
@@ -815,6 +850,13 @@ fn contains_whole_word(haystack: &str, needle: &str) -> bool {
     })
 }
 
+/// A note's text for search and backlinks, decoded the way `read_file` decodes
+/// it, so a note that opens is also a note that can be found. ENC-02.
+fn read_note_text(path: &std::path::Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    decode_text(bytes).ok().map(|(text, _)| text)
+}
+
 /// Text files the app opens (the Open dialog and drag-drop accept these), so
 /// search, replace and the explorer cover them too. GS-05.
 fn is_note_file(path: &std::path::Path) -> bool {
@@ -873,9 +915,8 @@ fn search_markdown_tree(root: PathBuf, query: &str, case_sensitive: bool, whole_
                     continue;
                 }
             }
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue, // binary / non-UTF8 — skip
+            let Some(content) = read_note_text(&path) else {
+                continue; // binary — skip
             };
             let mut matches = Vec::new();
             for (i, line) in content.lines().enumerate() {
@@ -997,9 +1038,8 @@ fn find_backlinks_in_tree(root: PathBuf, target: PathBuf) -> Vec<FileSearchResul
             {
                 continue;
             }
-            let content = match std::fs::read_to_string(&path) {
-                Ok(content) => content,
-                Err(_) => continue,
+            let Some(content) = read_note_text(&path) else {
+                continue;
             };
 
             let mut matches = Vec::new();
@@ -1563,6 +1603,35 @@ mod tests {
         search_markdown_tree, trash_path_inner, unique_temp_path, validate_entry_name,
         validate_rel_path, write_export_file_inner, Eol,
     };
+    use crate::text_encoding::TextEncoding;
+
+    /// A fresh temp folder for one encoding test.
+    fn encoding_test_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("paperling-enc-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Fixtures as literal bytes, with their CRLF, so a passing test means the
+    /// exact file came back and not merely equivalent text.
+    fn encoded_fixtures() -> Vec<(&'static str, Vec<u8>, TextEncoding)> {
+        vec![
+            ("utf8", "h\u{e9}llo\r\nw\u{f6}rld\r\n".as_bytes().to_vec(), TextEncoding::Utf8),
+            ("utf8-bom", b"\xEF\xBB\xBF# Hi\r\n".to_vec(), TextEncoding::Utf8Bom),
+            (
+                "utf16le",
+                vec![0xFF, 0xFE, b'H', 0, 0x2D, 0x4E, 0x3D, 0xD8, 0x00, 0xDE, 0x0D, 0, 0x0A, 0, b'i', 0],
+                TextEncoding::Utf16Le,
+            ),
+            (
+                "utf16be",
+                vec![0xFE, 0xFF, 0, b'H', 0x4E, 0x2D, 0xD8, 0x3D, 0xDE, 0x00, 0, 0x0D, 0, 0x0A, 0, b'i'],
+                TextEncoding::Utf16Be,
+            ),
+            ("win1252", b"caf\xE9 \x93hi\x94 \x80\r\n".to_vec(), TextEncoding::Windows1252),
+        ]
+    }
 
     #[test]
     fn temp_paths_are_unique_per_call() {
@@ -1638,7 +1707,7 @@ mod tests {
             std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
             std::os::unix::fs::symlink(&real, &link).unwrap();
 
-            save_file_inner(link.to_string_lossy().into_owned(), "new".into()).await.unwrap();
+            save_file_inner(link.to_string_lossy().into_owned(), "new".into(), None).await.unwrap();
 
             assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
             assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
@@ -1754,12 +1823,12 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             let path = dir.join("doc.md").to_string_lossy().to_string();
 
-            let mtime = save_file_inner(path.clone(), "hello".into()).await.unwrap();
+            let mtime = save_file_inner(path.clone(), "hello".into(), None).await.unwrap();
             assert!(mtime > 0);
             assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello");
 
             // Overwrite must replace the existing file (rename-over semantics).
-            let mtime2 = save_file_inner(path.clone(), "world".into()).await.unwrap();
+            let mtime2 = save_file_inner(path.clone(), "world".into(), None).await.unwrap();
             assert!(mtime2 >= mtime);
             assert_eq!(std::fs::read_to_string(&path).unwrap(), "world");
 
@@ -1822,7 +1891,7 @@ mod tests {
             // Seed a CRLF file, then "edit" it with LF-only content (as the editor
             // would hand us) and confirm the CRLF convention survives the save.
             std::fs::write(&path, "one\r\ntwo\r\n").unwrap();
-            save_file_inner(path.clone(), "one\ntwo\nthree".into())
+            save_file_inner(path.clone(), "one\ntwo\nthree".into(), None)
                 .await
                 .unwrap();
             assert_eq!(
@@ -1832,11 +1901,155 @@ mod tests {
 
             // A brand-new file keeps the editor's LF.
             let lf_path = dir.join("new.md").to_string_lossy().to_string();
-            save_file_inner(lf_path.clone(), "a\nb".into()).await.unwrap();
+            save_file_inner(lf_path.clone(), "a\nb".into(), None).await.unwrap();
             assert_eq!(std::fs::read_to_string(&lf_path).unwrap(), "a\nb");
 
             std::fs::remove_dir_all(&dir).ok();
         });
+    }
+
+    #[test]
+    fn every_encoding_opens_and_saves_back_byte_identically() {
+        tauri::async_runtime::block_on(async {
+            let dir = encoding_test_dir("round-trip");
+            for (name, bytes, encoding) in encoded_fixtures() {
+                let path = dir.join(format!("{name}.md")).to_string_lossy().into_owned();
+                std::fs::write(&path, &bytes).unwrap();
+
+                let fd = read_file_inner(path.clone()).await.unwrap();
+                assert_eq!(fd.encoding, encoding, "{name}");
+                assert!(!fd.content.contains('\r'), "{name}: editor text is LF-only");
+
+                save_file_inner(path.clone(), fd.content.clone(), Some(fd.encoding)).await.unwrap();
+                assert_eq!(std::fs::read(&path).unwrap(), bytes, "{name}: remembered encoding");
+
+                // The same save from a caller that never read the file.
+                save_file_inner(path.clone(), fd.content, None).await.unwrap();
+                assert_eq!(std::fs::read(&path).unwrap(), bytes, "{name}: encoding from disk");
+            }
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn editing_a_utf16_file_keeps_its_encoding_and_crlf() {
+        tauri::async_runtime::block_on(async {
+            let dir = encoding_test_dir("utf16-edit");
+            let path = dir.join("ps.md").to_string_lossy().into_owned();
+            std::fs::write(&path, [0xFF, 0xFE, b'a', 0, 0x0D, 0, 0x0A, 0]).unwrap();
+
+            save_file_inner(path.clone(), "a\nb".into(), Some(TextEncoding::Utf16Le)).await.unwrap();
+
+            let expected = [0xFF, 0xFE, b'a', 0, 0x0D, 0, 0x0A, 0, b'b', 0];
+            assert_eq!(std::fs::read(&path).unwrap(), expected);
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn refused_encodings_never_touch_the_file() {
+        tauri::async_runtime::block_on(async {
+            let dir = encoding_test_dir("unrepresentable");
+            let path = dir.join("legacy.md").to_string_lossy().into_owned();
+            let original = b"caf\xE9\r\n".to_vec();
+            std::fs::write(&path, &original).unwrap();
+
+            for encoding in [Some(TextEncoding::Windows1252), None] {
+                let err = save_file_inner(path.clone(), "caf\u{e9} \u{4e2d}\n".into(), encoding)
+                    .await
+                    .unwrap_err();
+                // Pinned to UNREPRESENTABLE in src/utils/fileIO.ts.
+                assert_eq!(err.to_string(), "Unrepresentable text: windows-1252 cannot store U+4E2D");
+                assert_eq!(std::fs::read(&path).unwrap(), original);
+            }
+            let entries = std::fs::read_dir(&dir).unwrap().count();
+            assert_eq!(entries, 1, "no temp file may be left behind");
+
+            // Outside the BMP the code point is five digits, still parseable.
+            let err = save_file_inner(path.clone(), "\u{1F600}".into(), Some(TextEncoding::Windows1252))
+                .await
+                .unwrap_err();
+            assert_eq!(err.to_string(), "Unrepresentable text: windows-1252 cannot store U+1F600");
+
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn converting_to_utf8_keeps_the_text_and_line_endings() {
+        tauri::async_runtime::block_on(async {
+            let dir = encoding_test_dir("convert");
+            let legacy = dir.join("legacy.md").to_string_lossy().into_owned();
+            std::fs::write(&legacy, b"caf\xE9\r\n").unwrap();
+            let utf16 = dir.join("utf16.md").to_string_lossy().into_owned();
+            std::fs::write(&utf16, [0xFF, 0xFE, b'a', 0, 0x0D, 0, 0x0A, 0]).unwrap();
+
+            for path in [&legacy, &utf16] {
+                save_file_inner(path.clone(), "caf\u{e9} \u{4e2d}\n".into(), Some(TextEncoding::Utf8))
+                    .await
+                    .unwrap();
+                let bytes = std::fs::read(path).unwrap();
+                assert_eq!(bytes, "caf\u{e9} \u{4e2d}\r\n".as_bytes());
+                let fd = read_file_inner(path.clone()).await.unwrap();
+                assert_eq!(fd.encoding, TextEncoding::Utf8);
+            }
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn files_that_cannot_open_safely_fail_with_a_reason() {
+        tauri::async_runtime::block_on(async {
+            let dir = encoding_test_dir("refused");
+            let damaged = dir.join("damaged.md").to_string_lossy().into_owned();
+            std::fs::write(&damaged, [0xFF, 0xFE, b'H', 0, b'i']).unwrap();
+            let err = read_file_inner(damaged).await.unwrap_err().to_string();
+            assert!(err.contains("damaged"), "{err}");
+
+            let binary = dir.join("binary.md").to_string_lossy().into_owned();
+            std::fs::write(&binary, b"\x89PNG\0\0").unwrap();
+            let err = read_file_inner(binary).await.unwrap_err().to_string();
+            assert!(err.contains("binary"), "{err}");
+
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn the_size_limit_applies_to_the_encoded_bytes() {
+        tauri::async_runtime::block_on(async {
+            let dir = encoding_test_dir("size");
+            let path = dir.join("big.md").to_string_lossy().into_owned();
+            // 30 MB of ASCII fits as UTF-8 but is 60 MB as UTF-16, which
+            // `read_file` would refuse to load back.
+            let text = "a".repeat(30 * 1024 * 1024);
+            let result = save_file_inner(path.clone(), text, Some(TextEncoding::Utf16Le)).await;
+            assert!(result.unwrap_err().to_string().contains("too large"));
+            assert!(!std::path::Path::new(&path).exists());
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn search_reads_notes_in_every_encoding_and_still_skips_binaries() {
+        let dir = encoding_test_dir("search");
+        for (name, bytes, _) in encoded_fixtures() {
+            std::fs::write(dir.join(format!("{name}.md")), bytes).unwrap();
+        }
+        std::fs::write(dir.join("binary.md"), b"\xFFneedle\0").unwrap();
+
+        let legacy = search_markdown_tree(dir.clone(), "\u{201c}hi\u{201d}", true, false);
+        assert_eq!(legacy.len(), 1);
+        assert_eq!(legacy[0].name, "win1252.md");
+
+        let wide = search_markdown_tree(dir.clone(), "H\u{4e2d}", true, false);
+        let mut names: Vec<_> = wide.iter().map(|r| r.name.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["utf16be.md", "utf16le.md"]);
+
+        assert!(search_markdown_tree(dir.clone(), "needle", true, false).is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

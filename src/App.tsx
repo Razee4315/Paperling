@@ -28,6 +28,7 @@ import { usePersistedState } from "./hooks/usePersistedState";
 import { useFullscreen } from "./hooks/useFullscreen";
 import { useScrollSync } from "./hooks/useScrollSync";
 import { useFileSession } from "./hooks/useFileSession";
+import { useEncodingLabel } from "./hooks/useEncodingLabel";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { IS_MOBILE, isTauri } from "./utils/platform";
 import { isDocumentPath, isHtmlPath } from "./utils/documentPaths";
@@ -460,6 +461,8 @@ function AppContent() {
     promptSavePath: promptForSavePath,
     onSaved: handleManualSaved,
   });
+
+  const encodingLabel = useEncodingLabel(filePath);
 
   // On the phone there is no OS open panel (and its SAF result would be
   // unreadable anyway) — "open" means the in-app files browser, rooted at the
@@ -2544,6 +2547,7 @@ function AppContent() {
               readingTimeMin={readingTimeMin}
               selectionLength={mode !== "preview" ? selectionLength : 0}
               selectionWordCount={selectionWordCount}
+              encoding={encodingLabel}
             />
           )}
         </>

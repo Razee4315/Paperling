@@ -39,6 +39,9 @@ tokio = { version = "1", features = ["fs", "time", "sync", "macros", "rt"] }
 # native-TLS/OpenSSL swapping.
 reqwest = { version = "0.13", features = ["stream"] }
 futures-util = "0.3"
+# Decoding of non-UTF-8 documents (text_encoding.rs). Already in the build
+# through reqwest's charset support, so no new crate is compiled.
+encoding_rs = "0.8"
 
 # Desktop-only crates. Everything here either has no mobile backend or no
 # meaning on a phone; the `use` sites in lib.rs are gated with #[cfg(desktop)]

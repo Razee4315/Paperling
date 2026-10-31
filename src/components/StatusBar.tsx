@@ -23,6 +23,8 @@ interface StatusBarProps {
     savePulse?: number;
     /** Makes the "Unsaved" indicator a button that saves. CHROME-02. */
     onSave?: () => void;
+    /** The file's encoding when it isn't plain UTF-8. ENC-05. */
+    encoding?: string | null;
 }
 
 const formatReadingTime = (min: number): string => {
@@ -51,6 +53,7 @@ function StatusBarImpl({
     selectionWordCount = 0,
     savePulse = 0,
     onSave,
+    encoding = null,
 }: StatusBarProps) {
     const hasSelection = selectionLength > 0;
     return (
@@ -136,6 +139,15 @@ function StatusBarImpl({
                     // they grow while typing. RLL-05.
                     <div className="min-w-[6.5rem] text-right hover:text-[var(--text-primary)] cursor-default transition-colors">
                         Ln {lineNumber}, Col {columnNumber}
+                    </div>
+                )}
+                {encoding && (
+                    <div
+                        className="hover:text-[var(--text-primary)] cursor-default transition-colors"
+                        title="File encoding. Saving keeps it."
+                        aria-label={`File encoding: ${encoding}`}
+                    >
+                        {encoding}
                     </div>
                 )}
                 {wordCount !== undefined && (
