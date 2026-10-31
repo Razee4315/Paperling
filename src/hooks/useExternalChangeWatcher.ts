@@ -60,9 +60,16 @@ export function useExternalChangeWatcher({
       if (writeToken === null) return;
       checking = true;
       try {
+        const known = knownMtimeRef.current ?? 0;
         const info = await invoke<{ modified: number }>("get_file_info", { path });
         if (idleWriteToken() !== writeToken) return;
-        const known = knownMtimeRef.current ?? 0;
+        // The user switched documents during the stat, so this result belongs
+        // to a tab that is no longer live. Comparing it against the new tab's
+        // mtime made a newer file look changed: reload(path) dragged the user
+        // back and replaced that tab's unsaved text with the disk version, and
+        // a dirty new tab got a false conflict. The 1.5 s interval (EXT-07)
+        // made this a routine race. The next tick checks the live file. EXT-11.
+        if (filePathRef.current !== path || knownMtimeRef.current !== known) return;
         const decision = decideDiskChange(known, info?.modified ?? 0);
         if (decision.kind === "unchanged") return;
         // A file reporting NO mtime at all can't be re-anchored here — every
@@ -85,6 +92,7 @@ export function useExternalChangeWatcher({
           // guarded anyway (EXT-10), but detecting at focus time matches how
           // every other external change is surfaced.
           const disk = await readTextFile<{ content: string }>(path).catch(() => null);
+          if (filePathRef.current !== path) return; // Same switch as above. EXT-11.
           if (disk !== null && typeof disk.content === "string" && disk.content !== originalContentRef.current) {
             onConflict();
           }

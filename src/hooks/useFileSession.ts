@@ -337,6 +337,10 @@ export function useFileSession({
       setIsLoading(true);
       try {
         const fileData = await readTextFile<FileData>(path);
+        // The user left this file while the watcher's reload was reading it.
+        // Applying the read would pull them back and overwrite the tab's
+        // unsaved text. The tab refreshes through the background check. EXT-11.
+        if (keepEdits && !samePath(filePathRef.current, path)) return true;
         // An external-change reload only starts on a clean buffer, but the
         // user can type while the file is being read; applying it would drop
         // those keystrokes. With the 1.5 s interval check (EXT-07) that is a
@@ -743,12 +747,16 @@ export function useFileSession({
   // A read failure on the fallback leaves the write to surface real errors,
   // exactly as the stat-failure path always has.
   const diskChangedSince = useCallback(async (path: string): Promise<number | null> => {
+    // Taken before the stat: a tab switch during it swaps both refs to the new
+    // document, and judging this file by that one's baseline could wave through
+    // a write over an external edit. EXT-11.
+    const known = knownMtimeRef.current;
+    const original = originalContentRef.current;
     try {
       const info = await invoke<{ modified: number }>("get_file_info", { path });
-      const decision = decideDiskChange(knownMtimeRef.current, info?.modified ?? 0);
+      const decision = decideDiskChange(known, info?.modified ?? 0);
       if (decision.kind === "unchanged") return null;
       if (decision.kind === "changed") return decision.diskMtime;
-      const original = originalContentRef.current;
       if (typeof original !== "string") return null;
       if (keepMineMtimelessRef.current.has(pathKey(path))) {
         // The user already chose "keep mine" for this mtime-less file; this

@@ -147,6 +147,64 @@ describe("useExternalChangeWatcher", () => {
     expect(o.onConflict).toHaveBeenCalled();
   });
 
+  // --- EXT-11: the user switches tabs while the check for the old tab is on
+  // its way to the disk, so its result must not touch the new tab. ---
+
+  function switchDuringStat(over: Partial<UseExternalChangeWatcherOptions> = {}) {
+    let answerStat!: (info: { modified: number }) => void;
+    (invoke as Mock).mockImplementation((cmd: string) =>
+      cmd === "get_file_info" ? new Promise((resolve) => { answerStat = resolve; }) : Promise.resolve(undefined),
+    );
+    const o = setup({ filePathRef: ref<string | null>("C:/left.md"), knownMtimeRef: ref(500), ...over });
+    window.dispatchEvent(new Event("focus"));
+    const land = async (diskMtime: number) => {
+      // The session swaps these to the new tab's values as it activates it.
+      o.filePathRef.current = "C:/new.md";
+      o.knownMtimeRef.current = 100;
+      answerStat({ modified: diskMtime });
+      await new Promise((r) => setTimeout(r, 0));
+    };
+    return { o, land };
+  }
+
+  it("does not reload the tab the user just left. EXT-11", async () => {
+    // left.md's mtime is newer than the new tab's: compared across tabs it
+    // looked changed, and reload("C:/left.md") dragged the user back to it.
+    const { o, land } = switchDuringStat();
+    await land(500);
+    expect(o.reload).not.toHaveBeenCalled();
+    expect(o.onReloaded).not.toHaveBeenCalled();
+  });
+
+  it("does not raise a false conflict on a dirty new tab. EXT-11", async () => {
+    const { o, land } = switchDuringStat({ contentRef: ref("typed"), originalContentRef: ref("saved") });
+    await land(500);
+    expect(o.onConflict).not.toHaveBeenCalled();
+  });
+
+  it("leaves the new tab's known mtime alone. EXT-11", async () => {
+    // Writing the old file's mtime onto the new tab would hide a later
+    // external edit from every guard that compares against it.
+    const { o, land } = switchDuringStat();
+    await land(500);
+    expect(o.knownMtimeRef.current).toBe(100);
+  });
+
+  it("does not raise a content conflict when the tab changes during the fallback read. EXT-11", async () => {
+    let answerRead!: (file: { content: string }) => void;
+    (invoke as Mock).mockImplementation((cmd: string) =>
+      cmd === "read_file"
+        ? new Promise((resolve) => { answerRead = resolve; })
+        : Promise.resolve({ modified: 200 }),
+    );
+    const o = setup({ knownMtimeRef: ref(0), contentRef: ref("typed"), originalContentRef: ref("saved") });
+    await focus();
+    o.filePathRef.current = "C:/new.md";
+    answerRead({ content: "different from the new tab" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(o.onConflict).not.toHaveBeenCalled();
+  });
+
   it("ignores focus when no file is open", async () => {
     const o = setup({ filePathRef: ref<string | null>(null) });
     await focus();
