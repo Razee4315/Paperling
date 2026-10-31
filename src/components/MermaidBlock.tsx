@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, memo } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../context/ThemeContext";
 import { copyDiagramAsPng, saveDiagramSvg } from "../utils/diagramExport";
-import { sanitizeDiagramSvg } from "../utils/diagramSanitize";
+import { sanitizeDiagramSvg, stripRemoteDiagramImages } from "../utils/diagramSanitize";
 import { getRemoteImages } from "../utils/persistence";
 
 // Single shared mermaid module promise — loaded only on first use.
@@ -88,7 +88,9 @@ async function renderPlainSvg(code: string, theme: string): Promise<string> {
     const base = { startOnLoad: false, securityLevel: "strict" as const, theme: themeToMermaid(theme), fontFamily: "var(--font-body)" };
     mermaid.initialize({ ...base, htmlLabels: false, flowchart: { htmlLabels: false } });
     try {
-        return sanitizeDiagramSvg((await mermaid.render(id, code)).svg);
+        // Exporting draws the diagram again, so it needs the same gate. MMV-09.
+        const source = getRemoteImages() ? code : stripRemoteDiagramImages(code);
+        return sanitizeDiagramSvg((await mermaid.render(id, source)).svg);
     } finally {
         removeRenderLeftovers(id);
         mermaid.initialize({ ...base, htmlLabels: true, flowchart: { htmlLabels: true } });
@@ -348,9 +350,14 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
         let cancelled = false;
         setError(null);
         const mermaidTheme = themeToMermaid(theme);
+        // Removed from the source, not just the output: mermaid fetches images
+        // while drawing, before the display gate can run. Keying the cache on
+        // this means an allowed render is never served with the setting off.
+        // MMV-09.
+        const source = remoteAllowed ? code : stripRemoteDiagramImages(code);
         // \u0000 separator: can never occur in a theme name, so theme+code
         // pairs can't collide across themes.
-        const cacheKey = `${mermaidTheme}\u0000${code}`;
+        const cacheKey = `${mermaidTheme}\u0000${source}`;
         const cached = svgCache.get(cacheKey);
         if (cached !== undefined) {
             setSvg(gateForDisplay(rekeySvg(cached.svg, cached.id, idRef.current)));
@@ -375,7 +382,7 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
                     htmlLabels: true,
                     flowchart: { htmlLabels: true },
                 });
-                return mermaid.render(renderId, code);
+                return mermaid.render(renderId, source);
             })
             .then((result) => {
                 if (cancelled) return;

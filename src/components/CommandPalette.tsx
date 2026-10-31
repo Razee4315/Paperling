@@ -35,6 +35,10 @@ interface CommandPaletteProps {
 export function scoreItem(query: string, fields: string[]): number {
     const terms = query.trim().split(/\s+/).filter(Boolean);
     if (terms.length === 0) return 0;
+    // A phrase typed word for word beats a match on the same words in another
+    // order: "Sort lines Z to A" ranked "Sort lines A to Z" first, so Enter
+    // sorted the wrong way. EDIT-04.
+    if (terms.length > 1 && fields[0]?.toLowerCase().includes(terms.join(" ").toLowerCase())) return 0;
     let total = 0;
     for (const term of terms) {
         let best = -1;

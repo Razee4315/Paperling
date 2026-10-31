@@ -311,6 +311,95 @@ describe("useFileSession", () => {
     expect(result.current.content).toBe("alpha, typed during the read");
     expect(result.current.conflictPrompt?.fileName).toBe("a.md");
   });
+
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const fireFocus = () => act(async () => { window.dispatchEvent(new Event("focus")); await tick(); });
+
+  it("a tab switch during the disk check keeps the left tab's unsaved text and stays put (EXT-11)", async () => {
+    // b.md is newer than a.md, so its stat compared against a.md's mtime looked
+    // like a change on disk: the app jumped back and reloaded b.md over the edits.
+    let answerStat: ((info: { modified: number }) => void) | null = null;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "get_file_info" && args?.path === "C:/b.md") {
+        return new Promise((resolve) => { answerStat = resolve; });
+      }
+      if (command === "read_file" && args?.path) return Promise.resolve(files.get(args.path));
+      return Promise.resolve({ modified: 10 });
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/a.md"));
+    const aId = result.current.activeTabId!;
+    await act(() => result.current.loadFile("C:/b.md"));
+    const bId = result.current.activeTabId!;
+    act(() => result.current.setContent("bravo, not saved yet"));
+
+    await fireFocus();
+    expect(answerStat).not.toBeNull();
+    act(() => result.current.activateTab(aId));
+    (invoke as Mock).mockClear();
+    await act(async () => { answerStat!({ modified: 20 }); await tick(); });
+
+    expect(result.current.activeTabId).toBe(aId);
+    expect(result.current.conflictPrompt).toBeNull();
+    expect(invoke).not.toHaveBeenCalledWith("read_file", expect.anything());
+    expect(result.current.tabs.find((tab) => tab.id === bId)?.content).toBe("bravo, not saved yet");
+  });
+
+  it("a watcher reload still reading when the user leaves the tab is dropped (EXT-11)", async () => {
+    let releaseRead: (() => void) | null = null;
+    let diskMtime = 10;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "get_file_info") return Promise.resolve({ modified: args?.path === "C:/a.md" ? diskMtime : 20 });
+      if (command === "read_file" && args?.path) {
+        if (diskMtime === 10 || args.path !== "C:/a.md") return Promise.resolve(files.get(args.path));
+        return new Promise((resolve) => {
+          releaseRead = () => resolve({ ...files.get(args.path!)!, content: "alpha from agent", modified: diskMtime });
+        });
+      }
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/b.md"));
+    const bId = result.current.activeTabId!;
+    await act(() => result.current.loadFile("C:/a.md"));
+
+    diskMtime = 50;
+    await fireFocus();
+    expect(releaseRead).not.toBeNull();
+    act(() => result.current.activateTab(bId));
+    await act(async () => { releaseRead!(); await tick(); });
+
+    expect(result.current.activeTabId).toBe(bId);
+    expect(result.current.content).toBe("bravo");
+  });
+
+  it("a save judges its own file even if the user switches tabs during the stat (EXT-11)", async () => {
+    // a.md was edited outside (15, newer than its known 10), but older than
+    // b.md's 20. Measured against b.md's baseline the guard saw no change and
+    // the save overwrote the external edit.
+    let answerStat: ((info: { modified: number }) => void) | null = null;
+    let armed = false;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "get_file_info" && armed) return new Promise((resolve) => { answerStat = resolve; });
+      if (command === "read_file" && args?.path) return Promise.resolve(files.get(args.path));
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/b.md"));
+    const bId = result.current.activeTabId!;
+    await act(() => result.current.loadFile("C:/a.md"));
+    act(() => result.current.setContent("alpha edited"));
+
+    armed = true;
+    let saving: Promise<unknown> | undefined;
+    await act(async () => { saving = result.current.handleSaveFile(); await tick(); });
+    expect(answerStat).not.toBeNull();
+    armed = false;
+    act(() => result.current.activateTab(bId));
+    await act(async () => { answerStat!({ modified: 15 }); await saving; await tick(); });
+
+    expect(invoke).not.toHaveBeenCalledWith("save_file", expect.objectContaining({ path: "C:/a.md" }));
+  });
 });
 
 describe("useFileSession crash recovery (HOT-02/04)", () => {
