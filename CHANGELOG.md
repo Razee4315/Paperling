@@ -21,6 +21,8 @@ dialog show, so keep it to a handful of lines and link to the full notes in
   command palette, dialogs and all notifications are translated. Your notes are
   never translated. Word counts and reading time use each language's own
   phrasing ("3 words" / "3 词").
+  Still English-only: the AI panel, the Mermaid and find-bar controls, and the
+  command palette's command names.
 
 ### Fixed
 
