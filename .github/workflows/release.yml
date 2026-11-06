@@ -1,0 +1,366 @@
+name: Release
+
+# Releases are cut MANUALLY (Actions tab → Release → Run workflow), not on
+# every push. Pushes to main only run CI. This lets us batch several fixes
+# into one release so users aren't hit with frequent update prompts. The
+# version-bump / changelog-roll logic below still runs on manual dispatch.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ─── Job 1: Version check + bump ──────────────────────────
+  check-and-bump:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.bump.outputs.should_release }}
+      version: ${{ steps.bump.outputs.version }}
+      notes: ${{ steps.notes.outputs.notes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes and bump version
+        id: bump
+        run: |
+          # Get current version from tauri.conf.json
+          CURRENT_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          echo "Current version: $CURRENT_VERSION"
+
+          # Check if tag for current version exists
+          if git tag -l "v$CURRENT_VERSION" | grep -q "v$CURRENT_VERSION"; then
+            echo "Tag v$CURRENT_VERSION already exists"
+
+            # Check if there are commits since the last tag
+            COMMITS_SINCE=$(git rev-list "v$CURRENT_VERSION"..HEAD --count 2>/dev/null || echo "0")
+            echo "Commits since v$CURRENT_VERSION: $COMMITS_SINCE"
+
+            if [ "$COMMITS_SINCE" -eq "0" ]; then
+              echo "No new commits since last release — skipping"
+              echo "should_release=false" >> $GITHUB_OUTPUT
+              echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            # Auto-bump patch version
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+            NEW_PATCH=$((PATCH + 1))
+            NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+            echo "Bumping version: $CURRENT_VERSION → $NEW_VERSION"
+
+            # Update tauri.conf.json
+            jq --arg v "$NEW_VERSION" '.version = $v' src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
+
+            # Update package.json
+            jq --arg v "$NEW_VERSION" '.version = $v' package.json > tmp.json && mv tmp.json package.json
+
+            # Update Cargo.toml version
+            sed -i "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" src-tauri/Cargo.toml
+
+            # Roll the changelog: close [Unreleased] into a dated section for
+            # this version and open a fresh, empty [Unreleased] above it. This
+            # is what keeps each release's "What's new" scoped to just its own
+            # changes instead of the whole accumulated history.
+            RELEASE_DATE=$(date -u +%Y-%m-%d)
+            sed -i "0,/^## \[Unreleased\]/s//## [Unreleased]\n\n## [$NEW_VERSION] - $RELEASE_DATE/" CHANGELOG.md
+
+            # Commit the version bump
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add src-tauri/tauri.conf.json package.json src-tauri/Cargo.toml CHANGELOG.md
+            git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
+            git push
+
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "Tag v$CURRENT_VERSION does not exist — first release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      # Build the release body from the top CHANGELOG section so the updater's
+      # "What's new" popup shows the actual changes (the in-app dialog strips
+      # the Installation block; the GitHub release page keeps it). Falls back to
+      # the generic blurb if the section comes out empty.
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        # The version goes through `env` instead of direct interpolation so a
+        # crafted value in tauri.conf.json can never become shell code here.
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          # Print only THIS version's section — the lines between its
+          # "## [VERSION]" heading and the next "## [" heading — so the release
+          # notes are scoped to just this release, not the whole history.
+          CHANGES=$(awk -v ver="## [$VERSION]" '
+            index($0, ver) == 1 { f = 1; next }
+            f && /^## \[/ { exit }
+            f { print }
+          ' CHANGELOG.md)
+          if [ -z "$(echo "$CHANGES" | tr -d '[:space:]')" ]; then
+            CHANGES="A new version of Paperling is available."
+          fi
+          {
+            echo "notes<<__PAPERLING_NOTES__"
+            echo "## What's new in v$VERSION"
+            echo ""
+            printf '%s\n' "$CHANGES"
+            echo ""
+            echo "### Installation"
+            echo "- **Windows:** \`.msi\` (recommended) or \`.exe\` (NSIS installer)"
+            echo "- **Linux:** \`.deb\` or \`.AppImage\`"
+            echo "- **macOS:** \`.dmg\` (Apple Silicon + Intel, universal)"
+            echo "- **Android:** \`Paperling_${VERSION}_aarch64.apk\` attached below (arm64-v8a; allow \"install unknown apps\" once)"
+            echo ""
+            echo "See the [CHANGELOG](https://github.com/Razee4315/Paperling/blob/main/CHANGELOG.md) for the full history."
+            echo "__PAPERLING_NOTES__"
+          } >> "$GITHUB_OUTPUT"
+
+  # ─── Job 2: Build + Release ────────────────────────────────
+  release:
+    needs: check-and-bump
+    if: needs.check-and-bump.outputs.should_release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: '--target x86_64-pc-windows-msvc'
+          - platform: windows-11-arm
+            args: '--target aarch64-pc-windows-msvc'
+          - platform: ubuntu-24.04
+            args: ''
+          # Universal macOS binary (Apple Silicon + Intel in one .dmg).
+          # macos-latest is an ARM runner; building universal-apple-darwin
+          # needs the x86_64-apple-darwin Rust target too (installed below).
+          # One universal .dmg means Intel Mac users no longer download a dmg
+          # that refuses to launch, and Apple Silicon users keep a native
+          # build. Issues #94 / #103.
+          - platform: macos-latest
+            args: '--target universal-apple-darwin'
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository (with bumped version)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - name: Add macOS cross-compile target
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        # Caching is an optimization — a flaky GitHub cache service must never
+        # fail the release build (it took down a Windows release once).
+        continue-on-error: true
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.0"
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and Release
+        uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater artifact signing — the matching pubkey lives in
+          # tauri.conf.json. With createUpdaterArtifacts enabled the build
+          # FAILS if this secret is missing, so it must stay set on the repo.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # The signing key was generated without a password; GitHub refuses
+          # empty-valued secrets, so the empty password is set inline here.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          tauriScript: bun run tauri
+          tagName: v__VERSION__
+          releaseName: 'Paperling v__VERSION__'
+          releaseBody: ${{ needs.check-and-bump.outputs.notes }}
+          args: ${{ matrix.args }}
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+
+      - name: Package portable zip (Scoop)
+        # Portable zip of the unpacked app for Scoop and direct download
+        # (issue #48). Only the x64 Windows leg — that's what Scoop targets.
+        if: matrix.args == '--target x86_64-pc-windows-msvc'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.check-and-bump.outputs.version }}
+        shell: pwsh
+        run: |
+          pwsh scripts/make-portable-zip.ps1 `
+            -ExeDir "src-tauri/target/x86_64-pc-windows-msvc/release" `
+            -OutFile "dist/Paperling_${env:VERSION}_x64-portable.zip"
+          gh release upload "v${env:VERSION}" "dist/Paperling_${env:VERSION}_x64-portable.zip" --clobber
+
+  # ─── Job 3: Android APK ─────────────────────────────────────
+  # Launch build for the Android port (arm64-v8a). Runs AFTER the desktop
+  # matrix so the GitHub release already exists for `gh release upload`.
+  # Same recipe as android-build.yml, with one difference: the APK is signed
+  # with the release keystore from repo secrets (ANDROID_KEYSTORE_BASE64 /
+  # ANDROID_KEYSTORE_PASSWORD) instead of the debug key, and its signature is
+  # checked against the pinned certificate before upload, so every release
+  # APK updates in place over the previous one. See ANDR-SIGN-01/02 below.
+  android:
+    needs: [check-and-bump, release]
+    if: needs.check-and-bump.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.check-and-bump.outputs.version }}
+    steps:
+      - name: Checkout repository (with bumped version)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        continue-on-error: true
+        with:
+          workspaces: './src-tauri -> target'
+          key: aarch64-linux-android
+
+      - name: Setup Java 17 (Android Gradle Plugin requirement)
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Restore the release keystore from repo secrets (stable APK signature)
+        # ANDR-SIGN-01: the keystore used to live only in an actions cache, and
+        # GitHub evicts caches after 7 days unused. 1.0.50's key was lost that
+        # way, so 1.0.51 had to change signature (existing installs cannot
+        # update in place). It now comes from repo secrets, and a missing
+        # secret FAILS the job: silently generating a new key would ship an
+        # APK that no existing install can update to.
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set. Refusing to sign with a new key (existing installs could not update)."
+            exit 1
+          fi
+          mkdir -p "$HOME/.android"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$HOME/.android/paperling-release.p12"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.0"
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Locate the preinstalled Android NDK
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          NDK_DIR="$(ls -d "$SDK"/ndk/*/ 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$NDK_DIR" ]; then
+            echo "::error::No preinstalled Android NDK found under $SDK/ndk"
+            exit 1
+          fi
+          echo "NDK_HOME=${NDK_DIR%/}" >> "$GITHUB_ENV"
+
+      - name: Generate app icons (all densities, incl. Android mipmaps)
+        run: bun run tauri icon public/icon.svg --output .tauri-icons
+
+      - name: Initialize the Android project
+        run: bun run tauri android init
+
+      - name: Copy launcher icons into the generated project
+        run: |
+          SRC=".tauri-icons/android"
+          DEST="src-tauri/gen/android/app/src/main/res"
+          cp -r "$SRC"/mipmap-* "$DEST"/
+          if [ -d "$SRC/mipmap-anydpi-v26" ]; then
+            mkdir -p "$DEST/mipmap-anydpi-v26"
+            cp "$SRC"/mipmap-anydpi-v26/* "$DEST/mipmap-anydpi-v26"/
+            if [ -f "$DEST/mipmap-anydpi-v26/ic_launcher.xml" ]; then
+              cp "$DEST"/mipmap-anydpi-v26/ic_launcher.xml "$DEST/mipmap-anydpi-v26/ic_launcher_round.xml"
+            fi
+          fi
+          if [ -f "$SRC/values/ic_launcher_background.xml" ]; then
+            cp "$SRC"/values/ic_launcher_background.xml "$DEST"/values/
+          fi
+
+      - name: Write release signing (real keystore, not the debug key)
+        run: node scripts/patch-android-release-signing.mjs src-tauri/gen/android/app/build.gradle.kts
+
+      - name: Point signing at the release keystore
+        # keystore.properties goes to the Gradle ROOT (src-tauri/gen/android),
+        # which is where the injected signingConfig looks for it.
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD is not set."
+            exit 1
+          fi
+          cat > src-tauri/gen/android/keystore.properties <<EOF
+          keyAlias=paperling
+          keyPassword=$KEYSTORE_PASSWORD
+          storeFile=$HOME/.android/paperling-release.p12
+          storePassword=$KEYSTORE_PASSWORD
+          storeType=pkcs12
+          EOF
+
+      - name: Patch "Open with Paperling" file handling + system-bar insets
+        run: node scripts/patch-android-open-with.mjs src-tauri/gen/android
+
+      - name: Build APK (release, aarch64)
+        run: bun run tauri android build --target aarch64 --apk
+
+      - name: Upload APK to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-apk
+          APK="$(find src-tauri/gen/android/app/build/outputs/apk -name "*release*.apk" | head -1)"
+          if [ -z "$APK" ]; then
+            echo "::error::Build succeeded but no release APK was found"
+            find src-tauri/gen/android/app/build/outputs/apk -name "*.apk"
+            exit 1
+          fi
+          # ANDR-SIGN-02: never publish an APK signed with any other key. The
+          # expected value is the public certificate's SHA-256 (not a secret).
+          EXPECTED="3ad2ec64ee2a6d395919732b45d34ff070aeadf7238ebf15b0835e52f1cb3737"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          APKSIGNER="$(ls -d "$SDK"/build-tools/*/ | sort -V | tail -1)apksigner"
+          "$APKSIGNER" verify --verbose "$APK" | head -5
+          DIGEST="$("$APKSIGNER" verify --print-certs "$APK" | grep -m1 'certificate SHA-256 digest' | awk '{print $NF}')"
+          if [ "$DIGEST" != "$EXPECTED" ]; then
+            echo "::error::APK is signed with $DIGEST, expected $EXPECTED. Not publishing."
+            exit 1
+          fi
+          echo "APK signature verified: $DIGEST"
+          cp "$APK" "dist-apk/Paperling_${VERSION}_aarch64.apk"
+          gh release upload "v${VERSION}" "dist-apk/Paperling_${VERSION}_aarch64.apk" --clobber

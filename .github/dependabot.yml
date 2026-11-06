@@ -1,0 +1,108 @@
+# Dependabot config for the four ecosystems this repo actually uses.
+#
+# The important detail is the frontend ecosystem: every workflow installs with
+# `bun install --frozen-lockfile`, so bun.lock is the lockfile of record and the
+# ecosystem here must be `bun`, not `npm`. An `npm` entry updates package.json
+# alongside package-lock.json, which bun's frozen check then rejects with
+# "lockfile had changes, but lockfile is frozen" — every such PR failed CI on
+# all four platforms and could never merge. The `bun` ecosystem updates
+# package.json and bun.lock together, so the frozen check passes.
+#
+# Trade-off worth knowing: Dependabot supports version updates for bun but not
+# security updates, so npm vulnerabilities no longer get an automatic fix PR.
+# Detection is unaffected — bun.lock is parsed into the dependency graph, so
+# Dependabot alerts still fire, and CI's osv-scan job reads bun.lock directly.
+# Nothing was lost that previously worked, since those fix PRs never merged.
+#
+# Updates are grouped so a routine week is one PR per ecosystem instead of a
+# dozen. Major bumps stay ungrouped so each gets reviewed on its own.
+version: 2
+
+updates:
+  # ─── Frontend (Tauri app) ─────────────────────────────────────
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(deps)
+    # katex is pinned on purpose. rehype-katex renders with its own
+    # `katex ^0.16` dependency, while the app imports katex's CSS and the
+    # mhchem extension (which patches `../katex.mjs`, the top-level copy). A
+    # 0.17+ top-level katex splits them: formulas render with 0.16 against
+    # newer CSS, and \ce chemistry stops working. Lift this together with a
+    # rehype-katex release that accepts the newer line.
+    ignore:
+      - dependency-name: katex
+        versions: [">=0.17.0"]
+    groups:
+      frontend:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # ─── Docs site (Astro) ────────────────────────────────────────
+  - package-ecosystem: bun
+    directory: /docs
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(deps)
+    # `astro check` needs TypeScript's programmatic API, which the native
+    # TypeScript 7 compiler does not ship yet (#246 failed on exactly that).
+    # Lift once @astrojs/check supports 7.x.
+    ignore:
+      - dependency-name: typescript
+        versions: [">=7.0.0"]
+    groups:
+      docs:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # ─── Rust (Tauri backend) ─────────────────────────────────────
+  # Cargo does support security updates, so this ecosystem keeps getting
+  # automatic fix PRs on top of the weekly version bumps.
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      cargo:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # ─── GitHub Actions ───────────────────────────────────────────
+  # ci.yml pins osv-scanner-action to a tag and notes that Dependabot keeps it
+  # current. That was only ever true in principle: with no config file the
+  # github-actions ecosystem was never enabled. This entry makes it real.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci(deps)
+    groups:
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

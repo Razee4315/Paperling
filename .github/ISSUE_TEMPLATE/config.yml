@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Questions & ideas
+    url: https://github.com/Razee4315/Paperling/discussions
+    about: Ask questions, share setups, or float an idea before opening an issue.
+  - name: 📥 Download Paperling
+    url: https://github.com/Razee4315/Paperling/releases/latest
+    about: Get the latest release for Windows or Linux.
+  - name: 🗺️ Roadmap
+    url: https://github.com/Razee4315/Paperling/blob/main/ROADMAP.md
+    about: See what's planned and where you can help.

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState, useTransition, memo, createContext, useContext } from "react";
 import { flushSync } from "react-dom";
-import Markdown, { defaultUrlTransform } from "react-markdown";
+import Markdown, { defaultUrlTransform, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkFlexibleMarkers from "remark-flexible-markers";
 import remarkSupersub from "../utils/remarkSupersub";
@@ -14,14 +14,31 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { parseFrontmatter, serializeFrontmatter, type FrontmatterValue } from "../utils/frontmatter";
 import { IS_MOBILE } from "../utils/platform";
+import { createLocalImageCache } from "../utils/localImageCache";
+import { writeCleanSelection } from "../utils/previewCopy";
 import { lineToOffset, offsetToLine, type AnchorList, type Scroller } from "../utils/scrollSync";
 import { MermaidBlock, isMermaidLanguage } from "./MermaidBlock";
 import { wikilinkLabel } from "../utils/wikilinkAnchor";
 import remarkNoteSyntax, { stripNoteComments } from "../utils/remarkNoteSyntax";
 import { splitMarkdownBlocks } from "../utils/markdownBlocks";
+import { isUnsafeRelativePath } from "../utils/documentPaths";
+import { slugify } from "../utils/outline";
+import { isTocMarker, tocMarkdown } from "../utils/tableOfContents";
+import { hasEmojiShortcode, loadEmojiNames, rehypeEmoji, type EmojiNames } from "../utils/emoji";
 import { getRemoteImages, getReaderEditing } from "../utils/persistence";
 import { useReaderEditor } from "../hooks/useReaderEditor";
 import { matchesBinding } from "../config/keybindings";
+import { orderedListMarkerCharacters } from "../utils/orderedListMarkers";
+
+function OrderedList({ node, children, style, ...props }: React.ComponentProps<"ol"> & ExtraProps) {
+    const values = (node?.children ?? []).flatMap((child) =>
+        child.type === "element" && child.tagName === "li"
+            ? [typeof child.properties.value === "number" || typeof child.properties.value === "string" ? child.properties.value : undefined]
+            : [],
+    );
+    const characters = orderedListMarkerCharacters(props.start, values, props.reversed);
+    return <ol {...props} style={{ ...style, "--ordered-list-marker-characters": characters } as React.CSSProperties}>{children}</ol>;
+}
 
 // Detect KaTeX-style math so we only load the heavy katex bundle when needed.
 // $$...$$ for block math, $...$ for inline math (not preceded/followed by digit
@@ -213,6 +230,10 @@ function topSourceLine(container: HTMLElement): number | null {
     return sourceLineOf(blocks[ans]);
 }
 
+// .preview-column's px-8, both sides: the margin a wide code block keeps from
+// the pane's edges. RLL-02.
+const PREVIEW_GUTTERS_PX = 64;
+
 type PluginPair = { remark: unknown; rehype: unknown };
 let mathPluginsCache: PluginPair | null = null;
 let mathLoadPromise: Promise<PluginPair> | null = null;
@@ -268,19 +289,6 @@ interface MarkdownPreviewProps {
      *  line (null when cleared), so Ctrl+E can put the caret on it. MODE-03. */
     onReaderSelection?: (sel: { line: number; text: string } | null) => void;
 }
-
-/** Slugify heading text into a stable, URL-safe id (GitHub-style). Unicode
- *  letters/digits (CJK, Cyrillic, accented Latin) are kept so those headings
- *  get distinct anchors and in-document links can resolve — the old ASCII-only
- *  class collapsed every CJK heading to `section`, `section-1`, … (NAV-06). */
-const slugify = (text: string): string =>
-    text
-        .toLowerCase()
-        .trim()
-        .replace(/[^\p{L}\p{N}\s-]/gu, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "");
 
 /* ---------- Wikilink pre-processing (NAV-08) ---------- */
 
@@ -355,57 +363,24 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
     'bmp': 'image/bmp'
 };
 
-// Module-level shared cache for local image blobs. Without this, a doc that
-// references the same image 50 times reads the file 50 times and creates 50
-// independent ObjectURLs. With it, repeat references hit memory.
-//
-// LRU eviction at CACHE_CAP entries: the Map preserves insertion order, so we
-// re-insert on hit (move to end) and evict from the front when full. Evicted
-// URLs are revoked so the image data can be GC'd.
-const LOCAL_IMAGE_CACHE = new Map<string, string>();
-const LOCAL_IMAGE_CACHE_CAP = 100;
-
-async function getCachedLocalImageUrl(baseDir: string, relPath: string, mimeType: string): Promise<string> {
-    const cacheKey = `${baseDir}\u0000${relPath}`;
-    const hit = LOCAL_IMAGE_CACHE.get(cacheKey);
-    if (hit !== undefined) {
-        // Move-to-end so this entry is now most-recently-used.
-        LOCAL_IMAGE_CACHE.delete(cacheKey);
-        LOCAL_IMAGE_CACHE.set(cacheKey, hit);
-        return hit;
-    }
-    // Read via the validated Rust command (containment + symlink-safe) instead of
-    // the broad plugin-fs readFile. Returns an ArrayBuffer (tauri::ipc::Response).
-    const buf = await invoke<ArrayBuffer>("read_image_file", { baseDir, relPath });
-    const blob = new Blob([buf], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    LOCAL_IMAGE_CACHE.set(cacheKey, url);
-    if (LOCAL_IMAGE_CACHE.size > LOCAL_IMAGE_CACHE_CAP) {
-        const oldestKey = LOCAL_IMAGE_CACHE.keys().next().value;
-        if (oldestKey !== undefined) {
-            const oldUrl = LOCAL_IMAGE_CACHE.get(oldestKey);
-            if (oldUrl) URL.revokeObjectURL(oldUrl);
-            LOCAL_IMAGE_CACHE.delete(oldestKey);
-        }
-    }
-    return url;
-}
-
-/**
- * Reject paths that would escape the markdown file's directory or name an
- * absolute location. The capabilities allow `**` reads, so we have to enforce
- * the boundary in code: a malicious .md must not be able to use
- * `![pwn](../../../etc/passwd)` to peek at arbitrary files.
- */
-function isUnsafeRelativePath(p: string): boolean {
-    if (!p) return true;
-    if (/\0/.test(p)) return true;
-    // Absolute paths: leading slash, leading backslash, or drive letter.
-    if (/^([a-zA-Z]:|\/|\\)/.test(p)) return true;
-    // Any segment that is exactly `..` (handles foo/../etc, ../etc, etc.).
-    const segments = p.split(/[/\\]+/);
-    return segments.some((seg) => seg === "..");
-}
+// Module-level shared cache for local image blobs, revalidated by mtime so an
+// image rewritten on disk shows its new version. See localImageCache. IMG-04.
+const getCachedLocalImageUrl = createLocalImageCache({
+    stat: (path) =>
+        invoke<{ modified: number } | null>("get_file_info", { path }).then(
+            // A null reply (browser mode, or a mocked backend) means "unknown
+            // mtime", not a crash: the cached copy stays and the read below
+            // still reports a genuinely missing file.
+            (info) => info?.modified ?? null,
+            () => null,
+        ),
+    // Read via the validated Rust command (containment + symlink-safe) instead
+    // of the broad plugin-fs readFile. Returns an ArrayBuffer
+    // (tauri::ipc::Response).
+    read: (baseDir, relPath) => invoke<ArrayBuffer>("read_image_file", { baseDir, relPath }),
+    createUrl: (blob) => URL.createObjectURL(blob),
+    revokeUrl: (url) => URL.revokeObjectURL(url),
+});
 
 /**
  * Turn a markdown-derived URL back into a filesystem path.
@@ -456,9 +431,27 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
         return () => window.removeEventListener("paperling:remote-images-toggle", onToggle);
     }, []);
 
+    // Bumped on window focus so local images re-check their file, matching
+    // the document's own focus-time external-change check. IMG-04.
+    const [refreshTick, setRefreshTick] = useState(0);
     useEffect(() => {
-        setImageSrc("");
-        setError(false);
+        const onFocus = () => setRefreshTick((n) => n + 1);
+        window.addEventListener("focus", onFocus);
+        return () => window.removeEventListener("focus", onFocus);
+    }, []);
+
+    // Only a different image (or base folder) clears what is shown; a refresh
+    // keeps the current picture up until the re-checked one is ready, so a
+    // focus doesn't flash every image back to its loading skeleton.
+    const shownKeyRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        const shownKey = `${baseDir}\u0000${src}\u0000${blocked}`;
+        if (shownKeyRef.current !== shownKey) {
+            shownKeyRef.current = shownKey;
+            setImageSrc("");
+            setError(false);
+        }
         if (!src || blocked) return;
 
         // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
@@ -520,7 +513,7 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             // Don't revoke the URL — the cache owns it. Cache eviction handles
             // revocation when the entry is pushed out by LRU pressure.
         };
-    }, [src, baseDir, blocked]);
+    }, [src, baseDir, blocked, refreshTick]);
 
     // IMG-03 (#224): HTTPS is permitted by CSP, with a per-image opt-in when
     // automatic loading is off. Plain HTTP remains blocked in every build.
@@ -604,7 +597,8 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) 
     };
 
     return (
-        <div className="relative group">
+        <div className="code-block">
+        <div className="code-block-inner relative group">
             <button
                 type="button"
                 onClick={handleCopy}
@@ -617,6 +611,7 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) 
                 {copied ? "Copied!" : "Copy"}
             </button>
             <pre ref={ref} {...rest}>{children}</pre>
+        </div>
         </div>
     );
 }
@@ -862,6 +857,25 @@ const TableRenderer = ({ node, ...props }: React.HTMLAttributes<HTMLTableElement
 /** One independently rendered markdown block (PERF-02). Memoized on its text
  *  and the (stable) plugin/renderer sets, so an edit elsewhere in the document
  *  never re-parses it. */
+/** What a `[TOC]` paragraph renders. Context, so it follows heading edits in
+ *  other blocks without re-rendering the marker's whole block. */
+const TocContext = createContext<{ markdown: string; remarkPlugins: unknown[]; rehypePlugins: unknown[]; components: Record<string, unknown> } | null>(null);
+
+/**
+ * `[TOC]` swaps at the paragraph, not by rewriting the source text: the block
+ * must keep its line count, or data-source-line would point the Reader's
+ * in-place editing at the wrong lines. The list carries no line anchors, and
+ * <nav> is not a block Reader editing accepts. TOC-05.
+ */
+function TocBlock(props: React.HTMLAttributes<HTMLElement>) {
+    const toc = useContext(TocContext);
+    return (
+        <nav {...props} className="md-toc" aria-label="Table of contents">
+            {toc?.markdown && <MarkdownBlock text={toc.markdown} remarkPlugins={toc.remarkPlugins} rehypePlugins={toc.rehypePlugins} components={toc.components} />}
+        </nav>
+    );
+}
+
 const MarkdownBlock = memo(function MarkdownBlock({
     text,
     remarkPlugins,
@@ -1142,6 +1156,7 @@ function MarkdownPreviewImpl({
             );
         },
         pre: PreRenderer,
+        ol: OrderedList,
         table: TableRenderer,
         h1: H1Renderer,
         h2: H2Renderer,
@@ -1153,6 +1168,10 @@ function MarkdownPreviewImpl({
         // The li node is a real source node and always carries a position; the
         // checkbox <input> is SYNTHESIZED by remark-gfm and carries none, so the
         // line must come from here (PREVIEW-07).
+        p: ({ node, children, ...rest }: React.HTMLAttributes<HTMLParagraphElement> & { node?: unknown }) => {
+            void node;
+            return typeof children === "string" && isTocMarker(children) ? <TocBlock {...rest} /> : <p {...rest}>{children}</p>;
+        },
         li: ({ node, children, ...rest }: React.LiHTMLAttributes<HTMLLIElement> & { node?: { position?: { start?: { line?: number } } } }) => (
             <li {...rest}>
                 <TaskLineContext.Provider value={node?.position?.start?.line ?? null}>
@@ -1218,6 +1237,15 @@ function MarkdownPreviewImpl({
         return () => { cancelled = true; };
     }, [renderBody, mathPlugins]);
 
+    // Same for the emoji table, once a document looks like it has a :shortcode:.
+    const [emojiNames, setEmojiNames] = useState<EmojiNames | null>(null);
+    useEffect(() => {
+        if (emojiNames || !hasEmojiShortcode(renderBody)) return;
+        let cancelled = false;
+        loadEmojiNames().then((names) => { if (!cancelled) setEmojiNames(names); }).catch(() => { /* shortcodes stay as text */ });
+        return () => { cancelled = true; };
+    }, [renderBody, emojiNames]);
+
     // Order matters: GFM first (its tokenizer must own `~~strike~~` before
     // the supersub text pass sees single tildes), math next when active
     // (`$a~b$` becomes an inlineMath node the text-level plugins skip), then the
@@ -1234,8 +1262,10 @@ function MarkdownPreviewImpl({
         const base = mathPlugins
             ? [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], mathPlugins.rehype, [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds]
             : [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds];
+        // rehypeEmoji stays behind rehypeHeadingIds: see utils/emoji.ts.
+        if (emojiNames) base.push([rehypeEmoji, { names: emojiNames }]);
         return textDirection === "auto" ? [...base, rehypeBlockDirection] : base;
-    }, [mathPlugins, textDirection]);
+    }, [mathPlugins, textDirection, emojiNames]);
 
     // Render the heavy markdown tree from a deferred copy of the body, updated
     // inside a transition. A burst of edits (already coalesced by App's debounce)
@@ -1278,6 +1308,15 @@ function MarkdownPreviewImpl({
     // Top-level blocks of the body (null = render it whole, e.g. footnotes).
     // PERF-02.
     const blocks = useMemo(() => splitMarkdownBlocks(renderedBody), [renderedBody]);
+    const tocValue = useMemo(
+        () => ({
+            markdown: /\[toc\]/i.test(renderedBody) ? tocMarkdown(renderedBody) : "",
+            remarkPlugins,
+            rehypePlugins: emojiNames ? [[rehypeEmoji, { names: emojiNames }]] : [],
+            components,
+        }),
+        [renderedBody, remarkPlugins, components, emojiNames],
+    );
     useLayoutEffect(() => {
         mainRef.current?.querySelectorAll<HTMLElement>("[data-source-line]").forEach((element) => {
             if (readerEditing) element.setAttribute("tabindex", "0");
@@ -1345,11 +1384,19 @@ function MarkdownPreviewImpl({
     // resize) and whenever the rendered body changes height. ResizeObserver fires
     // on box-size changes; the renderedBody effect covers content growth (which
     // changes scrollHeight without changing the element's own box). PREVIEW-04.
+    // The same observer publishes the pane's usable width, the limit a wide code
+    // block may grow to past the reading column (.code-block-inner, RLL-02).
     useEffect(() => {
         refreshScrollMax();
         const el = mainRef.current;
         if (!el || typeof ResizeObserver === "undefined") return;
-        const ro = new ResizeObserver(refreshScrollMax);
+        const onResize = () => {
+            refreshScrollMax();
+            // Zero width: the pane is hidden (Code view), nothing to measure.
+            if (el.clientWidth > 0) el.style.setProperty("--preview-wide-max", `${el.clientWidth - PREVIEW_GUTTERS_PX}px`);
+        };
+        onResize();
+        const ro = new ResizeObserver(onResize);
         ro.observe(el);
         return () => ro.disconnect();
     }, [refreshScrollMax]);
@@ -1591,6 +1638,9 @@ function MarkdownPreviewImpl({
                     </form>}
                     {reader.notice && <span role="status">{reader.notice}</span>}
                 </div>}
+                {/* The horizontal last-resort clip lives here, at pane width, so a
+                    wide code block can leave the reading column. RLL-02. */}
+                <div className="preview-clip">
                 <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 pt-12 pb-28`}>
                     {hasFrontmatter && (
                         <FrontmatterCard
@@ -1610,6 +1660,11 @@ function MarkdownPreviewImpl({
                         onDoubleClick={(event) => startReaderEditing(event.target as HTMLElement, { x: event.clientX, y: event.clientY })}
                         onFocus={(event) => reader.begin(event.target as HTMLElement)}
                         onInput={() => reader.write()}
+                        // Copy without the icon-font text of heading/code
+                        // controls ("Headlinelink"). COPY-01.
+                        onCopy={(event) => {
+                            if (writeCleanSelection(window.getSelection(), event.currentTarget, event.clipboardData)) event.preventDefault();
+                        }}
                         onPaste={(event) => {
                             if (!reader.active) return;
                             event.preventDefault();
@@ -1629,6 +1684,7 @@ function MarkdownPreviewImpl({
                             if (tag) window.dispatchEvent(new CustomEvent("paperling:search", { detail: { query: `#${tag}` } }));
                         }}
                     >
+                        <TocContext.Provider value={tocValue}>
                         {blocks ? (
                             // Block-by-block (PERF-02): each wrapper is
                             // display:contents (no layout box) and carries the
@@ -1654,7 +1710,9 @@ function MarkdownPreviewImpl({
                                 />
                             </div>
                         )}
+                        </TocContext.Provider>
                     </div>
+                </div>
                 </div>
             </main>
 

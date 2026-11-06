@@ -146,6 +146,8 @@ const zhCN: Dict = {
         deleteFailed: "无法删除",
         pickerUnavailable: "此版本中没有可用的系统文件选择器",
         moveToTrash: "移到回收站",
+        filterPlaceholder: "筛选此文件夹",
+        filterAria: "筛选此文件夹中的文件",
     },
 
     toc: {
@@ -248,6 +250,8 @@ const zhCN: Dict = {
             `选中：${Number(p.words).toLocaleString()} 词、${Number(p.chars).toLocaleString()} 字符`,
         charsTitle: (p: Record<string, string | number>) => `${Number(p.count).toLocaleString()} 字符`,
         readingTimeTitle: "按每分钟 200 词估算的阅读时间",
+        encodingTitle: "文件编码。保存时会沿用。",
+        encodingAria: (p: Record<string, string | number>) => `文件编码：${p.encoding}`,
         readingTime: (p: Record<string, string | number>) => {
             const min = Number(p.min);
             if (min < 1) return "阅读时间不足 1 分钟";
@@ -322,6 +326,25 @@ const zhCN: Dict = {
         formats: "导出格式",
         word: "Word (.docx)",
         nothing: "暂无可导出的内容",
+        copyRich: "复制为富文本",
+        copyHtml: "复制为 HTML",
+        copyRichTitle: "粘贴到 Word、Gmail 或 Google 文档时保留格式",
+    },
+
+    // 文件的旧版本（HIST-01）。
+    history: {
+        title: "文件历史：{name}",
+        hint: "保存在这台电脑上。红色是该版本原有的内容，绿色是你之后新增的内容。",
+        empty: "还没有更早的版本。每次打开或保存这个文件时，Paperling 都会保留一份副本。",
+        versions: "版本",
+        opened: "打开时",
+        saved: "保存时",
+        beforeRestore: "恢复前",
+        lines: (p: Record<string, string | number>) => `${Number(p.count)} 行`,
+        current: "当前",
+        sameAsCurrent: "与你当前的文本相同",
+        close: "关闭",
+        restore: "恢复此版本",
     },
 
     zen: {
@@ -397,6 +420,9 @@ const zhCN: Dict = {
             replace: "查找和替换",
             selectNextOccurrence: "选中下一个匹配项",
             toggleTask: "切换任务复选框",
+            strikethrough: "删除线",
+            inlineCode: "行内代码",
+            toggleWordWrap: "切换自动换行",
             navBack: "返回（跟随链接后）",
             navForward: "前进",
         },
@@ -427,6 +453,7 @@ const zhCN: Dict = {
             outdent: "取消缩进，或把列表项升一级",
             listContinue: "继续列表、引用或任务项（在空的嵌套项上：跳出到上一层）",
             followLink: "跟随指针下的链接或 [[双链]]",
+            foldSection: "折叠／展开章节、列表或代码块",
             moveLine: "上移／下移当前行",
             duplicateLine: "复制当前行",
             deleteLine: "删除当前行",
@@ -490,7 +517,7 @@ const zhCN: Dict = {
 
         keywords: {
             appearance: "主题 外观 深色 浅色 纸张 午夜 强调色 配色 字体 字号 自定义 语言 中文 英文 interface chinese english",
-            editor: "打字机 工具栏 自动换行 拼写检查 vim 自动保存 阅读模式 可读行宽 分栏 预览 禅模式 文字方向 从右到左 rtl ltr 阿拉伯语 希伯来语 波斯语 乌尔都语",
+            editor: "文件历史 历史版本 备份 恢复 自定义样式 css 折叠 实时预览 隐藏标记 语法 打字机 工具栏 自动换行 拼写检查 vim 自动保存 阅读模式 可读行宽 分栏 预览 禅模式 文字方向 从右到左 rtl ltr 阿拉伯语 希伯来语 波斯语 乌尔都语",
             shortcuts: "快捷键 键位 热键 重新绑定 新建 打开 保存 关闭 标签页 命令面板 跳转到行 切换 分栏 禅模式 全屏 资源管理器 大纲 搜索 设置 加粗 斜体 链接 引用 查找 替换 选择下一个匹配项",
             ai: "ai 助手 接口 模型 密钥 服务商 对话历史 openai ollama anthropic 人工智能",
             about: "关于 版本 更新 引导 教程 帮助 许可证",
@@ -521,6 +548,10 @@ const zhCN: Dict = {
         fontSizeLarge: "大",
         fontSizeXlarge: "特大",
 
+        folding: "折叠箭头",
+        foldingHint: "在标题、列表和代码块旁显示箭头，用来折叠内容",
+        customCss: "自定义 CSS",
+        customCssHint: "你自己的样式，作用于整个应用。页面用 .markdown-body，编辑器用 .cm-editor 定位",
         typewriter: "打字机模式",
         typewriterHint: "光标始终保持在垂直方向居中",
         toolbar: "显示格式工具栏",
@@ -539,6 +570,12 @@ const zhCN: Dict = {
         openInReaderHint: "每个文件都先进入阅读模式，编辑只差一次点击",
         reopenSession: "启动时恢复上次会话",
         reopenSessionHint: "启动时恢复已保存的标签页。未保存的内容始终会恢复",
+        keepHistory: "保留文件历史",
+        keepHistoryHint: "在这台电脑上保存文件的旧版本，保留 30 天。可在命令面板中用“文件历史”找到",
+        clearHistory: "清除文件历史",
+        clearHistoryHint: "删除所有已保存的版本，不会动你的文件",
+        clear: "清除",
+        cleared: "已清除",
         readableLength: "可读行宽",
         readableLengthHint: "把正文列居中到舒适的宽度（类似 Obsidian）。关闭后预览占满窗口",
         readerEditing: "在阅读模式中编辑文字",
@@ -602,11 +639,12 @@ const zhCN: Dict = {
         aiTest: "测试连接",
         aiTesting: "测试中…",
         aiTestOk: "✓ 连接正常",
-        aiPrivacyLead: "隐私：你选中的文本会",
-        aiPrivacyUnencrypted: "以明文",
-        aiPrivacyMid: "发送到上面配置的接口。涉及私密笔记时请使用本地服务（例如 ",
+        aiPrivacyLead:
+            "隐私：AI 面板的消息会把整篇打开的文档（连同聊天记录）发送到上面配置的接口；“解释”气泡只发送选中的文本。纯 http 接口",
+        aiPrivacyUnencrypted: "未加密",
+        aiPrivacyMid: " —— API 密钥不会通过 http 发送到非本地主机。涉及私密笔记时请使用本地服务（例如 ",
         aiPrivacyTail:
-            "），这样数据不会离开你的电脑。API 密钥保存在操作系统的凭据库中（Windows 凭据管理器、macOS 钥匙串或 Linux Secret Service），不以明文存储。",
+            "），这样任何数据都不会离开你的电脑。API 密钥保存在操作系统的钥匙串（Windows 凭据管理器、macOS 钥匙串或 Linux Secret Service）中，而不是明文。",
 
         aboutTagline: "无需配置的 Markdown 阅读与编辑器",
         aboutBuiltWith: "使用 Tauri + React + TypeScript 构建。",

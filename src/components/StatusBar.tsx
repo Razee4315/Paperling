@@ -24,6 +24,8 @@ interface StatusBarProps {
     savePulse?: number;
     /** Makes the "Unsaved" indicator a button that saves. CHROME-02. */
     onSave?: () => void;
+    /** The file's encoding when it isn't plain UTF-8. ENC-05. */
+    encoding?: string | null;
 }
 
 // The wording (and the inflections) live in the dictionary: Chinese does not
@@ -49,6 +51,7 @@ function StatusBarImpl({
     selectionWordCount = 0,
     savePulse = 0,
     onSave,
+    encoding = null,
 }: StatusBarProps) {
     const { t } = useI18n();
     const hasSelection = selectionLength > 0;
@@ -135,6 +138,15 @@ function StatusBarImpl({
                     // they grow while typing. RLL-05.
                     <div className="min-w-[6.5rem] text-right hover:text-[var(--text-primary)] cursor-default transition-colors">
                         {t("statusBar.lineCol", { line: lineNumber, column: columnNumber })}
+                    </div>
+                )}
+                {encoding && (
+                    <div
+                        className="hover:text-[var(--text-primary)] cursor-default transition-colors"
+                        title={t("statusBar.encodingTitle")}
+                        aria-label={t("statusBar.encodingAria", { encoding })}
+                    >
+                        {encoding}
                     </div>
                 )}
                 {wordCount !== undefined && (

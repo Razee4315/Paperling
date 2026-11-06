@@ -1,12 +1,13 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 import { __resetBootForTests, useFileSession, type UseFileSessionOptions } from "./useFileSession";
 import { setReopenSession } from "../utils/persistence";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }));
 
 afterEach(cleanup);
 
@@ -165,6 +166,46 @@ describe("useFileSession", () => {
     expect(result.current.content).toBe("my first note");
   });
 
+  it("keeps a file's encoding through a rename (ENC-03)", async () => {
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "read_file" && args?.path) return Promise.resolve({ ...files.get(args.path), encoding: "utf-16le" });
+      if (command === "get_file_info") return Promise.resolve({ modified: 10 });
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/a.md"));
+    act(() => result.current.setContent("edited"));
+
+    act(() => {
+      result.current.retargetPaths("C:/a.md", "C:/renamed.md");
+    });
+    await act(() => result.current.handleSaveFile());
+
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/renamed.md", content: "edited", encoding: "utf-16le" });
+  });
+
+  it("a background tab's autosave never asks about its encoding (ENC-04)", async () => {
+    (ask as Mock).mockReset();
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "read_file" && args?.path) return Promise.resolve({ ...files.get(args.path), encoding: "windows-1252" });
+      if (command === "get_file_info") return Promise.resolve({ modified: 10 });
+      if (command === "save_file") return Promise.reject("Unrepresentable text: windows-1252 cannot store U+4E2D");
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options({ autoSaveEnabled: true })));
+    await act(() => result.current.loadFile("C:/a.md"));
+    act(() => result.current.setContent("中"));
+    await act(() => result.current.loadFile("C:/b.md"));
+
+    await waitFor(
+      () => expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/a.md", content: "中", encoding: "windows-1252" }),
+      { timeout: 3000 },
+    );
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(result.current.tabs.find((tab) => tab.filePath === "C:/a.md")?.content).toBe("中");
+  });
+
   it("a save that finds the file changed on disk raises the conflict, and leaving the tab parks it (EXT-04/06)", async () => {
     let diskMtime = 20;
     (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
@@ -194,6 +235,170 @@ describe("useFileSession", () => {
     act(() => result.current.handleConflictKeepMine());
     await act(() => result.current.handleSaveFile());
     expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/b.md", content: "my bravo edits" });
+  });
+
+  it("a save on a file that never reports mtime compares content instead of writing blind (EXT-10)", async () => {
+    // FAT/network-style filesystem: the file's mtime comes back 0 from open,
+    // stat AND save. The mtime guard can't decide, so the pre-write check
+    // reads the file: identical content writes, an external edit raises the
+    // conflict, and Keep-mine grants exactly one write.
+    let externalChanged = false;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "read_file" && args?.path === "C:/m.md") {
+        return Promise.resolve({
+          path: "C:/m.md",
+          name: "m.md",
+          content: externalChanged ? "external" : "base",
+          size: 4,
+          line_count: 1,
+          modified: 0,
+        });
+      }
+      if (command === "get_file_info") return Promise.resolve({ modified: 0 });
+      if (command === "save_file") return Promise.resolve(0); // even saves can't report mtime
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/m.md"));
+    act(() => result.current.setContent("my edits"));
+
+    // No external change: the content comparison passes and the write lands.
+    await act(() => result.current.handleSaveFile());
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/m.md", content: "my edits" });
+
+    // An external edit on the mtime-less file must NOT be silently
+    // overwritten by the next save — the exact hole EXT-10 closed.
+    externalChanged = true;
+    act(() => result.current.setContent("my edits v2"));
+    await act(() => result.current.handleSaveFile());
+    expect(result.current.conflictPrompt?.fileName).toBe("m.md");
+    expect(invoke).not.toHaveBeenCalledWith("save_file", { path: "C:/m.md", content: "my edits v2" });
+
+    // Keep mine on an mtime-less file grants one write; a later external
+    // change would ask again (the grant is consumed, not permanent).
+    act(() => result.current.handleConflictKeepMine());
+    await act(() => result.current.handleSaveFile());
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "C:/m.md", content: "my edits v2" });
+  });
+
+  it("an external reload keeps what the user typed while the file was being read (EXT-09)", async () => {
+    let releaseRead: (() => void) | null = null;
+    let diskMtime = 10;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "get_file_info") return Promise.resolve({ modified: diskMtime });
+      if (command === "read_file" && args?.path) {
+        const data = diskMtime === 10 ? files.get(args.path) : { ...files.get(args.path)!, content: "alpha from agent", modified: diskMtime };
+        if (diskMtime === 10) return Promise.resolve(data);
+        return new Promise((resolve) => { releaseRead = () => resolve(data); });
+      }
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/a.md"));
+
+    diskMtime = 50; // an agent rewrote a.md
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(releaseRead).not.toBeNull();
+    act(() => result.current.setContent("alpha, typed during the read"));
+    await act(async () => {
+      releaseRead!();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(result.current.content).toBe("alpha, typed during the read");
+    expect(result.current.conflictPrompt?.fileName).toBe("a.md");
+  });
+
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const fireFocus = () => act(async () => { window.dispatchEvent(new Event("focus")); await tick(); });
+
+  it("a tab switch during the disk check keeps the left tab's unsaved text and stays put (EXT-11)", async () => {
+    // b.md is newer than a.md, so its stat compared against a.md's mtime looked
+    // like a change on disk: the app jumped back and reloaded b.md over the edits.
+    let answerStat: ((info: { modified: number }) => void) | null = null;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "get_file_info" && args?.path === "C:/b.md") {
+        return new Promise((resolve) => { answerStat = resolve; });
+      }
+      if (command === "read_file" && args?.path) return Promise.resolve(files.get(args.path));
+      return Promise.resolve({ modified: 10 });
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/a.md"));
+    const aId = result.current.activeTabId!;
+    await act(() => result.current.loadFile("C:/b.md"));
+    const bId = result.current.activeTabId!;
+    act(() => result.current.setContent("bravo, not saved yet"));
+
+    await fireFocus();
+    expect(answerStat).not.toBeNull();
+    act(() => result.current.activateTab(aId));
+    (invoke as Mock).mockClear();
+    await act(async () => { answerStat!({ modified: 20 }); await tick(); });
+
+    expect(result.current.activeTabId).toBe(aId);
+    expect(result.current.conflictPrompt).toBeNull();
+    expect(invoke).not.toHaveBeenCalledWith("read_file", expect.anything());
+    expect(result.current.tabs.find((tab) => tab.id === bId)?.content).toBe("bravo, not saved yet");
+  });
+
+  it("a watcher reload still reading when the user leaves the tab is dropped (EXT-11)", async () => {
+    let releaseRead: (() => void) | null = null;
+    let diskMtime = 10;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "get_file_info") return Promise.resolve({ modified: args?.path === "C:/a.md" ? diskMtime : 20 });
+      if (command === "read_file" && args?.path) {
+        if (diskMtime === 10 || args.path !== "C:/a.md") return Promise.resolve(files.get(args.path));
+        return new Promise((resolve) => {
+          releaseRead = () => resolve({ ...files.get(args.path!)!, content: "alpha from agent", modified: diskMtime });
+        });
+      }
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/b.md"));
+    const bId = result.current.activeTabId!;
+    await act(() => result.current.loadFile("C:/a.md"));
+
+    diskMtime = 50;
+    await fireFocus();
+    expect(releaseRead).not.toBeNull();
+    act(() => result.current.activateTab(bId));
+    await act(async () => { releaseRead!(); await tick(); });
+
+    expect(result.current.activeTabId).toBe(bId);
+    expect(result.current.content).toBe("bravo");
+  });
+
+  it("a save judges its own file even if the user switches tabs during the stat (EXT-11)", async () => {
+    // a.md was edited outside (15, newer than its known 10), but older than
+    // b.md's 20. Measured against b.md's baseline the guard saw no change and
+    // the save overwrote the external edit.
+    let answerStat: ((info: { modified: number }) => void) | null = null;
+    let armed = false;
+    (invoke as Mock).mockImplementation((command: string, args?: { path?: string }) => {
+      if (command === "get_file_info" && armed) return new Promise((resolve) => { answerStat = resolve; });
+      if (command === "read_file" && args?.path) return Promise.resolve(files.get(args.path));
+      return Promise.resolve(30);
+    });
+    const { result } = renderHook(() => useFileSession(options()));
+    await act(() => result.current.loadFile("C:/b.md"));
+    const bId = result.current.activeTabId!;
+    await act(() => result.current.loadFile("C:/a.md"));
+    act(() => result.current.setContent("alpha edited"));
+
+    armed = true;
+    let saving: Promise<unknown> | undefined;
+    await act(async () => { saving = result.current.handleSaveFile(); await tick(); });
+    expect(answerStat).not.toBeNull();
+    armed = false;
+    act(() => result.current.activateTab(bId));
+    await act(async () => { answerStat!({ modified: 15 }); await saving; await tick(); });
+
+    expect(invoke).not.toHaveBeenCalledWith("save_file", expect.objectContaining({ path: "C:/a.md" }));
   });
 });
 

@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    # Website, docs and packaging manifests can't break the app build, so a
+    # change that only touches them skips the three-OS build. The website's
+    # own lockfile still triggers it, so the OSV scan sees its dependencies.
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!**.md"
+      - "!packaging/**"
+      - "docs/package.json"
+      - "docs/bun.lock"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!**.md"
+      - "!packaging/**"
+      - "docs/package.json"
+      - "docs/bun.lock"
+
+# Build-only workflow: nothing here publishes, so the jobs get a read-only
+# token even if the repo default is ever loosened.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, windows-11-arm, ubuntu-24.04, macos-latest]
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        # The stable toolchain installs with the minimal profile, which omits
+        # clippy — request it explicitly so the lint step below has it.
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        # Caching is an optimization — a flaky GitHub cache service must never
+        # fail the build (it took down a Windows release once).
+        continue-on-error: true
+        with:
+          workspaces: './src-tauri -> target'
+          # PRs restore main's cache but must not duplicate gigabytes per ref.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.0"
+
+      - name: Install frontend dependencies
+        # --frozen-lockfile makes CI fail if bun.lock doesn't match package.json,
+        # so a PR can't silently swap or add dependencies without an obvious
+        # lockfile diff to review.
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend (tsc + vite)
+        run: bun run build
+
+      - name: Run frontend tests
+        run: bun run test
+
+      # clippy compiles the crate (so it subsumes `cargo check`) while also
+      # failing the build on any lint warning, keeping the Rust side clean.
+      - name: Lint Rust (clippy)
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test Rust
+        working-directory: src-tauri
+        run: cargo test
+
+  # ─── Supply-chain: Rust dependencies ──────────────────────────
+  # Fails the build on a known-vulnerable crate (RUSTSEC advisory), a banned
+  # crate, or a dependency pulled from anywhere other than crates.io. Config
+  # lives in src-tauri/deny.toml. Runs once on Linux (not per-platform) since
+  # it only reads Cargo.lock — it doesn't compile the project.
+  cargo-deny:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.20.2
+
+      - name: Check advisories, bans, and sources
+        run: cargo deny --manifest-path src-tauri/Cargo.toml check advisories bans sources
+
+  # ─── Supply-chain: known-vulnerability scan (npm + Cargo) ─────
+  # Scans every lockfile in the repo against the OSV database and fails on any
+  # package with a known vulnerability. Covers the frontend (bun.lock, both the
+  # app and docs/) and Rust (Cargo.lock) in one pass.
+  #
+  # Tag verified against github.com/google/osv-scanner-action releases; Dependabot
+  # (github-actions ecosystem) will keep it current.
+  osv-scan:
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    with:
+      # Report-only for now: the existing dependency tree already has known npm
+      # advisories, so blocking would fail every PR on pre-existing debt. Results
+      # still upload to the Security tab. Once the current vulns are cleaned up,
+      # set this to true to make it a hard gate on newly-introduced vulnerabilities.
+      fail-on-vuln: false
+      scan-args: |-
+        -r
+        ./

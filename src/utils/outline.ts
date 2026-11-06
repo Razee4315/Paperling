@@ -13,12 +13,27 @@ export interface OutlineHeading {
     text: string;
     level: number;
     line: number;
+    /** The `{#custom-id}` written on the heading, when there is one. */
+    customId?: string;
 }
+
+/** Slugify heading text into a stable, URL-safe id (GitHub-style). Unicode
+ *  letters/digits (CJK, Cyrillic, accented Latin) are kept so those headings
+ *  get distinct anchors and in-document links can resolve — the old ASCII-only
+ *  class collapsed every CJK heading to `section`, `section-1`, … (NAV-06). */
+export const slugify = (text: string): string =>
+    text
+        .toLowerCase()
+        .trim()
+        .replace(/[^\p{L}\p{N}\s-]/gu, "")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "");
 
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const SETEXT_UNDERLINE = /^ {0,3}(=+|-+)[ \t]*$/;
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
-const CUSTOM_ID = /\s*\{#[\w-]+\}\s*$/;
+const CUSTOM_ID = /\s*\{#([\w-]+)\}\s*$/;
 
 /** Can this line be (part of) a setext heading's paragraph? */
 const isParagraphLine = (line: string) =>
@@ -59,7 +74,8 @@ export function extractHeadings(content: string): OutlineHeading[] {
         const atx = line.match(ATX);
         if (atx) {
             const text = clean(atx[2] ?? "");
-            if (text) out.push({ text, level: atx[1].length, line: i + 1 });
+            const customId = atx[2]?.match(CUSTOM_ID)?.[1];
+            if (text) out.push({ text, level: atx[1].length, line: i + 1, ...(customId ? { customId } : {}) });
             paraStart = -1;
             continue;
         }

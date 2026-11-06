@@ -1,12 +1,12 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A minimal, distraction-free Markdown editor with live preview, math, diagrams, and an optional AI assistant.",
   "homepage": "https://github.com/Razee4315/Paperling",
   "license": "Apache-2.0",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Razee4315/Paperling/releases/download/v1.1.0/Paperling_1.1.0_x64-portable.zip",
-      "hash": "1e0e52a256802e1802689d80b8c090f8e462653c65eb53e1993d6fcb3c500010"
+      "url": "https://github.com/Razee4315/Paperling/releases/download/v1.2.0/Paperling_1.2.0_x64-portable.zip",
+      "hash": "2d245edd6f3a36cbbcc170acdf809de130756a3cb2561dfdc127bb601a01c5b8"
     }
   },
   "bin": "Paperling.exe",

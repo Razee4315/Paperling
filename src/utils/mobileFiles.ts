@@ -16,7 +16,7 @@ const ILLEGAL_FILENAME = /[\\/:*?"<>|\u0000-\u001f]/g;
  * - strips illegal characters (replaced with `-`, runs collapsed)
  * - trims whitespace, leading/trailing dots and dashes (Windows-style
  *   trailing-dot hazards, and a name of only dots is not a file)
- * - guarantees the `.md` extension
+ * - guarantees the `.md` extension, leaving an HTML page's own in place
  * - falls back to `Untitled.md` when nothing usable remains
  */
 export function normalizeMarkdownFileName(raw: string): string {
@@ -30,7 +30,7 @@ export function normalizeMarkdownFileName(raw: string): string {
     if (!cleaned) return "Untitled.md";
     // A dot between characters is a name, not an extension: "my.notes" stays,
     // only a MISSING extension gains ".md" (case-insensitive check).
-    return /\.md$/i.test(cleaned) ? cleaned : `${cleaned}.md`;
+    return /\.(md|html?)$/i.test(cleaned) ? cleaned : `${cleaned}.md`;
 }
 
 /**

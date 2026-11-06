@@ -30,6 +30,17 @@ describe("suggestFileName (SAVE-05)", () => {
         expect(suggestFileName("# ...hidden.", "U.md")).toBe("hidden.md");
     });
 
+    it("rejects reserved device names hidden behind a dot-extension", () => {
+        // Legacy Win32 maps the STEM: "CON.x.md" would address the console
+        // device, so the extension must not hide the reserved stem.
+        expect(suggestFileName("# CON.x", "U.md")).toBe("U.md");
+        expect(suggestFileName("# nul.txt", "U.md")).toBe("U.md");
+        expect(suggestFileName("# com1.report", "U.md")).toBe("U.md");
+        // Regular names that merely contain reserved words survive.
+        expect(suggestFileName("# console", "U.md")).toBe("console.md");
+        expect(suggestFileName("# contact", "U.md")).toBe("contact.md");
+    });
+
     it("returns the fallback for an empty note", () => {
         expect(suggestFileName("", "Untitled-2.md")).toBe("Untitled-2.md");
         expect(suggestFileName("\n\n   \n", "Untitled-2.md")).toBe("Untitled-2.md");

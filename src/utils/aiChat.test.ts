@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildAskMessages, parseEdits, streamChat, type ChatMessage } from "./aiChat";
+import { buildAskMessages, maskKeyLikeStrings, parseEdits, streamChat, type ChatMessage } from "./aiChat";
 import { aiFetch } from "./aiTransport";
 import type { AIConfig } from "./aiAssist";
 
@@ -52,6 +52,24 @@ describe("streamChat", () => {
     it("propagates an AbortError from the transport", async () => {
         mockAiFetch.mockRejectedValue(new DOMException("The operation was aborted.", "AbortError"));
         await expect(streamChat(messages, cfg)).rejects.toMatchObject({ name: "AbortError" });
+    });
+});
+
+describe("maskKeyLikeStrings", () => {
+    it("redacts bearer credentials echoed back in an error body", () => {
+        expect(maskKeyLikeStrings("Unauthorized: Bearer sk-proj-abc123DEF456ghi789")).toBe(
+            "Unauthorized: Bearer [redacted]",
+        );
+        expect(maskKeyLikeStrings("api-key: supersecretvalue123")).toBe("api-key [redacted]");
+    });
+
+    it("redacts common vendor key shapes anywhere in the snippet", () => {
+        expect(maskKeyLikeStrings("bad key sk-abcdef1234567890 supplied")).toBe("bad key [redacted] supplied");
+        expect(maskKeyLikeStrings("key AIzaSyA123456789_-xyz refused")).toBe("key [redacted] refused");
+    });
+
+    it("leaves ordinary error text untouched", () => {
+        expect(maskKeyLikeStrings("model 'gpt-x' does not exist")).toBe("model 'gpt-x' does not exist");
     });
 });
 

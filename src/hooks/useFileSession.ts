@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { t } from "../i18n";
-import { readTextFile, saveTextFile } from "../utils/fileIO";
+import { idleWriteToken, readTextFile, retargetEncodings, saveTextFile, type FileEncoding } from "../utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
@@ -8,6 +8,8 @@ import type { ViewMode } from "../components/ModeToggle";
 import type { ToastType } from "./useToast";
 import { useAutosave } from "./useAutosave";
 import { useExternalChangeWatcher } from "./useExternalChangeWatcher";
+import { subscribeExternalChecks, type ExternalCheckTrigger } from "../utils/externalCheck";
+import { decideDiskChange } from "../utils/diskGuard";
 import { IS_MOBILE } from "../utils/platform";
 import { errMessage } from "../utils/errors";
 import { DOWNLOADS_SENTINEL, saveToDownloads } from "../utils/nativePicker";
@@ -37,7 +39,7 @@ import {
 } from "../utils/tabsModel";
 import { loadBufferBackups, saveBufferBackups } from "../utils/bufferBackup";
 import { dirOf, joinPath, lastUsedDirectory, suggestFileName } from "../utils/saveName";
-import { DOCUMENT_EXTENSIONS } from "../utils/documentPaths";
+import { DOCUMENT_EXTENSIONS, isHtmlPath } from "../utils/documentPaths";
 
 interface FileData {
   path: string;
@@ -47,6 +49,8 @@ interface FileData {
   line_count: number;
   /** Last-modified time (ms since epoch) — used to detect external edits. */
   modified: number;
+  /** How the file is stored; fileIO keeps it for the save. ENC-03. */
+  encoding?: FileEncoding;
 }
 
 type ShowToast = (message: string, type?: ToastType) => void;
@@ -171,6 +175,14 @@ export function useFileSession({
   // Maps path → the on-disk mtime seen when it was parked, so "Keep mine" can
   // absorb exactly that change (EXT-04/05).
   const parkedAutosavePathsRef = useRef<Map<string, number>>(new Map());
+  // One-shot "keep mine" records for files whose mtime never comes back usable
+  // (EXT-10): after the user resolves a content-compared conflict with
+  // "keep mine", the next write to that path is granted without re-asking
+  // (with a real mtime EXT-04's absorb does this; an unusable mtime can't be
+  // absorbed, so the grant is tracked here instead). The entry is consumed by
+  // the next granted write, so a LATER external change asks again — the same
+  // behavior a usable mtime gives.
+  const keepMineMtimelessRef = useRef<Set<string>>(new Set());
   // Latest content + originalContent are read via refs inside `loadFile` so
   // its identity stays stable across keystrokes. Without this, every typed
   // character would change `loadFile`'s reference and churn its listeners.
@@ -316,15 +328,28 @@ export function useFileSession({
     [activateTab],
   );
 
-  // Load a file directly from disk into the tab model.
+  // Load a file directly from disk into the tab model. Resolves false only
+  // when `keepEdits` declined the load (see below), true otherwise.
   const loadFileDirect = useCallback(
-    async (path: string) => {
+    async (path: string, { keepEdits = false }: { keepEdits?: boolean } = {}): Promise<boolean> => {
       const outgoing = filePathRef.current;
       // Preserve the file we're leaving in its tab before overwriting live state.
       snapshotActiveTab();
       setIsLoading(true);
       try {
         const fileData = await readTextFile<FileData>(path);
+        // The user left this file while the watcher's reload was reading it.
+        // Applying the read would pull them back and overwrite the tab's
+        // unsaved text. The tab refreshes through the background check. EXT-11.
+        if (keepEdits && !samePath(filePathRef.current, path)) return true;
+        // An external-change reload only starts on a clean buffer, but the
+        // user can type while the file is being read; applying it would drop
+        // those keystrokes. With the 1.5 s interval check (EXT-07) that is a
+        // live race while someone types next to an agent editing the same
+        // note. Decline, and let the caller raise the conflict dialog. EXT-09.
+        if (keepEdits && samePath(filePathRef.current, path) && contentRef.current !== originalContentRef.current) {
+          return false;
+        }
         // A fresh load is a clean slate for every overlay: a review pending from
         // the PREVIOUS file must not survive into this one (its merge view would
         // diff old-file content against the new document, and its chunk buttons
@@ -397,6 +422,7 @@ export function useFileSession({
       } finally {
         setIsLoading(false);
       }
+      return true;
     },
     [bumpDocSwap, clearReview, commitTabs, newTabId, setActiveTab, setConflictPrompt, setMode, showToast, snapshotActiveTab],
   );
@@ -524,7 +550,11 @@ export function useFileSession({
     (defaultName: string | null, defaultDir?: string | null): Promise<string | null> => {
       if (promptSavePath) return promptSavePath(defaultName, defaultDir);
       return save({
-        filters: [{ name: "Markdown", extensions: ["md"] }],
+        // An HTML page keeps its type: a Markdown-only filter made Save As of
+        // page.html offer page.html.md. #295.
+        filters: isHtmlPath(defaultName)
+          ? [{ name: "HTML", extensions: ["html", "htm"] }]
+          : [{ name: "Markdown", extensions: ["md"] }],
         defaultPath: defaultName && defaultDir ? joinPath(defaultDir, defaultName) : defaultName ?? undefined,
       }).then((selected) => (typeof selected === "string" ? selected : null));
     },
@@ -694,7 +724,7 @@ export function useFileSession({
       // Plain-text files open too (rendered as markdown). TABS-11 / TXT-01.
       const selected = await open({
         multiple: true,
-        filters: [{ name: "Markdown & text", extensions: [...DOCUMENT_EXTENSIONS] }],
+        filters: [{ name: "Markdown, text & HTML", extensions: [...DOCUMENT_EXTENSIONS] }],
         // Start next to the open note (or the last one used), not wherever
         // the OS dialog was last. SAVE-05.
         defaultPath: dirOf(filePathRef.current) ?? lastUsedDirectory(getRecentFiles()) ?? undefined,
@@ -706,15 +736,39 @@ export function useFileSession({
     }
   }, [loadFile]);
 
-  // The on-disk mtime of `path` when it is NEWER than what the active buffer
-  // last read or wrote, else null (unchanged, untracked, or stat failed — the
-  // write itself then surfaces real errors). Shared pre-write guard for the
-  // active tab's manual save and autosave. EXT-06.
+  // The on-disk state of `path` relative to what the active buffer last read
+  // or wrote: null (unchanged / safe to write), or the on-disk mtime that
+  // raised the conflict. Shared pre-write guard for the active tab's manual
+  // save and autosave. EXT-06.
+  //
+  // When mtime can't decide (a 0 on either side — pre-epoch stamps, some
+  // network/FAT filesystems), the decision falls back to comparing the file's
+  // current content with the content the buffer believes is on disk, so an
+  // external edit is never overwritten without the conflict dialog. EXT-10.
+  // A read failure on the fallback leaves the write to surface real errors,
+  // exactly as the stat-failure path always has.
   const diskChangedSince = useCallback(async (path: string): Promise<number | null> => {
+    // Taken before the stat: a tab switch during it swaps both refs to the new
+    // document, and judging this file by that one's baseline could wave through
+    // a write over an external edit. EXT-11.
+    const known = knownMtimeRef.current;
+    const original = originalContentRef.current;
     try {
       const info = await invoke<{ modified: number }>("get_file_info", { path });
-      const known = knownMtimeRef.current;
-      return known > 0 && typeof info?.modified === "number" && info.modified > known ? info.modified : null;
+      const decision = decideDiskChange(known, info?.modified ?? 0);
+      if (decision.kind === "unchanged") return null;
+      if (decision.kind === "changed") return decision.diskMtime;
+      if (typeof original !== "string") return null;
+      if (keepMineMtimelessRef.current.has(pathKey(path))) {
+        // The user already chose "keep mine" for this mtime-less file; this
+        // write is the one they consented to. Consumed here so a later
+        // external change asks again.
+        keepMineMtimelessRef.current.delete(pathKey(path));
+        return null;
+      }
+      const disk = await readTextFile<{ content: string }>(path).catch(() => null);
+      if (disk === null || typeof disk.content !== "string") return null;
+      return disk.content === original ? null : (info?.modified ?? 0);
     } catch {
       return null;
     }
@@ -840,8 +894,12 @@ export function useFileSession({
   // External-change detection: on window focus, stat the open file and reload
   // a clean buffer or prompt for a dirty buffer. EXT-01. Callbacks are memoised
   // so the focus listener stays registered across renders.
+  // Interval reloads stay quiet: an agent editing the open note would otherwise
+  // toast on every write. The focus check keeps its toast. EXT-07.
   const handleExternalReloaded = useCallback(
-    () => showToast(t("toast.reloadedLatest"), "info"),
+    (trigger: ExternalCheckTrigger) => {
+      if (trigger === "focus") showToast(t("toast.reloadedLatest"), "info");
+    },
     [showToast],
   );
   const handleExternalConflict = useCallback(
@@ -859,8 +917,12 @@ export function useFileSession({
     if (path) parkedAutosavePathsRef.current.delete(path);
     // Absorb the disk change the user just chose to overwrite; otherwise the
     // pre-write guard would see it again and re-raise the dialog. EXT-04.
+    // A conflict raised by the EXT-10 content fallback can carry diskMtime 0
+    // (the file reports no usable mtime) — there is nothing to absorb, so the
+    // next write gets a one-shot grant instead of re-asking.
     const diskMtime = conflictPromptRef.current?.diskMtime;
     if (diskMtime !== undefined && diskMtime > knownMtimeRef.current) knownMtimeRef.current = diskMtime;
+    else if (diskMtime !== undefined && diskMtime <= 0 && path) keepMineMtimelessRef.current.add(pathKey(path));
     setConflictPrompt(null);
   }, [setConflictPrompt]);
   const handleConflictLoadFromDisk = useCallback(() => {
@@ -869,13 +931,14 @@ export function useFileSession({
     setConflictPrompt(null);
     if (path) void loadFileDirect(path);
   }, [loadFileDirect, setConflictPrompt]);
+  const reloadKeepingEdits = useCallback((path: string) => loadFileDirect(path, { keepEdits: true }), [loadFileDirect]);
   useExternalChangeWatcher({
     filePathRef,
     contentRef,
     originalContentRef,
     knownMtimeRef,
     isReviewActiveRef: reviewActiveRef,
-    reload: loadFileDirect,
+    reload: reloadKeepingEdits,
     onReloaded: handleExternalReloaded,
     onConflict: handleExternalConflict,
   });
@@ -950,7 +1013,8 @@ export function useFileSession({
         if (parkedAutosavePathsRef.current.has(path)) continue;
         try {
           const info = await invoke<{ modified: number }>("get_file_info", { path });
-          if (tab.knownMtime > 0 && info.modified > tab.knownMtime) {
+          const decision = decideDiskChange(tab.knownMtime, info?.modified ?? 0);
+          if (decision.kind === "changed") {
             const alreadyParked = parkedAutosavePathsRef.current.has(path);
             parkedAutosavePathsRef.current.set(path, info.modified);
             if (!alreadyParked) {
@@ -961,7 +1025,30 @@ export function useFileSession({
             }
             continue;
           }
-          const mtime = await saveTextFile(path, tab.content);
+          if (decision.kind === "compare") {
+            // mtime can't decide for this file (EXT-10): compare content. A
+            // one-shot "keep mine" grant stands for this write; otherwise a
+            // disk version that differs from what the tab believes is on disk
+            // parks the autosave exactly like a detected mtime change.
+            const key = pathKey(path);
+            if (keepMineMtimelessRef.current.has(key)) {
+              keepMineMtimelessRef.current.delete(key);
+            } else {
+              const disk = await readTextFile<{ content: string }>(path).catch(() => null);
+              if (disk !== null && typeof disk.content === "string" && disk.content !== tab.originalContent) {
+                const alreadyParked = parkedAutosavePathsRef.current.has(path);
+                parkedAutosavePathsRef.current.set(path, info?.modified ?? 0);
+                if (!alreadyParked) {
+                  showToast(
+                    `"${tab.fileName}" changed on disk in a background tab. Its autosave is paused until you review the changes.`,
+                    "error",
+                  );
+                }
+                continue;
+              }
+            }
+          }
+          const mtime = await saveTextFile(path, tab.content, { background: true });
           // Only mark saved if the snapshot still holds exactly what we wrote.
           commitTabs(
             tabsRef.current.map((current) =>
@@ -980,16 +1067,36 @@ export function useFileSession({
 
   // External-change detection for BACKGROUND tabs. The active tab is handled by
   // useExternalChangeWatcher; clean background tabs refresh silently, while a
-  // dirty one advances its mtime and shows a one-time warning. TABS-06.
+  // dirty one advances its mtime and shows a one-time warning. TABS-06. Runs on
+  // focus and on the visible-window interval; `checking` keeps a slow pass from
+  // overlapping the next tick. EXT-07.
   useEffect(() => {
-    const onFocus = async () => {
+    let checking = false;
+    const checkBackgroundTabs = async () => {
       const activeId = activeTabIdRef.current;
       const backgroundTabs = tabsRef.current.filter((tab) => tab.id !== activeId && tab.filePath);
       for (const tab of backgroundTabs) {
+        // A background autosave of this tab overlapping the stat would read
+        // as an external change (EXT-08); leave it to the next tick.
+        const writeToken = idleWriteToken();
+        if (writeToken === null) continue;
         try {
           const info = await invoke<{ modified: number }>("get_file_info", { path: tab.filePath! });
-          if (!(tab.knownMtime > 0 && info.modified > tab.knownMtime)) continue;
-          if (tab.content === tab.originalContent) {
+          if (idleWriteToken() !== writeToken) continue;
+          // Re-read the tab: it may have been edited, reloaded or closed while
+          // an earlier stat in this pass was in flight.
+          const latest = tabsRef.current.find((current) => current.id === tab.id);
+          if (!latest || latest.id === activeTabIdRef.current || latest.filePath !== tab.filePath) continue;
+          const decision = decideDiskChange(latest.knownMtime, info.modified);
+          if (decision.kind === "unchanged") continue;
+          // A file that reports NO mtime at all can't be re-anchored here:
+          // refreshing or comparing it on every tick would just re-read it
+          // forever. The pre-write guard (EXT-10) covers it at save time.
+          if (decision.kind === "compare" && !(info.modified > 0)) continue;
+          if (latest.content === latest.originalContent) {
+            // Clean: refresh from disk. Identical content makes this a cheap
+            // re-read that also re-anchors a lost mtime; different content
+            // shows the newer version. EXT-10 covers the mtime-less case.
             const fileData = await readTextFile<FileData>(tab.filePath!);
             commitTabs(
               tabsRef.current.map((current) =>
@@ -1004,24 +1111,40 @@ export function useFileSession({
                   : current,
               ),
             );
-          } else if (!parkedAutosavePathsRef.current.has(tab.filePath!)) {
-            // Park — do NOT absorb the new mtime into the snapshot. Absorbing
-            // it made the background-autosave guard see "nothing new" and
-            // overwrite the very change this branch just warned about.
-            // Switching to the tab raises the conflict dialog. EXT-05.
-            parkedAutosavePathsRef.current.set(tab.filePath!, info.modified);
-            showToast(
-              t("toast.conflictBackground", { name: tab.fileName }),
-              "error",
-            );
+          } else {
+            // Dirty. With a usable mtime the stat itself proves a change;
+            // otherwise compare the disk content against what the tab believes
+            // is on disk — only a real difference parks the autosave. EXT-10.
+            let changed = decision.kind === "changed";
+            if (!changed) {
+              const disk = await readTextFile<{ content: string }>(tab.filePath!).catch(() => null);
+              changed = disk !== null && typeof disk.content === "string" && disk.content !== latest.originalContent;
+            }
+            if (!changed) continue;
+            if (!parkedAutosavePathsRef.current.has(tab.filePath!)) {
+              // Park — do NOT absorb the new mtime into the snapshot. Absorbing
+              // it made the background-autosave guard see "nothing new" and
+              // overwrite the very change this branch just warned about.
+              // Switching to the tab raises the conflict dialog. EXT-05.
+              parkedAutosavePathsRef.current.set(tab.filePath!, info.modified);
+              showToast(
+                t("toast.conflictBackground", { name: tab.fileName }),
+                "error",
+              );
+            }
           }
         } catch {
           // Missing files and stat failures are surfaced when the tab is saved.
         }
       }
     };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    return subscribeExternalChecks(() => {
+      if (checking) return;
+      checking = true;
+      void checkBackgroundTabs().finally(() => {
+        checking = false;
+      });
+    });
   }, [commitTabs, showToast]);
 
   // Persist the whole open-tab session so a relaunch reopens every saved tab,
@@ -1396,6 +1519,7 @@ export function useFileSession({
   // deleted; saving it now asks where. FILES-01.
   const retargetPaths = useCallback(
     (oldPath: string, newPath: string | null): number => {
+      retargetEncodings(oldPath, newPath);
       const oldKey = pathKey(oldPath);
       const mapPath = (p: string | null): string | null | undefined => {
         if (!p) return undefined;

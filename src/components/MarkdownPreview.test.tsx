@@ -24,6 +24,72 @@ afterEach(() => { cleanup(); localStorage.clear(); });
 /** Start a Reader editing session the way the palette command does. */
 const startReaderSession = () => act(() => { window.dispatchEvent(new CustomEvent("paperling:reader-edit-start")); });
 
+describe("wide code blocks (RLL-02, #294)", () => {
+    it("wraps a code block so it can grow past the reading column with its Copy button", async () => {
+        const { container } = renderPreview("```\nsome code\n```");
+        await screen.findByText("some code");
+        const inner = container.querySelector(".code-block > .code-block-inner")!;
+        expect(inner.querySelector("pre")).not.toBeNull();
+        expect(inner.querySelector('button[aria-label="Copy code"]')).not.toBeNull();
+    });
+
+    it("clips at pane width, outside the reading column", async () => {
+        const { container } = renderPreview("text");
+        await screen.findByText("text");
+        expect(container.querySelector(".preview-clip > .preview-column .markdown-body")).not.toBeNull();
+    });
+});
+
+describe("[TOC] marker (TOC-05)", () => {
+    it("renders the document's headings as links", async () => {
+        const { container } = renderPreview("# Title\n\n[TOC]\n\n## Alpha\n\ntext\n\n## Beta\n");
+        await screen.findByRole("link", { name: "Alpha" });
+        expect(container.querySelector('a[href="#beta"]')?.textContent).toBe("Beta");
+        expect(container.textContent).not.toContain("[TOC]");
+    });
+
+    it("leaves a marker in a code block alone", async () => {
+        const { container } = renderPreview("## A\n\n```\n[TOC]\n```\n");
+        await screen.findByText("A");
+        expect(container.querySelector("pre")?.textContent).toContain("[TOC]");
+    });
+
+    it("still works when the document renders whole (it has footnotes)", async () => {
+        const { container } = renderPreview("# T\n\n[TOC]\n\n## Alpha\n\nText[^1]\n\n[^1]: note\n");
+        await screen.findByRole("link", { name: "Alpha" });
+        expect(container.textContent).not.toContain("[TOC]");
+    });
+});
+
+describe("ordered-list marker gutters (PREVIEW-08, #270)", () => {
+    it("keeps native numbering and accounts for crossing 99 to 100", async () => {
+        const { container } = renderPreview("98. First\n99. Second\n100. Third");
+        await screen.findByText("Third");
+        const list = container.querySelector("ol")!;
+        expect(list.start).toBe(98);
+        expect(list.children).toHaveLength(3);
+        expect(list.style.getPropertyValue("--ordered-list-marker-characters")).toBe("3");
+    });
+
+    it("sizes nested lists independently and preserves HTML item-value resets", async () => {
+        const { container } = renderPreview('1. Parent\n\n   10000. Child\n\n<ol start="9"><li value="999">Reset</li><li>Next</li></ol>');
+        await screen.findByText("Next");
+        const lists = Array.from(container.querySelectorAll("ol"));
+        expect(lists.map((list) => list.style.getPropertyValue("--ordered-list-marker-characters"))).toEqual(["1", "5", "4"]);
+        expect(lists[1].start).toBe(10000);
+        expect(lists[2].querySelector("li")!.value).toBe(999);
+    });
+
+    it("recomputes the gutter when the document changes", async () => {
+        const { container, rerender } = renderPreview("9. Before");
+        await screen.findByText("Before");
+        expect(container.querySelector("ol")!.style.getPropertyValue("--ordered-list-marker-characters")).toBe("1");
+        rerender(<MarkdownPreview content="999999999. After" fileName="test.md" fileSize={20} onEditClick={() => {}} />);
+        await screen.findByText("After");
+        expect(container.querySelector("ol")!.style.getPropertyValue("--ordered-list-marker-characters")).toBe("9");
+    });
+});
+
 describe("remote images (#224)", () => {
     it("allows HTTPS images in release and dev CSP while leaving HTTP out", () => {
         for (const policy of [config.app.security.csp, config.app.security.devCsp]) {

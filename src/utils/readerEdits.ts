@@ -1,5 +1,6 @@
 import TurndownService from "turndown";
 import { markdownLanguage } from "@codemirror/lang-markdown";
+import { isTocMarker } from "./tableOfContents";
 
 /** Set on a rendered island while Reader editing is on; holds its exact source. */
 export const READER_ISLAND_ATTR = "data-md-src";
@@ -92,6 +93,9 @@ export function readerEditRange(document: string, startLine: number, endLine: nu
     // them decides whether the block is plain enough to edit.
     let syntax = unprotectedSyntax(source);
     for (const island of readerIslands(source)) syntax = syntax.slice(0, island.from) + " ".repeat(island.to - island.from) + syntax.slice(island.to);
+    // A `[TOC]` line renders as a generated list; editing it would swap the
+    // marker for a stale copy of that list. TOC-05.
+    if (isTocMarker(source)) return null;
     if (/%%|<\/?[a-zA-Z!\?]|\[\[|!\[|\[\^|\]\s*\[|\{#|==|`{3,}|~{3,}|(?:^|\s)#[\p{L}\p{N}_-]+|\$\$|\$(?:[^\s$]|[^\s$][^\n$]*?[^\s$])\$|\^([^\s^]+)\^|(?<!~)~([^\s~]+)~(?!~)|^\s*[-*+]\s+\[[ xX]\]|^\s*>\s*\[!|^\s*\[[^\]]+\]:|^[ \t>]*\|?[ \t]*:?-{3,}:?[ \t]*(?:\||$)/mu.test(syntax)) return null;
     return { start, end, source };
 }

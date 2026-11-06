@@ -27,6 +27,19 @@ ignore = [
   # Remove these once Tauri ships a plist that uses quick-xml >=0.41.
   "RUSTSEC-2026-0194",
   "RUSTSEC-2026-0195",
+  # Extraction-time flaws in the zip crate (SUID/SGID bit preservation,
+  # symlink escapes): patched in zip >=9, but the only consumer here is
+  # tauri-plugin-updater, whose newest release (and even 3.0.0-alpha) still
+  # requires zip "^4" — unfixable from this workspace until Tauri moves.
+  # Practical risk is minimal: the updater only extracts archives it fetched
+  # from the pinned GitHub releases endpoint AND verified against the pinned
+  # minisign pubkey BEFORE extraction, so exploiting these requires an
+  # attacker-controlled ZIP that passes signature verification — i.e. an
+  # already-compromised release key. Remove once tauri-plugin-updater
+  # depends on zip >=9.
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
 ]
 
 [bans]

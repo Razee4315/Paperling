@@ -26,7 +26,7 @@ and read the [Contributing guide](CONTRIBUTING.md).
 
 - **Export polish** — PDF/HTML theming options, configurable page size.
 - **More diagram/preview formats** as requested by users.
-- **Per-folder workspace** niceties (recent folders, quick switch).
+- **Per-folder workspace** niceties (quick switch).
 - **Accessibility pass** — screen-reader audit of the editor and dialogs.
 
 ## 💡 Ideas / discussion

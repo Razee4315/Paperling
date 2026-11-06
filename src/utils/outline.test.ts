@@ -6,7 +6,7 @@ describe("extractHeadings (TOC-03)", () => {
         const md = "# Title\n\n## **Setup** for [Windows](https://x.com) {#win} ##\n\n### snake_case_name";
         expect(extractHeadings(md)).toEqual([
             { text: "Title", level: 1, line: 1 },
-            { text: "Setup for Windows", level: 2, line: 3 },
+            { text: "Setup for Windows", level: 2, line: 3, customId: "win" },
             { text: "snake_case_name", level: 3, line: 5 },
         ]);
     });

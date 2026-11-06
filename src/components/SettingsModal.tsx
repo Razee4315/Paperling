@@ -11,6 +11,9 @@ import {
     getAIConfig, setAIConfig,
     getAIEnabled, setAIEnabled,
     getWordWrap, setWordWrap,
+    getCodeFolding, setCodeFolding,
+    getCustomCss, setCustomCss,
+    getFileHistory, setFileHistory,
     getSpellCheck, setSpellCheck,
     getLivePreview, setLivePreview,
     getVimMode, setVimMode,
@@ -68,7 +71,7 @@ const sections: Array<{ id: Section; labelKey: TKey; icon: string }> = [
 // like "theme" does. Translated keywords are appended to the English ones, so
 // either language keeps working from either UI language, and the search still
 // jumps to the first matching section ("vim" from Appearance finds the Editor
-// rows). Kept dictionary-driven across the upstream 1.1.1 merge.
+// rows). Kept dictionary-driven across the upstream 1.2.0 merge.
 const sectionKeywords = (id: Section): string => t(`settings.keywords.${id}` as TKey);
 
 // Theme names are translated; the ones that are proper nouns (Nord, Dracula)
@@ -248,6 +251,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [typewriter, setTypewriterLocal] = useState(getTypewriterMode);
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
     const [wordWrap, setWordWrapLocal] = useState(getWordWrap);
+    const [codeFolding, setCodeFoldingLocal] = useState(getCodeFolding);
+    const [customCss, setCustomCssLocal] = useState(getCustomCss);
+    const [keepHistory, setKeepHistoryLocal] = useState(getFileHistory);
+    const [historyCleared, setHistoryCleared] = useState(false);
     const [spellCheck, setSpellCheckLocal] = useState(getSpellCheck);
     const [livePreview, setLivePreviewLocal] = useState(getLivePreview);
     const [vimMode, setVimModeLocal] = useState(getVimMode);
@@ -658,6 +665,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         <ToggleRow label={t("settings.wordWrap")} description={t("settings.wordWrapHint")} checked={wordWrap}
                                             onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
                                     )}
+                                    {matches("folding fold collapse arrows gutter") && !IS_MOBILE && (
+                                        <ToggleRow label={t("settings.folding")} description={t("settings.foldingHint")} checked={codeFolding}
+                                            onChange={(v) => { setCodeFoldingLocal(v); setCodeFolding(v); fire("paperling:folding-toggle", v); }} />
+                                    )}
                                     {/* Typewriter scrolling orbits a physical
                                         keyboard's caret line; on touch it's a
                                         solution without a problem. */}
@@ -680,6 +691,25 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         // file open (same pattern as toggle-ai-panel).
                                         <ToggleRow label={t("settings.openInReader")} description={t("settings.openInReaderHint")} checked={openInReader}
                                             onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
+                                    )}
+                                    {matches("file history versions local backup recover restore timeline", t("settings.keepHistory")) && (
+                                        <ToggleRow label={t("settings.keepHistory")} description={t("settings.keepHistoryHint")} checked={keepHistory}
+                                            onChange={(v) => { setKeepHistoryLocal(v); setFileHistory(v); }} />
+                                    )}
+                                    {matches("file history versions clear delete privacy", t("settings.clearHistory")) && (
+                                        <div className="flex items-center justify-between gap-4 px-3.5 py-3">
+                                            <div className="flex flex-col items-start min-w-0">
+                                                <span className="text-sm font-medium text-[var(--text-primary)]">{t("settings.clearHistory")}</span>
+                                                <span className="text-[11px] text-[var(--text-muted)] mt-0.5">{t("settings.clearHistoryHint")}</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => { void import("../utils/fileHistory").then(({ fileHistory }) => fileHistory.clear()).then(() => setHistoryCleared(true)); }}
+                                                className="shrink-0 px-2.5 py-1 text-xs rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                                            >
+                                                {historyCleared ? t("settings.cleared") : t("settings.clear")}
+                                            </button>
+                                        </div>
                                     )}
                                     {matches("reopen last session launch startup recovery", t("settings.reopenSession")) && (
                                         <ToggleRow label={t("settings.reopenSession")} description={t("settings.reopenSessionHint")} checked={reopenSession}
@@ -710,6 +740,24 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     {matches("zen mode", t("settings.zenMode")) && (
                                         <ToggleRow label={t("settings.zenMode")} description={t("settings.zenModeHint")} checked={zenMode}
                                             onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
+                                    )}
+                                    {matches("custom css style stylesheet theme") && (
+                                        <label className="block px-3.5 py-3">
+                                            <span className="text-sm font-medium text-[var(--text-primary)]">{t("settings.customCss")}</span>
+                                            <span className="block text-[11px] text-[var(--text-muted)] mt-0.5">{t("settings.customCssHint")}</span>
+                                            <textarea
+                                                value={customCss}
+                                                spellCheck={false}
+                                                rows={5}
+                                                placeholder=".markdown-body h1 { color: tomato; }"
+                                                onChange={(e) => {
+                                                    setCustomCssLocal(e.target.value);
+                                                    setCustomCss(e.target.value);
+                                                    window.dispatchEvent(new CustomEvent("paperling:custom-css-change"));
+                                                }}
+                                                className="mt-2 w-full px-2 py-1.5 font-mono text-xs rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] resize-y"
+                                            />
+                                        </label>
                                     )}
                                 </SettingsGroup>
                             </div>
@@ -821,6 +869,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 : activeProvider
                                                     ? t("settings.aiApiKeyNeeded", { provider: providerText("aiProviderName", activeProvider.id, activeProvider.name) })
                                                     : t("settings.aiApiKeyOptional")}
+                                            autoComplete="off"
                                             className="mt-1 w-full px-3 py-2 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] font-mono"
                                         />
                                         {activeProvider && (

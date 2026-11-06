@@ -154,6 +154,8 @@ const en = {
         deleteFailed: "Could not delete",
         pickerUnavailable: "System file picker isn't available in this build",
         moveToTrash: "Move to trash",
+        filterPlaceholder: "Filter this folder",
+        filterAria: "Filter files in this folder",
     },
 
     // The outline (table of contents) overlay.
@@ -264,6 +266,8 @@ const en = {
             `Selection: ${Number(p.words).toLocaleString()} words, ${Number(p.chars).toLocaleString()} characters`,
         charsTitle: (p: Record<string, string | number>) => `${Number(p.count).toLocaleString()} characters`,
         readingTimeTitle: "Estimated reading time at 200 wpm",
+        encodingTitle: "File encoding. Saving keeps it.",
+        encodingAria: (p: Record<string, string | number>) => `File encoding: ${p.encoding}`,
         readingTime: (p: Record<string, string | number>) => {
             const min = Number(p.min);
             if (min < 1) return "< 1 min read";
@@ -343,6 +347,26 @@ const en = {
         formats: "Export formats",
         word: "Word (.docx)",
         nothing: "Nothing to export yet",
+        copyRich: "Copy as rich text",
+        copyHtml: "Copy as HTML",
+        copyRichTitle: "Paste into Word, Gmail or Google Docs with the formatting intact",
+    },
+
+    // Earlier versions of the open file (HIST-01).
+    history: {
+        title: "File history: {name}",
+        hint: "Kept on this computer. Red is what the version had, green is what you've added since.",
+        empty: "No earlier versions yet. Paperling keeps a copy each time this file is opened or saved.",
+        versions: "Versions",
+        opened: "Opened",
+        saved: "Saved",
+        beforeRestore: "Before a restore",
+        lines: (p: Record<string, string | number>) =>
+            `${Number(p.count)} ${Number(p.count) === 1 ? "line" : "lines"}`,
+        current: "current",
+        sameAsCurrent: "Same as your current text",
+        close: "Close",
+        restore: "Restore this version",
     },
 
     // The hover-reveal bar in Zen mode.
@@ -424,6 +448,9 @@ const en = {
             replace: "Find and replace",
             selectNextOccurrence: "Select next occurrence",
             toggleTask: "Toggle task checkbox",
+            strikethrough: "Strikethrough",
+            inlineCode: "Inline code",
+            toggleWordWrap: "Toggle word wrap",
             navBack: "Go back (after following a link)",
             navForward: "Go forward",
         },
@@ -454,6 +481,7 @@ const en = {
             outdent: "Outdent line or un-nest list item",
             listContinue: "Continue list, blockquote, or task item (on an empty nested item: step out)",
             followLink: "Follow the link or [[wikilink]] under the pointer",
+            foldSection: "Fold / unfold the section, list or code block",
             moveLine: "Move line up / down",
             duplicateLine: "Duplicate line",
             deleteLine: "Delete line",
@@ -525,7 +553,7 @@ const en = {
         // in Chinese ("主题", "自动保存", …).
         keywords: {
             appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small language interface chinese english",
-            editor: "typewriter toolbar word wrap spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
+            editor: "file history versions backup recover restore custom css style stylesheet fold folding arrows collapse typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
             shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
             ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
             about: "about version update tour guide help license",
@@ -556,6 +584,10 @@ const en = {
         fontSizeLarge: "Large",
         fontSizeXlarge: "Extra large",
 
+        folding: "Fold arrows",
+        foldingHint: "Show arrows beside headings, lists and code blocks to collapse them",
+        customCss: "Custom CSS",
+        customCssHint: "Your own styles, applied to the whole app. Target the page with .markdown-body and the editor with .cm-editor",
         typewriter: "Typewriter mode",
         typewriterHint: "Keep caret vertically centered",
         toolbar: "Show formatting toolbar",
@@ -574,6 +606,12 @@ const en = {
         openInReaderHint: "Every file opens read-first; editing stays one click away",
         reopenSession: "Reopen last session on launch",
         reopenSessionHint: "Restore saved tabs on startup. Unsaved work is always recovered",
+        keepHistory: "Keep file history",
+        keepHistoryHint: "Save earlier versions of your files on this computer, for 30 days. Find them with File history in the command palette",
+        clearHistory: "Clear file history",
+        clearHistoryHint: "Delete every saved version. Your files aren't touched",
+        clear: "Clear",
+        cleared: "Cleared",
         readableLength: "Readable line length",
         readableLengthHint: "Center the reading column at a comfortable width (Obsidian-style). Off: the preview fills the window",
         readerEditing: "Edit text in Reader",
@@ -638,9 +676,10 @@ const en = {
         aiTest: "Test connection",
         aiTesting: "Testing…",
         aiTestOk: "✓ Connection OK",
-        aiPrivacyLead: "Privacy: your selected text is sent ",
+        aiPrivacyLead:
+            "Privacy: AI panel messages send the whole open document (plus your chat history) to the endpoint you configure above; the bubble's \"Explain\" sends only the selected text. Plain-http endpoints are ",
         aiPrivacyUnencrypted: "unencrypted",
-        aiPrivacyMid: " to the endpoint you configure above. For private notes, use a local provider (e.g. Ollama at ",
+        aiPrivacyMid: " — your API key is never sent over http to a non-local host. For private notes, use a local provider (e.g. Ollama at ",
         aiPrivacyTail:
             ") so nothing leaves your machine. The API key is stored in your operating system's keychain (Windows Credential Manager, macOS Keychain, or Linux Secret Service), not in plaintext.",
 

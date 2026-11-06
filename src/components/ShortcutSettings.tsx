@@ -40,8 +40,10 @@ const GROUPS: Array<{ titleKey: TKey; ids: BindingId[] }> = [
     {
         titleKey: "shortcuts.group.editing",
         ids: [
-            "bold", "italic", "link", "blockquote", "find", "replace",
-            "selectNextOccurrence", "toggleTask", "navBack", "navForward",
+            "bold", "italic", "strikethrough", "inlineCode",
+            "link", "blockquote", "find", "replace",
+            "selectNextOccurrence", "toggleTask", "toggleWordWrap",
+            "navBack", "navForward",
         ],
     },
 ];

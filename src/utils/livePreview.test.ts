@@ -8,8 +8,8 @@ import { livePreviewMarks } from "./livePreview";
 function marks(doc: string, caretLine: number) {
     let state = EditorState.create({ doc, extensions: [markdown()] });
     state = state.update({ selection: EditorSelection.cursor(state.doc.line(caretLine).from) }).state;
-    ensureSyntaxTree(state, state.doc.length, 5000);
-    const result = livePreviewMarks(state, 0, state.doc.length);
+    const tree = ensureSyntaxTree(state, state.doc.length, 5000)!;
+    const result = livePreviewMarks(state, 0, state.doc.length, tree);
     return { hidden: result.hidden.map((range) => state.doc.sliceString(range.from, range.to)), headings: result.headings.map((h) => [state.doc.lineAt(h.pos).number, h.level]) };
 }
 
@@ -35,8 +35,8 @@ describe("live preview marks (LIVE-01)", () => {
     it("reveals every line a multi-line selection touches", () => {
         let state = EditorState.create({ doc, extensions: [markdown()] });
         state = state.update({ selection: EditorSelection.range(0, state.doc.line(3).to) }).state;
-        ensureSyntaxTree(state, state.doc.length, 5000);
-        const hidden = livePreviewMarks(state, 0, state.doc.length).hidden.map((range) => state.doc.sliceString(range.from, range.to));
+        const tree = ensureSyntaxTree(state, state.doc.length, 5000)!;
+        const hidden = livePreviewMarks(state, 0, state.doc.length, tree).hidden.map((range) => state.doc.sliceString(range.from, range.to));
         expect(hidden).toEqual(["## "]);
     });
 });

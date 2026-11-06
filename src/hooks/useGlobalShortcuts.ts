@@ -15,6 +15,8 @@ export interface ShortcutHandlers {
     /** Step the text zoom up or down / back to 100%. ZOOM-01. */
     zoomBy: (direction: 1 | -1) => void;
     resetZoom: () => void;
+    /** Toggle word wrap (Alt+Z). EDIT-02. */
+    toggleWordWrap?: () => void;
     /** Toggle OS fullscreen (F11). Cross-platform via the Tauri window API. */
     toggleFullscreen: () => void;
     handleToggleFileExplorer: () => void;
@@ -104,6 +106,12 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
             if (matchesBinding(e, "zoomReset")) {
                 e.preventDefault();
                 s.resetZoom();
+                return;
+            }
+            // Alt+Z - Toggle word wrap
+            if (matchesBinding(e, "toggleWordWrap")) {
+                e.preventDefault();
+                s.toggleWordWrap?.();
                 return;
             }
             // mod+Shift+E - Toggle file explorer
