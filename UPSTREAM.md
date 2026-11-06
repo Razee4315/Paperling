@@ -90,9 +90,10 @@ old layout just because it was already translated.
 |---|---|
 | Components we translated (`TitleBar`, `SettingsMenu`, `SettingsModal`, …) | Upstream's structure + our `useI18n()`/`t()` labels. If upstream added new labels, add keys to **both** dictionaries. |
 | `src/i18n/en.ts` / `zh-CN.ts` | Keep keys identical in both. `src/i18n/i18n.test.tsx` asserts key parity, no empty strings, and matching `{placeholders}` — run it first. |
-| `.github/**` | **Keep ours (deleted).** `git rm` them; this fork's CI is not GitHub. |
+| `.github/**` | **Take upstream's, do not delete it.** The fork's CI and the PR back to upstream both run on GitHub Actions; a branch that removes the workflows looks like it breaks CI. The early import dropped them, which is why they reappear in the 1.2.0 sync. |
 | `src-tauri/Cargo.lock` | Take upstream's, then set the `[[package]] name = "paperling"` version to match `Cargo.toml`. |
-| `package.json`, `CHANGELOG.md`, `TEST-CHECKLIST.md`, `AGENTS.md` | Usually auto-merges; on conflict keep **both** sides (upstream's release notes *and* our fork notes). |
+| `package.json`, `CHANGELOG.md`, `AGENTS.md` | Usually auto-merges; on conflict keep **both** sides (upstream's release notes *and* our fork notes). |
+| Audit reports, checklists, proof screenshots | Stay deleted (upstream dropped them, and `AGENTS.md` keeps them out of the repo); put that material in the PR description or the chat. |
 
 ### The i18n invariant
 
