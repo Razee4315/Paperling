@@ -30,6 +30,16 @@ import {
 } from "../utils/persistence";
 import { AI_PROVIDERS, matchProvider, type AIProvider } from "../utils/aiProviders";
 import { attachFocusTrap } from "../utils/focusTrap";
+import {
+    changeLocale,
+    detectSystemLocale,
+    LOCALES,
+    LOCALE_NAMES,
+    t,
+    useI18n,
+    type LocalePreference,
+    type TKey,
+} from "../i18n";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { isValidEndpoint, endpointLeaksKey, runAIAction } from "../utils/aiAssist";
 import mascotWave from "../assets/mascot/mascot-wave.png";
@@ -46,53 +56,53 @@ interface SettingsModalProps {
 
 type Section = "appearance" | "editor" | "shortcuts" | "ai" | "about";
 
-const sections: Array<{ id: Section; label: string; icon: string }> = [
-    { id: "appearance", label: "Appearance", icon: "palette" },
-    { id: "editor", label: "Editor", icon: "edit" },
-    { id: "shortcuts", label: "Shortcuts", icon: "keyboard" },
-    { id: "ai", label: "AI", icon: "auto_awesome" },
-    { id: "about", label: "About", icon: "info" },
+// Labels are translation KEYS, resolved at render: the list itself is
+// module-level (it never changes), the language does.
+const sections: Array<{ id: Section; labelKey: TKey; icon: string }> = [
+    { id: "appearance", labelKey: "settings.sectionAppearance", icon: "palette" },
+    { id: "editor", labelKey: "settings.sectionEditor", icon: "edit" },
+    { id: "shortcuts", labelKey: "settings.sectionShortcuts", icon: "keyboard" },
+    { id: "ai", labelKey: "settings.sectionAi", icon: "auto_awesome" },
+    { id: "about", labelKey: "settings.sectionAbout", icon: "info" },
 ];
 
-// What each section contains, for the settings search: typing jumps to the
-// first section that has a match (the search used to filter only the section
-// already on screen, so "accent" or "vim" from another section found
-// nothing). SET-05.
-const SECTION_KEYWORDS: Record<Section, string> = {
-    appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small",
-    editor: "file history versions backup recover restore custom css style stylesheet fold folding arrows collapse typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
-    shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
-    ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
-    about: "about version update tour guide help license",
-};
+// Settings-search synonyms live in the dictionary (SET-05): they have to be
+// searchable in the language being read, so "主题" finds the theme row exactly
+// like "theme" does. Translated keywords are appended to the English ones, so
+// either language keeps working from either UI language, and the search still
+// jumps to the first matching section ("vim" from Appearance finds the Editor
+// rows). Kept dictionary-driven across the upstream 1.2.0 merge.
+const sectionKeywords = (id: Section): string => t(`settings.keywords.${id}` as TKey);
 
-const themes: Array<{ id: Theme; name: string; colors: [string, string]; textColor: string; icon?: string }> = [
-    { id: "dark", name: "Dark", colors: ["#0a0a0a", "#141414"], textColor: "#ffffff" },
-    { id: "graphite", name: "Graphite", colors: ["#1c1917", "#262220"], textColor: "#e7e5e4" },
-    { id: "nord", name: "Nord", colors: ["#2e3440", "#3b4252"], textColor: "#eceff4" },
-    { id: "midnight", name: "Midnight", colors: ["#0f172a", "#1e293b"], textColor: "#e2e8f0" },
-    { id: "light", name: "Light", colors: ["#ffffff", "#f4f2ee"], textColor: "#171717" },
-    { id: "paper", name: "Paper", colors: ["#f5f0e6", "#ebe5d8"], textColor: "#3d3d3d" },
-    { id: "dracula", name: "Dracula", colors: ["#282a36", "#44475a"], textColor: "#f8f8f2",},
+// Theme names are translated; the ones that are proper nouns (Nord, Dracula)
+// simply read the same in every language.
+const themes: Array<{ id: Theme; nameKey: TKey; colors: [string, string]; textColor: string; icon?: string }> = [
+    { id: "dark", nameKey: "settings.themeDark", colors: ["#0a0a0a", "#141414"], textColor: "#ffffff" },
+    { id: "graphite", nameKey: "settings.themeGraphite", colors: ["#1c1917", "#262220"], textColor: "#e7e5e4" },
+    { id: "nord", nameKey: "settings.themeNord", colors: ["#2e3440", "#3b4252"], textColor: "#eceff4" },
+    { id: "midnight", nameKey: "settings.themeMidnight", colors: ["#0f172a", "#1e293b"], textColor: "#e2e8f0" },
+    { id: "light", nameKey: "settings.themeLight", colors: ["#ffffff", "#f4f2ee"], textColor: "#171717" },
+    { id: "paper", nameKey: "settings.themePaper", colors: ["#f5f0e6", "#ebe5d8"], textColor: "#3d3d3d" },
+    { id: "dracula", nameKey: "settings.themeDracula", colors: ["#282a36", "#44475a"], textColor: "#f8f8f2",},
 ];
 
 // `stack` mirrors the --font-body value each `[data-font]` sets in index.css, so
 // each option can preview itself in its own typeface.
-const fonts: Array<{ id: FontFamily; name: string; kind: string; stack: string }> = [
-    { id: "inter", name: "Inter", kind: "Sans-serif", stack: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
-    { id: "merriweather", name: "Merriweather", kind: "Serif", stack: "'Merriweather', Georgia, 'Times New Roman', serif" },
-    { id: "lora", name: "Lora", kind: "Serif", stack: "'Lora', Georgia, 'Times New Roman', serif" },
-    { id: "source-serif", name: "Source Serif", kind: "Serif", stack: "'Source Serif 4', Georgia, 'Times New Roman', serif" },
-    { id: "fira-sans", name: "Fira Sans", kind: "Sans-serif", stack: "'Fira Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
+const fonts: Array<{ id: FontFamily; name: string; kindKey: TKey; stack: string }> = [
+    { id: "inter", name: "Inter", kindKey: "settings.fontKindSans", stack: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
+    { id: "merriweather", name: "Merriweather", kindKey: "settings.fontKindSerif", stack: "'Merriweather', Georgia, 'Times New Roman', serif" },
+    { id: "lora", name: "Lora", kindKey: "settings.fontKindSerif", stack: "'Lora', Georgia, 'Times New Roman', serif" },
+    { id: "source-serif", name: "Source Serif", kindKey: "settings.fontKindSerif", stack: "'Source Serif 4', Georgia, 'Times New Roman', serif" },
+    { id: "fira-sans", name: "Fira Sans", kindKey: "settings.fontKindSans", stack: "'Fira Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
 ];
 
-const fontSizes: Array<{ id: FontSize; name: string; sample: number }> = [
+const fontSizes: Array<{ id: FontSize; nameKey: TKey; sample: number }> = [
     // Samples match the real reading sizes (they used to show 13/19px for
     // 14/18px text).
-    { id: "small", name: "Small", sample: 14 },
-    { id: "medium", name: "Medium", sample: 16 },
-    { id: "large", name: "Large", sample: 18 },
-    { id: "xlarge", name: "Extra large", sample: 20 },
+    { id: "small", nameKey: "settings.fontSizeSmall", sample: 14 },
+    { id: "medium", nameKey: "settings.fontSizeMedium", sample: 16 },
+    { id: "large", nameKey: "settings.fontSizeLarge", sample: 18 },
+    { id: "xlarge", nameKey: "settings.fontSizeXlarge", sample: 20 },
 ];
 
 interface ToggleRowProps {
@@ -141,26 +151,34 @@ function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
     );
 }
 
-const DIRECTION_OPTIONS: Array<{ id: TextDirection; label: string }> = [
-    { id: "auto", label: "Auto" },
-    { id: "ltr", label: "LTR" },
-    { id: "rtl", label: "RTL" },
+const DIRECTION_OPTIONS: Array<{ id: TextDirection; labelKey: TKey }> = [
+    { id: "auto", labelKey: "settings.directionAuto" },
+    { id: "ltr", labelKey: "settings.directionLtr" },
+    { id: "rtl", labelKey: "settings.directionRtl" },
 ];
 
-// Three-way choice in the same row shape as ToggleRow; a radiogroup so screen
-// readers announce it as one setting with the current value. BIDI-02.
-function DirectionRow({ value, onChange }: { value: TextDirection; onChange: (v: TextDirection) => void }) {
+/** Shared shape for the two segmented settings rows (direction, language). */
+function SegmentedRow<T extends string>({ id, labelKey, hint, value, options, onChange }: {
+    id: string;
+    labelKey: TKey;
+    hint: React.ReactNode;
+    value: T;
+    options: Array<{ id: T; label: string }>;
+    onChange: (v: T) => void;
+}) {
+    const { t } = useI18n();
     return (
-        <div className="w-full flex items-center justify-between gap-4 px-3.5 py-3">
+        // Wraps: with a long option label ("跟随系统（简体中文）") the segmented
+        // group used to be pushed past the row and clipped by the container's
+        // overflow-hidden, hiding the other languages. Row wraps first, then the
+        // group wraps its own buttons. I18N-01.
+        <div className="w-full flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3.5 py-3">
             <div className="flex flex-col items-start min-w-0">
-                <span id="setting-text-direction" className="text-sm font-medium text-[var(--text-primary)]">Text direction</span>
-                <span className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                    Auto follows each line's language (Arabic, Hebrew, Persian… read right-to-left).
-                    {!isMac && !IS_MOBILE && " In the editor, Ctrl+Right Shift switches to RTL and Ctrl+Left Shift back to Auto."}
-                </span>
+                <span id={id} className="text-sm font-medium text-[var(--text-primary)]">{t(labelKey)}</span>
+                <span className="text-[11px] text-[var(--text-muted)] mt-0.5">{hint}</span>
             </div>
-            <div role="radiogroup" aria-labelledby="setting-text-direction" className="flex shrink-0 rounded-[var(--radius-md)] border border-[var(--border)] overflow-hidden">
-                {DIRECTION_OPTIONS.map((o) => {
+            <div role="radiogroup" aria-labelledby={id} className="flex flex-wrap min-w-0 rounded-[var(--radius-md)] border border-[var(--border)] overflow-hidden">
+                {options.map((o) => {
                     const active = value === o.id;
                     return (
                         <button
@@ -182,8 +200,50 @@ function DirectionRow({ value, onChange }: { value: TextDirection; onChange: (v:
     );
 }
 
+// Three-way choice in the same row shape as ToggleRow; a radiogroup so screen
+// readers announce it as one setting with the current value. BIDI-02.
+function DirectionRow({ value, onChange }: { value: TextDirection; onChange: (v: TextDirection) => void }) {
+    const { t } = useI18n();
+    return (
+        <SegmentedRow
+            id="setting-text-direction"
+            labelKey="settings.textDirection"
+            hint={<>{t("settings.textDirectionHint")}{!isMac && !IS_MOBILE && t("settings.textDirectionShortcutHint")}</>}
+            value={value}
+            options={DIRECTION_OPTIONS.map((o) => ({ id: o.id, label: t(o.labelKey) }))}
+            onChange={onChange}
+        />
+    );
+}
+
+/**
+ * Interface language (I18N-01). "Follow system" is offered first and is the
+ * default, so a fresh install matches the OS; the two concrete languages are
+ * listed in their own script, which is what makes the row usable by someone
+ * who cannot read the language the app is currently in.
+ */
+function LanguageRow({ value, onChange }: { value: LocalePreference; onChange: (v: LocalePreference) => void }) {
+    const { t } = useI18n();
+    const systemLanguage = LOCALE_NAMES[detectSystemLocale()];
+    const options: Array<{ id: LocalePreference; label: string }> = [
+        { id: "system", label: t("settings.languageSystem", { language: systemLanguage }) },
+        ...LOCALES.map((l) => ({ id: l as LocalePreference, label: LOCALE_NAMES[l] })),
+    ];
+    return (
+        <SegmentedRow
+            id="setting-language"
+            labelKey="settings.language"
+            hint={t("settings.languageHint")}
+            value={value}
+            options={options}
+            onChange={onChange}
+        />
+    );
+}
+
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
+    const { t, preference } = useI18n();
     const [section, setSection] = useState<Section>("appearance");
     const [filter, setFilter] = useState("");
     const { theme, setTheme, followSystem, setFollowSystem, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
@@ -250,6 +310,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     // re-picking a provider never wipes a pasted key.
     const applyProvider = (p: AIProvider) => updateAi({ endpoint: p.endpoint, model: p.defaultModel });
 
+    // Provider ids are data (aiProviders.ts), not a literal union, so the
+    // dictionary key is assembled at runtime. An id with no translation — a new
+    // provider added before its strings — falls back to the provider's own name
+    // instead of printing a raw key like "settings.aiProviderNameFoo".
+    const providerText = (group: "aiProviderName" | "aiKeyHint", id: string, fallback: string): string => {
+        const key = `settings.${group}${id.charAt(0).toUpperCase()}${id.slice(1)}` as TKey;
+        const value = t(key);
+        return value === key ? fallback : value;
+    };
+
     const testAIConnection = async () => {
         setAiTest({ state: "testing" });
         try {
@@ -276,7 +346,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         // Move focus INTO the dialog: the trap only engages once focus is
         // inside the container, and screen readers need the dialog announced.
         // Mirrors the cheatsheet/palette, which focus their filter inputs.
-        const searchInput = dialogRef.current?.querySelector<HTMLInputElement>('input[aria-label="Search settings"]');
+        const searchInput = dialogRef.current?.querySelector<HTMLInputElement>("input[data-settings-search]");
         searchInput?.focus();
         return () => {
             document.removeEventListener("keydown", onKey);
@@ -313,16 +383,19 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     if (!isOpen) return null;
 
-    const matches = (text: string) => !filter || text.toLowerCase().includes(filter.trim().toLowerCase());
+    // `matches` takes the English keyword(s) AND the translated row label, so a
+    // search works in either language regardless of which one the UI is in.
+    const matches = (...texts: string[]) =>
+        !filter || texts.some((text) => text.toLowerCase().includes(filter.trim().toLowerCase()));
     // Searching for the section itself ("shortcuts", "keyboard"…) shows every
     // row; a command name ("bold") narrows the list.
     const shortcutRowFilter = /^(shortcuts?|keyboard|key ?bindings?|hotkeys?|rebind)$/i.test(filter.trim()) ? "" : filter;
     const noResults =
         !!filter.trim() &&
-        !sections.some((s) => SECTION_KEYWORDS[s.id].includes(filter.trim().toLowerCase()));
+        !sections.some((s) => sectionKeywords(s.id).includes(filter.trim().toLowerCase()));
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Settings">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" role="dialog" aria-modal="true" aria-label={t("settings.title")}>
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
 
             <div
@@ -348,15 +421,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 const next = e.target.value;
                                 setFilter(next);
                                 const q = next.trim().toLowerCase();
-                                if (q && !SECTION_KEYWORDS[section].includes(q)) {
+                                if (q && !sectionKeywords(section).includes(q)) {
                                     const hit = sections.find(
-                                        (s) => SECTION_KEYWORDS[s.id].includes(q) && (!IS_MOBILE || (s.id !== "ai" && s.id !== "shortcuts")),
+                                        (s) => sectionKeywords(s.id).includes(q) && (!IS_MOBILE || (s.id !== "ai" && s.id !== "shortcuts")),
                                     );
                                     if (hit) setSection(hit.id);
                                 }
                             }}
-                            placeholder="Search…"
-                            aria-label="Search settings"
+                            placeholder={t("settings.searchPlaceholder")}
+                            aria-label={t("settings.searchAriaLabel")}
+                            data-settings-search
                             className="w-full px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                         />
                     </div>
@@ -377,7 +451,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     }`}
                             >
                                 <span className="material-symbols-outlined text-[18px]">{s.icon}</span>
-                                {s.label}
+                                {t(s.labelKey)}
                             </button>
                         ))}
                     </nav>
@@ -392,9 +466,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <div className="flex-1 flex flex-col min-w-0 min-h-0">
                     <header className="flex items-center justify-between px-6 py-3 border-b border-[var(--border)]">
                         <h2 className="text-base font-semibold text-[var(--text-primary)]">
-                            {sections.find((s) => s.id === section)?.label ?? "Settings"}
+                            {t(sections.find((s) => s.id === section)?.labelKey ?? "settings.title")}
                         </h2>
-                        <button onClick={onClose} aria-label="Close settings" className="w-7 h-7 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center transition-colors">
+                        <button onClick={onClose} aria-label={t("settings.close")} className="w-7 h-7 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center transition-colors">
                             <span className="material-symbols-outlined text-[18px]">close</span>
                         </button>
                     </header>
@@ -402,9 +476,25 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
                         {section === "appearance" && (
                             <>
-                                {matches("theme") && (
+                                {/* Language first: it is the one setting someone
+                                    who cannot read the current UI has to be
+                                    able to find. I18N-01. */}
+                                {matches("language", t("settings.language")) && (
                                     <section>
-                                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Theme</h3>
+                                        <div className="rounded-[var(--radius-lg)] border border-[var(--border)] divide-y divide-[var(--border-subtle)] overflow-hidden">
+                                            <LanguageRow
+                                                value={preference}
+                                                onChange={(v) => {
+                                                    changeLocale(v);
+                                                    window.dispatchEvent(new CustomEvent("paperling:locale-change", { detail: { preference: v } }));
+                                                }}
+                                            />
+                                        </div>
+                                    </section>
+                                )}
+                                {matches("theme", t("settings.theme")) && (
+                                    <section>
+                                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">{t("settings.theme")}</h3>
                                         <div className="grid grid-cols-4 gap-2">
                                             {/* THEME-01: follows the OS light/dark setting. */}
                                             <button
@@ -414,38 +504,38 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                     ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
                                                     : "hover:bg-[var(--bg-hover)]"
                                                     }`}
-                                                title="Match the system's light or dark setting"
+                                                title={t("settings.themeSystemHint")}
                                             >
                                                 <div className="w-12 h-12 rounded-[var(--radius-md)] overflow-hidden border border-[var(--border)] flex">
                                                     <div className="w-1/2 h-full" style={{ backgroundColor: "#f5f0e6" }}></div>
                                                     <div className="w-1/2 h-full" style={{ backgroundColor: "#1c1917" }}></div>
                                                 </div>
-                                                <span className="text-[11px] text-[var(--text-primary)]">System</span>
+                                                <span className="text-[11px] text-[var(--text-primary)]">{t("settings.themeSystem")}</span>
                                             </button>
-                                            {themes.map((t) => (
+                                            {themes.map((t2) => (
                                                 <button
-                                                    key={t.id}
-                                                    onClick={() => setTheme(t.id)}
-                                                    aria-pressed={!followSystem && theme === t.id}
-                                                    className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${!followSystem && theme === t.id
+                                                    key={t2.id}
+                                                    onClick={() => setTheme(t2.id)}
+                                                    aria-pressed={!followSystem && theme === t2.id}
+                                                    className={`flex flex-col items-center gap-2 p-3 rounded-[var(--radius-md)] transition-all ${!followSystem && theme === t2.id
                                                         ? "ring-2 ring-[var(--accent)] bg-[var(--bg-hover)]"
                                                         : "hover:bg-[var(--bg-hover)]"
                                                         }`}
-                                                    title={t.name}
+                                                    title={t(t2.nameKey)}
                                                 >
-                                                    <div className="w-12 h-12 rounded-[var(--radius-md)] overflow-hidden border border-[var(--border)] flex items-center justify-center" style={{ backgroundColor: t.colors[0] }}>
-                                                        <div className="w-1/2 h-full" style={{ backgroundColor: t.colors[0] }}></div>
-                                                        <div className="w-1/2 h-full" style={{ backgroundColor: t.colors[1] }}></div>
+                                                    <div className="w-12 h-12 rounded-[var(--radius-md)] overflow-hidden border border-[var(--border)] flex items-center justify-center" style={{ backgroundColor: t2.colors[0] }}>
+                                                        <div className="w-1/2 h-full" style={{ backgroundColor: t2.colors[0] }}></div>
+                                                        <div className="w-1/2 h-full" style={{ backgroundColor: t2.colors[1] }}></div>
                                                     </div>
-                                                    <span className="text-[11px] text-[var(--text-primary)]">{t.name}</span>
+                                                    <span className="text-[11px] text-[var(--text-primary)]">{t(t2.nameKey)}</span>
                                                 </button>
                                             ))}
                                         </div>
                                     </section>
                                 )}
-                                {matches("theme accent color colour") && (
+                                {matches("theme accent color colour", t("settings.accentColor")) && (
                                     <section>
-                                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Accent color</h3>
+                                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">{t("settings.accentColor")}</h3>
                                         <div className="flex items-center gap-2 flex-wrap">
                                             {ACCENT_CHOICES.map((a) => (
                                                 <button
@@ -453,7 +543,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                     onClick={() => setAccent(a.id)}
                                                     aria-pressed={accent === a.id}
                                                     title={a.name}
-                                                    aria-label={`Accent color: ${a.name}`}
+                                                    aria-label={t("settings.accentColorAria", { name: a.name })}
                                                     className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
                                                         accent === a.id
                                                             ? "ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-primary)]"
@@ -469,9 +559,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         </div>
                                     </section>
                                 )}
-                                {matches("font") && (
+                                {matches("font", t("settings.font")) && (
                                     <section>
-                                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Font</h3>
+                                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">{t("settings.font")}</h3>
                                         <div className="grid grid-cols-2 gap-2">
                                             {fonts.map((f) => {
                                                 const active = font === f.id;
@@ -487,7 +577,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                     >
                                                         <span className="min-w-0">
                                                             <span className="block text-[15px] leading-tight text-[var(--text-primary)] truncate" style={{ fontFamily: f.stack }}>{f.name}</span>
-                                                            <span className="block text-[10px] text-[var(--text-muted)] mt-0.5">{f.kind}</span>
+                                                            <span className="block text-[10px] text-[var(--text-muted)] mt-0.5">{t(f.kindKey)}</span>
                                                         </span>
                                                         {active && <span className="material-symbols-outlined text-[18px] text-[var(--accent)] shrink-0">check</span>}
                                                     </button>
@@ -503,8 +593,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                     aria-pressed={font === "custom"}
                                                     className="shrink-0 text-left"
                                                 >
-                                                    <span className="block text-[15px] leading-tight text-[var(--text-primary)]">Custom</span>
-                                                    <span className="block text-[10px] text-[var(--text-muted)] mt-0.5">System font</span>
+                                                    <span className="block text-[15px] leading-tight text-[var(--text-primary)]">{t("settings.fontCustom")}</span>
+                                                    <span className="block text-[10px] text-[var(--text-muted)] mt-0.5">{t("settings.fontCustomKind")}</span>
                                                 </button>
                                                 <input
                                                     type="text"
@@ -514,8 +604,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                     onFocus={() => { setFont("custom"); hydrateFontSuggestions(); }}
                                                     onChange={(e) => setCustomFont(e.target.value)}
                                                     onBlur={() => setCustomFont(customFont.trim())}
-                                                    placeholder="e.g. Atkinson Hyperlegible"
-                                                    aria-label="Custom system font family"
+                                                    placeholder={t("settings.fontCustomPlaceholder")}
+                                                    aria-label={t("settings.fontCustomAria")}
                                                     className="min-w-0 flex-1 px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                                                     style={{ fontFamily: customFont ? `"${customFont}", 'Inter'` : "'Inter'" }}
                                                 />
@@ -524,9 +614,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         </div>
                                     </section>
                                 )}
-                                {matches("size") && (
+                                {matches("size", t("settings.fontSize")) && (
                                     <section>
-                                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Font size</h3>
+                                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">{t("settings.fontSize")}</h3>
                                         <div className="grid grid-cols-4 gap-2">
                                             {fontSizes.map((s) => {
                                                 const active = fontSize === s.id;
@@ -541,7 +631,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                             }`}
                                                     >
                                                         <span className="leading-none text-[var(--text-primary)]" style={{ fontSize: s.sample }}>Aa</span>
-                                                        <span className="text-[11px] text-[var(--text-secondary)]">{s.name}</span>
+                                                        <span className="text-[11px] text-[var(--text-secondary)]">{t(s.nameKey)}</span>
                                                     </button>
                                                 );
                                             })}
@@ -556,90 +646,90 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             // to scan. Grouped by what they affect; a group whose rows
                             // are all filtered out by the search disappears with them.
                             <div className="space-y-6">
-                                <SettingsGroup title="Writing">
+                                <SettingsGroup title={t("settings.groupWriting")}>
                                     {/* Not offered on mobile: the toolbar is the
                                         phone's only formatting surface, always on. */}
-                                    {matches("toolbar") && !IS_MOBILE && (
-                                        <ToggleRow label="Show formatting toolbar" description="Toolbar above the editor" checked={toolbar}
+                                    {matches("toolbar", t("settings.toolbar")) && !IS_MOBILE && (
+                                        <ToggleRow label={t("settings.toolbar")} description={t("settings.toolbarHint")} checked={toolbar}
                                             onChange={(v) => { setToolbarLocal(v); setToolbarEnabled(v); fire("paperling:toolbar-toggle", v); }} />
                                     )}
-                                    {matches("live preview hide markdown symbols syntax wysiwyg") && (
-                                        <ToggleRow label="Hide Markdown symbols" description="In the editor, show # ** ` and link syntax only on the line you are editing" checked={livePreview}
+                                    {matches("live preview hide markdown symbols syntax wysiwyg", t("settings.livePreview")) && (
+                                        <ToggleRow label={t("settings.livePreview")} description={t("settings.livePreviewHint")} checked={livePreview}
                                             onChange={(v) => { setLivePreviewLocal(v); setLivePreview(v); fire("paperling:live-preview-toggle", v); }} />
                                     )}
-                                    {matches("spell check") && (
-                                        <ToggleRow label="Spell check" description="Underline misspelled words while you type" checked={spellCheck}
+                                    {matches("spell check", t("settings.spellCheck")) && (
+                                        <ToggleRow label={t("settings.spellCheck")} description={t("settings.spellCheckHint")} checked={spellCheck}
                                             onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
                                     )}
-                                    {matches("word wrap") && (
-                                        <ToggleRow label="Word wrap" description="Wrap long lines instead of horizontal scroll" checked={wordWrap}
+                                    {matches("word wrap", t("settings.wordWrap")) && (
+                                        <ToggleRow label={t("settings.wordWrap")} description={t("settings.wordWrapHint")} checked={wordWrap}
                                             onChange={(v) => { setWordWrapLocal(v); setWordWrap(v); fire("paperling:wordwrap-toggle", v); }} />
                                     )}
                                     {matches("folding fold collapse arrows gutter") && !IS_MOBILE && (
-                                        <ToggleRow label="Fold arrows" description="Show arrows beside headings, lists and code blocks to collapse them" checked={codeFolding}
+                                        <ToggleRow label={t("settings.folding")} description={t("settings.foldingHint")} checked={codeFolding}
                                             onChange={(v) => { setCodeFoldingLocal(v); setCodeFolding(v); fire("paperling:folding-toggle", v); }} />
                                     )}
                                     {/* Typewriter scrolling orbits a physical
                                         keyboard's caret line; on touch it's a
                                         solution without a problem. */}
-                                    {matches("typewriter") && !IS_MOBILE && (
-                                        <ToggleRow label="Typewriter mode" description="Keep caret vertically centered" checked={typewriter}
+                                    {matches("typewriter", t("settings.typewriter")) && !IS_MOBILE && (
+                                        <ToggleRow label={t("settings.typewriter")} description={t("settings.typewriterHint")} checked={typewriter}
                                             onChange={(v) => { setTypewriterLocal(v); setTypewriterMode(v); fire("paperling:typewriter-toggle", v); }} />
                                     )}
-                                    {matches("vim") && (
-                                        <ToggleRow label="Vim mode" description="Modal editing in the editor: h/j/k/l, modes, operators" checked={vimMode}
+                                    {matches("vim", t("settings.vim")) && (
+                                        <ToggleRow label={t("settings.vim")} description={t("settings.vimHint")} checked={vimMode}
                                             onChange={(v) => { setVimModeLocal(v); setVimMode(v); fire("paperling:vim-toggle", v); }} />
                                     )}
                                 </SettingsGroup>
-                                <SettingsGroup title="Saving and files">
-                                    {matches("autosave") && (
-                                        <ToggleRow label="Autosave" description="Save automatically a moment after you stop typing" checked={autoSave}
+                                <SettingsGroup title={t("settings.groupSaving")}>
+                                    {matches("autosave", t("settings.autosave")) && (
+                                        <ToggleRow label={t("settings.autosave")} description={t("settings.autosaveHint")} checked={autoSave}
                                             onChange={(v) => { setAutoSaveLocal(v); setAutoSave(v); fire("paperling:autosave-toggle", v); }} />
                                     )}
-                                    {matches("open files in reader mode") && (
+                                    {matches("open files in reader mode", t("settings.openInReader")) && (
                                         // No window event: App reads the flag live at each
                                         // file open (same pattern as toggle-ai-panel).
-                                        <ToggleRow label="Open files in reader mode" description="Every file opens read-first; editing stays one click away" checked={openInReader}
+                                        <ToggleRow label={t("settings.openInReader")} description={t("settings.openInReaderHint")} checked={openInReader}
                                             onChange={(v) => { setOpenInReaderLocal(v); setOpenInReader(v); }} />
                                     )}
-                                    {matches("file history versions local backup recover restore timeline") && (
-                                        <ToggleRow label="Keep file history" description="Save earlier versions of your files on this computer, for 30 days. Find them with File history in the command palette" checked={keepHistory}
+                                    {matches("file history versions local backup recover restore timeline", t("settings.keepHistory")) && (
+                                        <ToggleRow label={t("settings.keepHistory")} description={t("settings.keepHistoryHint")} checked={keepHistory}
                                             onChange={(v) => { setKeepHistoryLocal(v); setFileHistory(v); }} />
                                     )}
-                                    {matches("file history versions clear delete privacy") && (
+                                    {matches("file history versions clear delete privacy", t("settings.clearHistory")) && (
                                         <div className="flex items-center justify-between gap-4 px-3.5 py-3">
                                             <div className="flex flex-col items-start min-w-0">
-                                                <span className="text-sm font-medium text-[var(--text-primary)]">Clear file history</span>
-                                                <span className="text-[11px] text-[var(--text-muted)] mt-0.5">Delete every saved version. Your files aren't touched</span>
+                                                <span className="text-sm font-medium text-[var(--text-primary)]">{t("settings.clearHistory")}</span>
+                                                <span className="text-[11px] text-[var(--text-muted)] mt-0.5">{t("settings.clearHistoryHint")}</span>
                                             </div>
                                             <button
                                                 type="button"
                                                 onClick={() => { void import("../utils/fileHistory").then(({ fileHistory }) => fileHistory.clear()).then(() => setHistoryCleared(true)); }}
                                                 className="shrink-0 px-2.5 py-1 text-xs rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
                                             >
-                                                {historyCleared ? "Cleared" : "Clear"}
+                                                {historyCleared ? t("settings.cleared") : t("settings.clear")}
                                             </button>
                                         </div>
                                     )}
-                                    {matches("reopen last session launch startup recovery") && (
-                                        <ToggleRow label="Reopen last session on launch" description="Restore saved tabs on startup. Unsaved work is always recovered" checked={reopenSession}
+                                    {matches("reopen last session launch startup recovery", t("settings.reopenSession")) && (
+                                        <ToggleRow label={t("settings.reopenSession")} description={t("settings.reopenSessionHint")} checked={reopenSession}
                                             onChange={(v) => { setReopenSessionLocal(v); setReopenSession(v); fire("paperling:reopen-session-toggle", v); }} />
                                     )}
                                 </SettingsGroup>
-                                <SettingsGroup title="Reading">
-                                    {matches("readable line length preview width column") && (
-                                        <ToggleRow label="Readable line length" description="Center the reading column at a comfortable width (Obsidian-style). Off: the preview fills the window" checked={readableLength}
+                                <SettingsGroup title={t("settings.groupReading")}>
+                                    {matches("readable line length preview width column", t("settings.readableLength")) && (
+                                        <ToggleRow label={t("settings.readableLength")} description={t("settings.readableLengthHint")} checked={readableLength}
                                             onChange={(v) => { setReadableLengthLocal(v); setReadableLineLength(v); fire("paperling:readable-toggle", v); }} />
                                     )}
-                                    {matches("edit reader wysiwyg rich text") && (
-                                        <ToggleRow label="Edit text in Reader" description="Double-click rendered text to edit it in place. Tables, images, code blocks and callouts are edited in Code" checked={readerEditing}
+                                    {matches("edit reader wysiwyg rich text", t("settings.readerEditing")) && (
+                                        <ToggleRow label={t("settings.readerEditing")} description={t("settings.readerEditingHint")} checked={readerEditing}
                                             onChange={(v) => { setReaderEditingLocal(v); setReaderEditing(v); fire("paperling:reader-editing-toggle", v); }} />
                                     )}
-                                    {matches("load remote images privacy badges") && (
-                                        <ToggleRow label="Load remote images" description="Show HTTPS images and badges. Image hosts can see your IP address" checked={remoteImages}
+                                    {matches("load remote images privacy badges", t("settings.remoteImages")) && (
+                                        <ToggleRow label={t("settings.remoteImages")} description={t("settings.remoteImagesHint")} checked={remoteImages}
                                             onChange={(v) => { setRemoteImagesLocal(v); setRemoteImages(v); fire("paperling:remote-images-toggle", v); }} />
                                     )}
-                                    {matches("text direction right to left rtl ltr arabic hebrew persian urdu") && (
+                                    {matches("text direction right to left rtl ltr arabic hebrew persian urdu", t("settings.textDirection")) && (
                                         <DirectionRow value={textDirection}
                                             onChange={(v) => {
                                                 setTextDirectionLocal(v);
@@ -647,14 +737,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: v } }));
                                             }} />
                                     )}
-                                    {matches("zen mode") && (
-                                        <ToggleRow label="Zen mode" description="Just the page. Ctrl+E edits, F9 exits." checked={zenMode}
+                                    {matches("zen mode", t("settings.zenMode")) && (
+                                        <ToggleRow label={t("settings.zenMode")} description={t("settings.zenModeHint")} checked={zenMode}
                                             onChange={(v) => { setZenModeLocal(v); setZenMode(v); fire("paperling:zen-toggle", v); }} />
                                     )}
                                     {matches("custom css style stylesheet theme") && (
                                         <label className="block px-3.5 py-3">
-                                            <span className="text-sm font-medium text-[var(--text-primary)]">Custom CSS</span>
-                                            <span className="block text-[11px] text-[var(--text-muted)] mt-0.5">Your own styles, applied to the whole app. Target the page with .markdown-body and the editor with .cm-editor</span>
+                                            <span className="text-sm font-medium text-[var(--text-primary)]">{t("settings.customCss")}</span>
+                                            <span className="block text-[11px] text-[var(--text-muted)] mt-0.5">{t("settings.customCssHint")}</span>
                                             <textarea
                                                 value={customCss}
                                                 spellCheck={false}
@@ -674,7 +764,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         )}
 
                         {noResults && (
-                            <p className="text-sm text-[var(--text-secondary)]">No settings match “{filter.trim()}”.</p>
+                            <p className="text-sm text-[var(--text-secondary)]">{t("settings.noResults", { query: filter.trim() })}</p>
                         )}
 
                         {section === "shortcuts" && !IS_MOBILE && !noResults && (
@@ -684,20 +774,20 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         {section === "ai" && !IS_MOBILE && (
                             <>
                                 <div className="rounded-[var(--radius-lg)] border border-[var(--border)] divide-y divide-[var(--border-subtle)] overflow-hidden">
-                                    <ToggleRow label="Enable AI" description="Show the AI button and assistant in the editor" checked={aiEnabled}
+                                    <ToggleRow label={t("settings.aiEnable")} description={t("settings.aiEnableHint")} checked={aiEnabled}
                                         onChange={(v) => { setAiEnabledLocal(v); setAIEnabled(v); fire("paperling:ai-enabled-toggle", v); }} />
                                     {aiEnabled && (
-                                        <ToggleRow label="Animate the AI icon" description="Shimmer on the title-bar AI button; off shows it as plain text" checked={aiIconAnimation}
+                                        <ToggleRow label={t("settings.aiAnimateIcon")} description={t("settings.aiAnimateIconHint")} checked={aiIconAnimation}
                                             onChange={(v) => { setAiIconAnimationLocal(v); setAIIconAnimation(v); fire("paperling:ai-icon-animation-toggle", v); }} />
                                     )}
                                 </div>
                                 <div className="flex items-start justify-between gap-3">
                                     <p className="text-sm text-[var(--text-secondary)]">
-                                        Configure an OpenAI-compatible endpoint to enable inline AI assist
-                                        (Rewrite / Shorten / Expand / Continue / Translate). Open it in the editor
-                                        with <kbd className="px-1 font-mono rounded border border-[var(--border)] bg-[var(--bg-input)]">{AI_SHORTCUT}</kbd>,
-                                        the <span className="material-symbols-outlined text-[14px] align-middle">auto_awesome</span> toolbar button,
-                                        or the command palette.
+                                        {t("settings.aiIntroBefore")}
+                                        <kbd className="px-1 font-mono rounded border border-[var(--border)] bg-[var(--bg-input)]">{AI_SHORTCUT}</kbd>
+                                        {t("settings.aiIntroBetween")}
+                                        <span className="material-symbols-outlined text-[14px] align-middle">auto_awesome</span>
+                                        {t("settings.aiIntroAfter")}
                                     </p>
                                     <span
                                         className={`shrink-0 px-2 py-0.5 rounded-[var(--radius-pill)] text-[11px] font-medium border ${aiEndpointBad
@@ -708,16 +798,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             }`}
                                     >
                                         {aiEndpointInvalid
-                                            ? "Invalid endpoint"
+                                            ? t("settings.aiStatusInvalidEndpoint")
                                             : aiKeyInsecure
-                                                ? "Insecure endpoint"
-                                                : aiConfigured ? "Ready" : "Not configured"}
+                                                ? t("settings.aiStatusInsecure")
+                                                : aiConfigured ? t("settings.aiStatusReady") : t("settings.aiStatusUnconfigured")}
                                     </span>
                                 </div>
                                 <div className="space-y-3">
                                     <div>
-                                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Provider</span>
-                                        <div className="mt-1 flex flex-wrap gap-2" role="group" aria-label="AI provider presets">
+                                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{t("settings.aiProvider")}</span>
+                                        <div className="mt-1 flex flex-wrap gap-2" role="group" aria-label={t("settings.aiProviderPresets")}>
                                             {AI_PROVIDERS.map((p) => {
                                                 const active = activeProvider?.id === p.id;
                                                 return (
@@ -730,61 +820,64 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                             ? "bg-[var(--accent)] text-[var(--accent-text)] border-[var(--accent)]"
                                                             : "border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"}`}
                                                     >
-                                                        {p.name}
+                                                        {providerText("aiProviderName", p.id, p.name)}
                                                     </button>
                                                 );
                                             })}
                                         </div>
                                         <span className="block mt-1 text-[11px] text-[var(--text-muted)]">
-                                            Pick a provider to fill in the endpoint and model; then just paste your API key.
-                                            Any other OpenAI-compatible endpoint works too, entered below.
+                                            {t("settings.aiProviderHint")}
                                         </span>
                                     </div>
                                     <label className="block">
-                                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Endpoint URL</span>
+                                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{t("settings.aiEndpoint")}</span>
                                         <input
                                             type="url"
                                             value={ai.endpoint}
                                             onChange={(e) => updateAi({ endpoint: e.target.value })}
-                                            placeholder="https://api.openai.com/v1/chat/completions"
+                                            placeholder={t("settings.aiEndpointPlaceholder")}
                                             aria-invalid={aiEndpointBad}
                                             className={`mt-1 w-full px-3 py-2 text-sm bg-[var(--bg-input)] border rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none font-mono ${aiEndpointBad ? "border-[var(--danger)] focus:border-[var(--danger)]" : "border-[var(--border)] focus:border-[var(--accent)]"}`}
                                         />
                                         {aiEndpointInvalid && (
-                                            <span className="block mt-1 text-[11px] text-[var(--danger)]">Must be a valid http:// or https:// URL.</span>
+                                            <span className="block mt-1 text-[11px] text-[var(--danger)]">{t("settings.aiEndpointInvalid")}</span>
                                         )}
                                         {aiKeyInsecure && (
                                             <span className="block mt-1 text-[11px] text-[var(--danger)]">
-                                                An API key would be sent unencrypted to this host. Use https://, or clear the key if this server does not need one.
+                                                {t("settings.aiEndpointInsecure")}
                                             </span>
                                         )}
                                     </label>
                                     <label className="block">
-                                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Model</span>
+                                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{t("settings.aiModel")}</span>
                                         <input
                                             type="text"
                                             value={ai.model}
                                             onChange={(e) => updateAi({ model: e.target.value })}
-                                            placeholder="gpt-4o-mini, claude-haiku-4-5, llama3, …"
+                                            placeholder={t("settings.aiModelPlaceholder")}
                                             className="mt-1 w-full px-3 py-2 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] font-mono"
                                         />
                                     </label>
                                     <label className="block">
-                                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">API key</span>
+                                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{t("settings.aiApiKey")}</span>
                                         <input
                                             type="password"
                                             value={ai.apiKey}
                                             onChange={(e) => updateAi({ apiKey: e.target.value })}
-                                            placeholder={activeProvider?.keyOptional ? "(not needed for this provider)" : activeProvider ? `paste your ${activeProvider.name} API key` : "(optional for local providers)"}
+                                            placeholder={activeProvider?.keyOptional
+                                                ? t("settings.aiApiKeyNotNeeded")
+                                                : activeProvider
+                                                    ? t("settings.aiApiKeyNeeded", { provider: providerText("aiProviderName", activeProvider.id, activeProvider.name) })
+                                                    : t("settings.aiApiKeyOptional")}
                                             autoComplete="off"
                                             className="mt-1 w-full px-3 py-2 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] font-mono"
                                         />
                                         {activeProvider && (
-                                            <span className="block mt-1 text-[11px] text-[var(--text-muted)]">{activeProvider.keyHint}</span>
+                                            <span className="block mt-1 text-[11px] text-[var(--text-muted)]">{providerText("aiKeyHint", activeProvider.id, activeProvider.keyHint)}</span>
                                         )}
                                     </label>
                                     <label className="block">
-                                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Chat history depth</span>
+                                        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{t("settings.aiHistoryDepth")}</span>
                                         <input
                                             type="number"
                                             min={0}
@@ -801,7 +894,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             className="mt-1 w-24 px-3 py-2 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] font-mono"
                                         />
                                         <span className="block mt-1 text-[11px] text-[var(--text-muted)]">
-                                            How many previous chat turns are sent with each AI panel message. Lower saves tokens; 0 makes every message start fresh. The document itself is always attached only to the newest message.
+                                            {t("settings.aiHistoryHint")}
                                         </span>
                                     </label>
                                     <div className="flex items-center gap-3">
@@ -811,21 +904,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             disabled={!aiConfigured || aiTest.state === "testing"}
                                             className="px-3 py-1.5 text-sm rounded-[var(--radius-md)] border border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 transition-colors"
                                         >
-                                            {aiTest.state === "testing" ? "Testing…" : "Test connection"}
+                                            {aiTest.state === "testing" ? t("settings.aiTesting") : t("settings.aiTest")}
                                         </button>
                                         {aiTest.state === "ok" && (
-                                            <span className="text-[12px] text-[var(--status-saved)]">✓ Connection OK</span>
+                                            <span className="text-[12px] text-[var(--status-saved)]">{t("settings.aiTestOk")}</span>
                                         )}
                                         {aiTest.state === "error" && (
                                             <span className="text-[12px] text-[var(--danger)] truncate" title={aiTest.msg}>{aiTest.msg}</span>
                                         )}
                                     </div>
                                     <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                                        <strong>Privacy:</strong> AI panel messages send the <strong>whole open document</strong> (plus your chat
-                                        history) to the endpoint you configure above; the bubble's "Explain" sends only the selected text. Plain-http
-                                        endpoints are <strong>unencrypted</strong> — your API key is never sent over http to a non-local host.
-                                        For private notes, use a local provider (e.g. Ollama at <code>http://localhost:11434/v1/chat/completions</code>) so nothing leaves your machine.
-                                        The API key is stored in your operating system's keychain (Windows Credential Manager, macOS Keychain, or Linux Secret Service), not in plaintext.
+                                        {t("settings.aiPrivacyLead")}<strong>{t("settings.aiPrivacyUnencrypted")}</strong>{t("settings.aiPrivacyMid")}<code>http://localhost:11434/v1/chat/completions</code>{t("settings.aiPrivacyTail")}
                                     </p>
                                 </div>
                             </>
@@ -848,17 +937,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="text-[11px]">A no-setup Markdown reader and editor</div>
+                                        <div className="text-[11px]">{t("settings.aboutTagline")}</div>
                                     </div>
                                 </div>
-                                <p>Built with Tauri + React + TypeScript.</p>
+                                <p>{t("settings.aboutBuiltWith")}</p>
 
                                 {/* The maker. Links open in the system browser
                                     via the opener plugin (granted on desktop
                                     and mobile); fall back to a plain anchor in
                                     plain-browser dev mode. */}
                                 <div className="pt-3 border-t border-[var(--border-subtle)] text-xs space-y-2">
-                                    <div className="text-[var(--text-muted)] uppercase tracking-wider text-[10px] font-semibold">Created by</div>
+                                    <div className="text-[var(--text-muted)] uppercase tracking-wider text-[10px] font-semibold">{t("settings.aboutCreatedBy")}</div>
                                     <div className="text-sm font-medium text-[var(--text-primary)]">Saqlain Razee</div>
                                     <div className="flex flex-col gap-1.5">
                                         <button
@@ -890,7 +979,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                                 {/* Keyboard tour steps don't exist on the touch shell. */}
                                 {!IS_MOBILE && (
-                                    <p>Press <kbd className="px-1 font-mono rounded border border-[var(--border)] bg-[var(--bg-input)]">?</kbd> to view all keyboard shortcuts.</p>
+                                    <p>{t("settings.aboutShortcutHintBefore")}<kbd className="px-1 font-mono rounded border border-[var(--border)] bg-[var(--bg-input)]">?</kbd>{t("settings.aboutShortcutHintAfter")}</p>
                                 )}
 
                                 {/* Replay the first-run tour. The mascot makes the row instantly
@@ -908,8 +997,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     >
                                         <img src={mascotWave} alt="" aria-hidden="true" draggable={false} className="w-10 h-10 object-contain select-none shrink-0" />
                                         <span className="flex flex-col items-start min-w-0">
-                                            <span className="text-sm font-medium text-[var(--text-primary)]">Replay the welcome tour</span>
-                                            <span className="text-[11px] text-[var(--text-muted)] mt-0.5">A 30-second walkthrough of the editor, views, and shortcuts</span>
+                                            <span className="text-sm font-medium text-[var(--text-primary)]">{t("settings.aboutReplayTour")}</span>
+                                            <span className="text-[11px] text-[var(--text-muted)] mt-0.5">{t("settings.aboutReplayTourHint")}</span>
                                         </span>
                                         <span className="material-symbols-outlined ml-auto text-[18px] text-[var(--text-muted)]">arrow_forward</span>
                                     </button>

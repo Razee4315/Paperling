@@ -10,6 +10,7 @@ import { samePath } from "../utils/tabsModel";
 import { isDocumentPath, isPathWithin, parentDirectory } from "../utils/documentPaths";
 import mascotCarry from "../assets/mascot/mascot-carry.png";
 import mascotShrug from "../assets/mascot/mascot-shrug.png";
+import { useI18n } from "../i18n";
 
 interface FileEntry {
     name: string;
@@ -62,6 +63,7 @@ export function FileExplorer({
     onPathChanged,
     onNotify,
 }: FileExplorerProps) {
+    const { t } = useI18n();
     const [files, setFiles] = useState<FileEntry[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -152,7 +154,7 @@ export function FileExplorer({
         } catch (err) {
             if (seq !== loadSeqRef.current) return;
             console.error("Failed to load directory:", err);
-            setError("Failed to load files");
+            setError(t("explorer.loadFailed"));
         } finally {
             if (seq === loadSeqRef.current) setIsLoading(false);
         }
@@ -213,7 +215,7 @@ export function FileExplorer({
             onPathChanged?.(entry.path, newPath);
             await loadFiles(currentViewDir);
         } catch (err) {
-            onNotify?.(errMessage(err) || "That didn't work", "error");
+            onNotify?.(errMessage(err) || t("explorer.actionFailed"), "error");
         }
     };
 
@@ -232,7 +234,7 @@ export function FileExplorer({
             onNotify?.(`Moved "${entry.name}" to .trash`, "success");
             await loadFiles(currentViewDir);
         } catch (err) {
-            onNotify?.(errMessage(err) || "Could not delete", "error");
+            onNotify?.(errMessage(err) || t("explorer.deleteFailed"), "error");
         }
     };
 
@@ -261,7 +263,7 @@ export function FileExplorer({
     // else on the phone goes through the SAF bridge (see nativePicker.ts).
     const handleOpenFromDevice = () => {
         if (!openSystemFilePicker()) {
-            setError("System file picker isn't available in this build");
+            setError(t("explorer.pickerUnavailable"));
         }
     };
 
@@ -273,7 +275,7 @@ export function FileExplorer({
         <aside
             ref={panelRef}
             role="navigation"
-            aria-label="File explorer"
+            aria-label={t("explorer.ariaLabel")}
             tabIndex={-1}
             data-panel="left"
             style={IS_MOBILE ? undefined : { width: "var(--sidebar-width)" }}
@@ -288,8 +290,8 @@ export function FileExplorer({
                     <button
                         onClick={handleGoUp}
                         disabled={!parentDir}
-                        aria-label="Go up one folder"
-                        title="Go up"
+                        aria-label={t("explorer.up")}
+                        title={t("explorer.upTitle")}
                         className="btn-press flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors mr-1 disabled:opacity-40 disabled:pointer-events-none"
                     >
                         <span className="material-symbols-outlined text-[18px]">
@@ -305,8 +307,8 @@ export function FileExplorer({
                     <button
                         onClick={() => setNameEdit({ mode: "note", value: "" })}
                         disabled={!currentViewDir}
-                        aria-label="New note in this folder"
-                        title="New note"
+                        aria-label={t("explorer.newNote")}
+                        title={t("explorer.newNoteTitle")}
                         className="btn-press flex items-center justify-center w-7 h-7 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-40"
                     >
                         <span className="material-symbols-outlined text-[18px]">note_add</span>
@@ -314,15 +316,15 @@ export function FileExplorer({
                     <button
                         onClick={() => setNameEdit({ mode: "folder", value: "" })}
                         disabled={!currentViewDir}
-                        aria-label="New folder"
-                        title="New folder"
+                        aria-label={t("explorer.newFolder")}
+                        title={t("explorer.newFolder")}
                         className="btn-press flex items-center justify-center w-7 h-7 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-40"
                     >
                         <span className="material-symbols-outlined text-[18px]">create_new_folder</span>
                     </button>
                     <button
                         onClick={() => currentViewDir && loadFiles(currentViewDir)}
-                        aria-label="Refresh file list"
+                        aria-label={t("explorer.refresh")}
                         title="Refresh"
                         className="btn-press flex items-center justify-center w-7 h-7 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                     >
@@ -332,7 +334,7 @@ export function FileExplorer({
                     </button>
                     <button
                         onClick={onClose}
-                        aria-label="Close file explorer"
+                        aria-label={t("explorer.close")}
                         className="btn-press flex items-center justify-center w-7 h-7 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                     >
                         <span className="material-symbols-outlined text-[18px]">
@@ -361,8 +363,8 @@ export function FileExplorer({
                                 setFilter("");
                             }
                         }}
-                        placeholder="Filter this folder"
-                        aria-label="Filter files in this folder"
+                        placeholder={t("explorer.filterPlaceholder")}
+                        aria-label={t("explorer.filterAria")}
                         className="w-full px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                     />
                 </div>
@@ -389,7 +391,7 @@ export function FileExplorer({
                     <NameInput
                         icon={nameEdit.mode === "folder" ? "folder" : "description"}
                         value={nameEdit.value}
-                        placeholder={nameEdit.mode === "folder" ? "Folder name" : "Note name"}
+                        placeholder={nameEdit.mode === "folder" ? t("explorer.folderName") : t("explorer.noteName")}
                         onChange={(value) => setNameEdit({ ...nameEdit, value })}
                         onCommit={commitNameEdit}
                         onCancel={() => setNameEdit(null)}
@@ -407,7 +409,7 @@ export function FileExplorer({
                 ) : files.length === 0 ? (
                     <div className="flex flex-col items-center justify-center gap-3 py-10 text-sm text-[var(--text-secondary)]">
                         <img src={mascotCarry} alt="" aria-hidden="true" draggable={false} className="w-20 h-20 object-contain select-none opacity-90" />
-                        <span>Folder is empty</span>
+                        <span>{t("explorer.empty")}</span>
                     </div>
                 ) : visibleFiles.length === 0 ? (
                     <div className="py-8 text-center text-sm text-[var(--text-secondary)]">Nothing here matches "{filter.trim()}"</div>
@@ -421,7 +423,7 @@ export function FileExplorer({
                                         <NameInput
                                             icon={file.is_dir ? "folder" : "description"}
                                             value={nameEdit.value}
-                                            placeholder="New name"
+                                            placeholder={t("explorer.newName")}
                                             onChange={(value) => setNameEdit({ ...nameEdit, value })}
                                             onCommit={commitNameEdit}
                                             onCancel={() => setNameEdit(null)}
@@ -483,15 +485,15 @@ export function FileExplorer({
                     onClose={() => setMenu(null)}
                     actions={[
                         ...(!menu.entry.is_dir
-                            ? [{ label: "Open", icon: "open_in_new", onClick: () => handleEntryClick(menu.entry) }]
+                            ? [{ label: t("titleBar.openLabel"), icon: "open_in_new", onClick: () => handleEntryClick(menu.entry) }]
                             : []),
                         {
-                            label: "Rename",
+                            label: t("common.rename"),
                             icon: "edit",
                             onClick: () => setNameEdit({ mode: "rename", entry: menu.entry, value: menu.entry.name }),
                         },
                         {
-                            label: "Move to trash",
+                            label: t("explorer.moveToTrash"),
                             icon: "delete",
                             dividerBefore: true,
                             onClick: () => void trashEntry(menu.entry),

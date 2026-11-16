@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { Modal } from "./Modal";
 import mascotSad from "../assets/mascot/mascot-sad.png";
+import { useI18n } from "../i18n";
 
 interface UnsavedChangesDialogProps {
     isOpen: boolean;
@@ -20,6 +21,7 @@ export function UnsavedChangesDialog({
     onSave,
     dirtyNames,
 }: UnsavedChangesDialogProps) {
+    const { t } = useI18n();
     const saveButtonRef = useRef<HTMLButtonElement>(null);
     const many = (dirtyNames?.length ?? 0) > 1;
     // With several tabs open, "You have unsaved changes" didn't say WHICH
@@ -47,10 +49,10 @@ export function UnsavedChangesDialog({
                     />
                     <div>
                         <h2 id="unsaved-dialog-title" className="text-base font-semibold text-[var(--text-primary)]">
-                            Unsaved Changes
+                            {t("dialog.unsavedTitle")}
                         </h2>
                         <p className="text-sm text-[var(--text-secondary)]">
-                            {many ? `${dirtyNames!.length} files have unsaved changes` : "Your changes will be lost"}
+                            {many ? t("dialog.filesUnsaved", { count: dirtyNames!.length }) : t("dialog.changesLost")}
                         </p>
                     </div>
                 </div>
@@ -60,10 +62,10 @@ export function UnsavedChangesDialog({
             <div className="px-5 pb-4">
                 <p id="unsaved-dialog-desc" className="text-sm text-[var(--text-secondary)] leading-relaxed">
                     {many
-                        ? "These files have unsaved changes. Do you want to save them before closing?"
+                        ? t("dialog.saveThem")
                         : single
-                            ? <>Do you want to save the changes you made to <strong className="font-semibold text-[var(--text-primary)] break-words">{single}</strong>?</>
-                            : "You have unsaved changes. Do you want to save them before closing?"}
+                            ? <>{t("dialog.saveOneBefore")}<strong className="font-semibold text-[var(--text-primary)] break-words">{single}</strong>{t("dialog.saveOneAfter")}</>
+                            : t("dialog.saveThemOne")}
                 </p>
                 {many && (
                     <ul className="mt-3 max-h-40 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] divide-y divide-[var(--border)]">
@@ -83,20 +85,20 @@ export function UnsavedChangesDialog({
                     onClick={onClose}
                     className="px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors"
                 >
-                    Cancel
+                    {t("common.cancel")}
                 </button>
                 <button
                     onClick={onDiscard}
                     className="px-4 py-2 text-sm font-medium text-[var(--danger)] hover:bg-[var(--danger)]/10 rounded-lg transition-colors"
                 >
-                    {many ? "Discard all" : "Don't Save"}
+                    {many ? t("dialog.discardAll") : t("dialog.dontSave")}
                 </button>
                 <button
                     ref={saveButtonRef}
                     onClick={onSave}
                     className="px-4 py-2 text-sm font-medium text-[var(--accent-text)] bg-[var(--accent)] hover:bg-[var(--accent-hover)] rounded-lg transition-colors"
                 >
-                    {many ? "Save all" : "Save"}
+                    {many ? t("dialog.saveAll") : t("common.save")}
                 </button>
             </div>
         </Modal>

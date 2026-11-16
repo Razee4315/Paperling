@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { attachFocusTrap } from "../utils/focusTrap";
 import { IS_TOUCH } from "../utils/platform";
+import { t } from "../i18n";
 
 export interface PaletteCommand {
     id: string;
@@ -179,8 +180,10 @@ export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount
             const line = valid ? Math.min(n, max) : 0;
             return [{
                 id: "goto.line",
-                label: valid ? `Go to line ${line}` : `Type a line number${lineCount ? ` (1–${lineCount})` : ""}`,
-                section: "Go to line",
+                label: valid
+                    ? t("palette.gotoLine", { line })
+                    : (lineCount ? t("palette.typeLineRange", { max: lineCount }) : t("palette.typeLine")),
+                section: t("palette.goToLine"),
                 icon: "move_down",
                 run: () => {
                     if (valid) window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
@@ -268,8 +271,8 @@ export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount
                         type="text"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Type a command, file, or heading…"
-                        aria-label="Search commands"
+                        placeholder={t("palette.placeholder")}
+                        aria-label={t("palette.ariaLabel")}
                         className="flex-1 bg-transparent text-[var(--text-primary)] outline-none text-sm placeholder:text-[var(--text-muted)]"
                     />
                     {!IS_TOUCH && (

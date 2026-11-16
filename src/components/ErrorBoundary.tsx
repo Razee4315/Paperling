@@ -1,5 +1,8 @@
 import { Component, ErrorInfo, ReactNode } from "react";
 import { revealMainWindow } from "../utils/appWindow";
+// A class component cannot use hooks, so this reads the dictionary directly:
+// t() resolves the current locale at call time.
+import { t } from "../i18n";
 
 interface Props {
     children: ReactNode;
@@ -40,9 +43,9 @@ export class ErrorBoundary extends Component<Props, State> {
                         <span className="material-symbols-outlined text-[48px] text-[var(--danger)]">
                             error
                         </span>
-                        <h1 className="text-xl font-bold">Something went wrong</h1>
+                        <h1 className="text-xl font-bold">{t("dialog.errorTitle")}</h1>
                         <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                            Paperling encountered an unexpected error. Your file data should be safe.
+                            {t("dialog.errorBody")}
                         </p>
                         {this.state.error && (
                             <pre className="w-full text-left text-xs bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg p-4 overflow-auto max-h-32 text-[var(--text-secondary)]">
@@ -54,7 +57,7 @@ export class ErrorBoundary extends Component<Props, State> {
                             className="flex items-center gap-2 bg-[var(--accent)] text-[var(--accent-text)] font-medium text-sm px-6 py-2.5 rounded-lg hover:opacity-90 transition-opacity"
                         >
                             <span className="material-symbols-outlined text-[20px]">refresh</span>
-                            Try Again
+                            {t("dialog.tryAgain")}
                         </button>
                     </div>
                 </div>
