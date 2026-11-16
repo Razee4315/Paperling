@@ -7,7 +7,6 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:local": "tauri build --config src-tauri/tauri.local.conf.json",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

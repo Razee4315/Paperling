@@ -34,5 +34,3 @@ docs/package-lock.json
 
 # ZCode session state
 .zcode/
-
-data

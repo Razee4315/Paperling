@@ -24,16 +24,6 @@ dialog show, so keep it to a handful of lines and link to the full notes in
   Still English-only: the AI panel, the Mermaid and find-bar controls, and the
   command palette's command names.
 
-### Fixed
-
-- **A local build no longer ends in a red error.** Building on a machine that
-  has the updater public key but not its private key wrote both installers and
-  *then* failed with "A public key has been found, but no private key" and exit
-  code 1, so the build looked broken even though it had succeeded.
-  `bun run build:local` now produces the same `.msi` and setup `.exe` without
-  updater signing and finishes with exit code 0; released builds are untouched
-  and still signed. (BLD-01)
-
 ## [1.2.0] - 2026-10-31
 
 Paperling 1.2 opens more of your files, keeps earlier versions of them, and fills in the everyday gaps.
