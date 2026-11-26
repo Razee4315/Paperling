@@ -26,18 +26,19 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
-      # Crates named by open RUSTSEC advisories on the current lock (tokio
-      # AsyncFd I/O safety, rustls-webpki emSign verification, webpki-root-certs
-      # distrusted intermediates). The zip advisories are accepted in
-      # deny.toml with a documented rationale — no released
-      # tauri-plugin-updater allows zip 9 yet, so -p zip cannot clear them.
-      # `cargo update -p` only moves a crate within the ranges its dependents
-      # allow; crates that are already newest (or absent) are skipped so one
-      # stuck crate can't block the others.
+      # Crates named by open RUSTSEC advisories / yanked-crate warnings on the
+      # current lock (cookie nonces across fork, url Url::origin stack overflow,
+      # yanked async-executor, tokio AsyncFd I/O safety, rustls-webpki emSign
+      # verification, webpki-root-certs distrusted intermediates). The zip 4.x
+      # advisories are accepted in deny.toml with a documented rationale — no
+      # released tauri-plugin-updater allows zip 9 yet, so -p zip cannot clear
+      # them. `cargo update -p` only moves a crate within the ranges its
+      # dependents allow; crates that are already newest (or absent) are
+      # skipped so one stuck crate can't block the others.
       - name: Update advisory-named crates
         working-directory: src-tauri
         run: |
-          for crate in tokio rustls-webpki webpki-root-certs webpki-roots zip; do
+          for crate in cookie url async-executor tokio rustls-webpki webpki-root-certs webpki-roots; do
             cargo update -p "$crate" || echo "::notice::skipped $crate (not in the lockfile, or already newest within its ranges)"
           done
 
@@ -59,6 +60,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "Lockfile unchanged — nothing to push."
           else
-            git commit -m "chore(deps): refresh Cargo.lock for open RustSec advisories" -m "cargo update for zip, async-io, rustls-webpki and webpki-roots, resolving the advisory set cargo-deny flagged on the current lock (zip symlink/SUID extraction, distrusted emSign intermediates in the webpki bundles, async-io AsyncFd I/O safety). Ran from the Refresh Cargo lockfile workflow; PR CI compile-verifies the result."
+            git commit -m "chore(deps): refresh Cargo.lock for open RustSec advisories" -m "cargo update for cookie, url, async-executor, tokio, rustls-webpki and webpki roots, resolving the advisory set cargo-deny flagged on the current lock (RUSTSEC-2026-0594 cookie nonces across fork, RUSTSEC-2026-0592 url nested blob origin stack overflow, yanked async-executor). Ran from the Refresh Cargo lockfile workflow; PR CI compile-verifies the result."
             git push
           fi
