@@ -450,6 +450,8 @@ function AppContent() {
     handleConflictKeepMine,
     handleConflictLoadFromDisk,
     collectDirtyTabs,
+    checkTabDiskChanged,
+    markTabSaved,
     isAutosaveParked,
     activateTab,
     cycleTab,
@@ -838,10 +840,11 @@ function AppContent() {
   // changed on disk under unsaved edits, so auto-saving it would overwrite the
   // external version and closing would silently discard the buffer. EXT-03.
   const handleSaveAndCloseWindow = useCallback(async () => {
+    const dirtyTabs = collectDirtyTabs();
     // The active tab's own conflict dialog counts too: saving it would
     // overwrite the external version the dialog is asking about. CLOSE-02.
-    const parked = collectDirtyTabs().find(
-      (t) => isAutosaveParked(t.filePath) || (conflictPrompt != null && t.filePath === filePath),
+    const parked = dirtyTabs.find(
+      (t) => isAutosaveParked(t.filePath) || (conflictPrompt != null && samePath(t.filePath, filePath)),
     );
     if (parked) {
       showToast(
@@ -850,12 +853,23 @@ function AppContent() {
       );
       return;
     }
+    for (const dirty of dirtyTabs) {
+      if (dirty.filePath && (await checkTabDiskChanged(dirty.id)) !== null) {
+        showToast(t("toast.conflictBeforeClose", { name: dirty.fileName }), "error");
+        return;
+      }
+    }
     setShowUnsavedBeforeClose(false);
     // , not : the translation function is in scope here too.
-    for (const dirty of collectDirtyTabs()) {
+    for (const dirty of dirtyTabs) {
       let path = dirty.filePath;
       let viaDownloads = false;
-      if (!path) {
+      if (path) {
+        if ((await checkTabDiskChanged(dirty.id)) !== null) {
+          showToast(t("toast.conflictBeforeClose", { name: dirty.fileName }), "error");
+          return;
+        }
+      } else {
         const selected = await promptForSavePath(suggestFileName(dirty.content, dirty.fileName), lastUsedDirectory(getRecentFiles()));
         if (!selected) return; // cancelled a save-as → keep the app open
         path = selected;
@@ -872,7 +886,8 @@ function AppContent() {
         viaDownloads = true;
       }
       try {
-        await saveTextFile(path, dirty.content, { skipExternalSync: viaDownloads });
+        const mtime = await saveTextFile(path, dirty.content, { skipExternalSync: viaDownloads });
+        markTabSaved(dirty.id, path, dirty.content, mtime);
       } catch (err) {
         const msg = errMessage(err);
         showToast(msg || t("toast.failedToSaveName", { name: dirty.fileName }), "error");
@@ -880,7 +895,7 @@ function AppContent() {
       }
     }
     forceCloseWindow();
-  }, [collectDirtyTabs, conflictPrompt, filePath, forceCloseWindow, isAutosaveParked, promptForSavePath, showToast]);
+  }, [checkTabDiskChanged, collectDirtyTabs, conflictPrompt, filePath, forceCloseWindow, isAutosaveParked, markTabSaved, promptForSavePath, showToast]);
 
   // "Save a copy" from the disk-conflict dialog: write the current buffer to a
   // NEW file the user picks, leaving the conflicted file and the pending choice

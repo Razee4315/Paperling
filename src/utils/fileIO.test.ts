@@ -341,4 +341,21 @@ describe("fileIO Android source write-back (#305, ANDR-02)", () => {
     await expect(saveMobile(CACHE_PATH, "edited")).rejects.toThrow(/Use Save As/);
     expect(invoke).not.toHaveBeenCalledWith("save_file", expect.anything());
   });
+
+  it("retargets BOM tracking on rename/trash and allows skipping fileHistory for internal probes", async () => {
+    const { hadBom, retargetEncodings, readTextFile: rtf } = await import("./fileIO");
+    (fileHistory.record as Mock).mockClear();
+    (invoke as Mock).mockReset().mockResolvedValue({ path: "C:/BomOld.md", content: "\uFEFFhello", encoding: "utf-8-bom" });
+
+    await rtf("C:/BomOld.md", { recordHistory: false });
+    expect(fileHistory.record).not.toHaveBeenCalled();
+    expect(hadBom("C:/BomOld.md")).toBe(true);
+
+    retargetEncodings("C:/BomOld.md", "C:/BomNew.md");
+    expect(hadBom("C:/BomOld.md")).toBe(false);
+    expect(hadBom("C:/BomNew.md")).toBe(true);
+
+    retargetEncodings("C:/BomNew.md", null);
+    expect(hadBom("C:/BomNew.md")).toBe(false);
+  });
 });

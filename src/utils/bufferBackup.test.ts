@@ -83,4 +83,19 @@ describe("saveBufferBackups quota handling (HOT-05)", () => {
     spy.mockRestore();
     expect(loadBufferBackups().map((b) => b.content)).toEqual(["small"]);
   });
+
+  it("enforces the total backup char budget while preserving smaller drafts first", () => {
+    const chunk = "a".repeat(950_000);
+    const tiny: BufferBackup = { filePath: null, fileName: "tiny.md", content: "important small draft", originalContent: "" };
+    saveBufferBackups([
+      { filePath: "C:/1.md", fileName: "1.md", content: chunk, originalContent: "" },
+      { filePath: "C:/2.md", fileName: "2.md", content: chunk, originalContent: "" },
+      { filePath: "C:/3.md", fileName: "3.md", content: chunk, originalContent: "" },
+      { filePath: "C:/4.md", fileName: "4.md", content: chunk, originalContent: "" },
+      tiny,
+    ]);
+    const loaded = loadBufferBackups();
+    expect(loaded.some((b) => b.fileName === "tiny.md")).toBe(true);
+    expect(loaded.length).toBeLessThan(5);
+  });
 });

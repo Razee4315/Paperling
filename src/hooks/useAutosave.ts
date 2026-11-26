@@ -68,24 +68,36 @@ export function useAutosave({
   beforeWrite,
 }: UseAutosaveOptions): void {
   const lastErrorRef = useRef(0);
+  const inFlightRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (!enabled || !filePath || content === originalContent || isReviewActive || conflictPending) return;
-    const id = window.setTimeout(async () => {
-      try {
-        if (beforeWrite && !(await beforeWrite(filePath))) return;
-        const mtime = await saveTextFile(filePath, content, { background: true });
-        onSaved(mtime, content, filePath);
-        lastErrorRef.current = 0;
-      } catch (err) {
-        const now = Date.now();
-        if (now - lastErrorRef.current > ERROR_THROTTLE_MS) {
-          lastErrorRef.current = now;
-          const msg = typeof err === "string" ? err : (err as { message?: string })?.message;
-          onError(msg || "Autosave failed");
+    let cancelled = false;
+    const id = window.setTimeout(() => {
+      const run = (async () => {
+        try {
+          await inFlightRef.current.catch(() => {});
+          if (cancelled) return;
+          if (beforeWrite && !(await beforeWrite(filePath))) return;
+          if (cancelled) return;
+          const mtime = await saveTextFile(filePath, content, { background: true });
+          onSaved(mtime, content, filePath);
+          lastErrorRef.current = 0;
+        } catch (err) {
+          if (cancelled) return;
+          const now = Date.now();
+          if (now - lastErrorRef.current > ERROR_THROTTLE_MS) {
+            lastErrorRef.current = now;
+            const msg = typeof err === "string" ? err : (err as { message?: string })?.message;
+            onError(msg || "Autosave failed");
+          }
         }
-      }
+      })();
+      inFlightRef.current = run;
     }, AUTOSAVE_DELAY_MS);
-    return () => window.clearTimeout(id);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
   }, [enabled, filePath, content, originalContent, isReviewActive, conflictPending, onSaved, onError, beforeWrite]);
 }

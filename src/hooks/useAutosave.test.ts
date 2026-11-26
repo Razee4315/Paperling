@@ -146,4 +146,21 @@ describe("useAutosave pre-write guard (EXT-06)", () => {
     expect(invoke).not.toHaveBeenCalledWith("save_file", expect.anything());
     expect(onSaved).not.toHaveBeenCalled();
   });
+
+  it("aborts the write if effects clean up while beforeWrite is pending", async () => {
+    let resolveBefore!: (ok: boolean) => void;
+    const beforeWrite = vi.fn(() => new Promise<boolean>((r) => { resolveBefore = r; }));
+    const onSaved = vi.fn();
+    const { rerender } = renderHook((p: UseAutosaveOptions) => useAutosave(p), {
+      initialProps: base({ onSaved, beforeWrite }),
+    });
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(beforeWrite).toHaveBeenCalledTimes(1);
+    // Cancel pending autosave (e.g. file saved manually or tab closed) before beforeWrite settles.
+    rerender(base({ enabled: false, onSaved, beforeWrite }));
+    resolveBefore(true);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(invoke).not.toHaveBeenCalledWith("save_file", expect.anything());
+    expect(onSaved).not.toHaveBeenCalled();
+  });
 });

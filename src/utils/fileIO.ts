@@ -26,6 +26,7 @@ import { isAndroidCachePath, syncToSource, syncToSourceAvailable } from "./nativ
  */
 
 const BOM = "﻿";
+const MAX_TRACKED_PATHS = 500;
 const bomPaths = new Set<string>();
 
 /** How a document is stored. Keep in step with TextEncoding in text_encoding.rs. */
@@ -48,9 +49,29 @@ function notifyEncodingChange(): void {
 
 function rememberEncoding(key: string, encoding: FileEncoding | undefined): void {
     if (encodings.get(key) === encoding) return;
-    if (encoding) encodings.set(key, encoding);
-    else encodings.delete(key);
+    if (encoding) {
+        encodings.delete(key);
+        encodings.set(key, encoding);
+        while (encodings.size > MAX_TRACKED_PATHS) {
+            const oldest = encodings.keys().next().value;
+            if (oldest !== undefined) encodings.delete(oldest);
+            else break;
+        }
+    } else {
+        encodings.delete(key);
+    }
     notifyEncodingChange();
+}
+
+function trackBom(key: string, hasBom: boolean): void {
+    bomPaths.delete(key);
+    if (!hasBom) return;
+    bomPaths.add(key);
+    while (bomPaths.size > MAX_TRACKED_PATHS) {
+        const oldest = bomPaths.values().next().value;
+        if (oldest !== undefined) bomPaths.delete(oldest);
+        else break;
+    }
 }
 
 /** Run `listener` whenever a remembered encoding changes. ENC-05. */
@@ -81,6 +102,11 @@ export function retargetEncodings(oldPath: string, newPath: string | null): void
         if (newKey !== null) encodings.set(newKey + key.slice(oldKey.length), encoding);
         changed = true;
     }
+    for (const key of [...bomPaths]) {
+        if (key !== oldKey && !key.startsWith(`${oldKey}/`)) continue;
+        bomPaths.delete(key);
+        if (newKey !== null) bomPaths.add(newKey + key.slice(oldKey.length));
+    }
     if (changed) notifyEncodingChange();
 }
 
@@ -89,20 +115,29 @@ export function hadBom(path: string): boolean {
     return bomPaths.has(pathKey(path));
 }
 
+export interface ReadOptions {
+    /** Record initial snapshot into local File History (disable for internal fallback probes). */
+    recordHistory?: boolean;
+}
+
 /** Read a document, BOM stripped (and remembered for the save side). */
 export async function readTextFile<T extends { content: string; path?: string; encoding?: FileEncoding }>(
     path: string,
+    opts?: ReadOptions,
 ): Promise<T> {
+    const recordHistory = opts?.recordHistory !== false;
     const data = await invoke<T>("read_file", { path });
-    if (data) rememberEncoding(pathKey(data.path ?? path), data.encoding);
+    const key = pathKey(data?.path ?? path);
+    if (data) rememberEncoding(key, data.encoding);
     if (data && typeof data.content === "string" && data.content.startsWith(BOM)) {
-        bomPaths.add(pathKey(data.path ?? path));
+        trackBom(key, true);
         const stripped = data.content.slice(BOM.length);
-        void fileHistory.record(path, stripped, "opened");
+        if (recordHistory) void fileHistory.record(path, stripped, "opened");
         return { ...data, content: stripped };
     }
-    bomPaths.delete(pathKey(path));
-    if (data && typeof data.content === "string") void fileHistory.record(path, data.content, "opened");
+    trackBom(pathKey(path), false);
+    if (key !== pathKey(path)) trackBom(key, false);
+    if (recordHistory && data && typeof data.content === "string") void fileHistory.record(path, data.content, "opened");
     return data;
 }
 

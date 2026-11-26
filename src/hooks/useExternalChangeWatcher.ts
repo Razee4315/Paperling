@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { subscribeExternalChecks, type ExternalCheckTrigger } from "../utils/externalCheck";
 import { decideDiskChange } from "../utils/diskGuard";
 import { idleWriteToken, readTextFile } from "../utils/fileIO";
+import { samePath } from "../utils/tabsModel";
 
 export interface UseExternalChangeWatcherOptions {
   /** Path of the open file, or null. Read live via ref (listener mounts once). */
@@ -15,6 +16,8 @@ export interface UseExternalChangeWatcherOptions {
   knownMtimeRef: RefObject<number>;
   /** True while an AI review is pending — don't reload over a proposed diff. */
   isReviewActiveRef: RefObject<boolean>;
+  /** True while a disk-conflict prompt is already shown for this buffer. */
+  conflictPendingRef?: RefObject<boolean>;
   /**
    * Reload the file from disk (used when the buffer is clean). Resolves false
    * when it declined because the buffer was edited during the read; the
@@ -24,7 +27,7 @@ export interface UseExternalChangeWatcherOptions {
   /** Called after a silent reload of a clean buffer, with what triggered it. */
   onReloaded: (trigger: ExternalCheckTrigger) => void;
   /** Called when the file changed on disk but the buffer is dirty. */
-  onConflict: () => void;
+  onConflict: (diskMtime?: number) => void;
 }
 
 /**
@@ -43,6 +46,7 @@ export function useExternalChangeWatcher({
   originalContentRef,
   knownMtimeRef,
   isReviewActiveRef,
+  conflictPendingRef,
   reload,
   onReloaded,
   onConflict,
@@ -53,7 +57,7 @@ export function useExternalChangeWatcher({
       const path = filePathRef.current;
       // Bail before claiming the `checking` slot so an early return can never
       // strand it set (that would silently kill detection for the session).
-      if (!path || checking || isReviewActiveRef.current) return;
+      if (!path || checking || isReviewActiveRef.current || conflictPendingRef?.current) return;
       // One of our own saves overlapping the stat would read as an external
       // change; skip this tick, the next one sees the recorded mtime. EXT-08.
       const writeToken = idleWriteToken();
@@ -69,32 +73,42 @@ export function useExternalChangeWatcher({
         // back and replaced that tab's unsaved text with the disk version, and
         // a dirty new tab got a false conflict. The 1.5 s interval (EXT-07)
         // made this a routine race. The next tick checks the live file. EXT-11.
-        if (filePathRef.current !== path || knownMtimeRef.current !== known) return;
+        if (!samePath(filePathRef.current, path) || knownMtimeRef.current !== known) return;
         const decision = decideDiskChange(known, info?.modified ?? 0);
         if (decision.kind === "unchanged") return;
         // A file reporting NO mtime at all can't be re-anchored here — every
         // tick would re-read it. The pre-write guard (EXT-10) covers it at
         // save time, so the watcher only handles a usable on-disk mtime.
         if (decision.kind === "compare" && !(info.modified > 0)) return;
-        // Update first so a failed/declined reload doesn't re-toast forever.
-        // Adopting a mtime that just came back usable also re-arms ordinary
-        // mtime detection from now on. EXT-10.
-        knownMtimeRef.current = info.modified;
+
         if (contentRef.current === originalContentRef.current) {
-          if ((await reload(path)) === false) onConflict();
-          else onReloaded(trigger);
+          // EXT-13: on an mtime rollback when known > 0, check content first so
+          // metadata-only mtime drops (touch/git) re-anchor without a false reload.
+          if (decision.kind === "compare" && known > 0) {
+            const disk = await readTextFile<{ content: string }>(path, { recordHistory: false }).catch(() => null);
+            if (!samePath(filePathRef.current, path) || knownMtimeRef.current !== known) return;
+            if (disk !== null && typeof disk.content === "string" && disk.content === originalContentRef.current) {
+              knownMtimeRef.current = info.modified;
+              return;
+            }
+          }
+          if ((await reload(path)) === false) {
+            onConflict(info.modified);
+          } else {
+            if (samePath(filePathRef.current, path)) knownMtimeRef.current = info.modified;
+            onReloaded(trigger);
+          }
         } else if (decision.kind === "changed") {
-          onConflict();
+          // EXT-12: do NOT overwrite knownMtimeRef before the user picks Keep mine.
+          onConflict(info.modified);
         } else {
-          // mtime couldn't decide (our baseline was unusable): the on-disk
-          // mtime may simply have been missing all along, so confirm the
-          // change by content before raising the dialog. The write would be
-          // guarded anyway (EXT-10), but detecting at focus time matches how
-          // every other external change is surfaced.
-          const disk = await readTextFile<{ content: string }>(path).catch(() => null);
-          if (filePathRef.current !== path) return; // Same switch as above. EXT-11.
-          if (disk !== null && typeof disk.content === "string" && disk.content !== originalContentRef.current) {
-            onConflict();
+          // mtime couldn't decide (lost baseline or rollback): confirm by
+          // content before raising the dialog; re-anchor mtime only when clean.
+          const disk = await readTextFile<{ content: string }>(path, { recordHistory: false }).catch(() => null);
+          if (!samePath(filePathRef.current, path) || knownMtimeRef.current !== known) return; // EXT-11
+          if (disk !== null && typeof disk.content === "string") {
+            if (disk.content !== originalContentRef.current) onConflict(info.modified);
+            else knownMtimeRef.current = info.modified;
           }
         }
       } catch {
@@ -104,5 +118,5 @@ export function useExternalChangeWatcher({
       }
     };
     return subscribeExternalChecks((trigger) => void checkExternalChange(trigger));
-  }, [filePathRef, contentRef, originalContentRef, knownMtimeRef, isReviewActiveRef, reload, onReloaded, onConflict]);
+  }, [filePathRef, contentRef, originalContentRef, knownMtimeRef, isReviewActiveRef, conflictPendingRef, reload, onReloaded, onConflict]);
 }

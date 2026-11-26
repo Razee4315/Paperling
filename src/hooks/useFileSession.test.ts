@@ -687,4 +687,47 @@ describe("useFileSession Android write-back & dirty guard (#305, ANDR-02)", () =
     expect(result.current.closeTabPrompt).toBeNull();
     expect(result.current.tabs).toHaveLength(0);
   });
+
+  it("handles same-tick setContent + handleNewFile, checks disk conflict on Save-and-close, and leaves switched-to tabs intact during Save As (TABS-21)", async () => {
+    let releasePrompt!: (p: string | null) => void;
+    const promptSavePath = vi.fn(() => new Promise<string | null>((r) => { releasePrompt = r; }));
+    (invoke as Mock).mockReset().mockImplementation(async (command: string, args?: { path?: string }) => {
+      if (command === "read_file" && args?.path) return files.get(args.path);
+      if (command === "get_file_info") return { modified: 10 };
+      return 30;
+    });
+
+    const { result } = renderHook(() => useFileSession(options({ promptSavePath })));
+    // 1. Same-tick setContent -> handleNewFile must preserve the typed untitled text in tab 0.
+    act(() => {
+      result.current.handleNewFile();
+      result.current.setContent("same-tick draft");
+      result.current.handleNewFile();
+    });
+    expect(result.current.tabs).toHaveLength(2);
+    expect(result.current.tabs[0].content).toBe("same-tick draft");
+
+    // 2. Switching away while Save As prompt is open must update origin tab, not the switched-to tab.
+    await act(() => result.current.loadFile("C:/b.md"));
+    const bId = result.current.activeTabId!;
+    act(() => result.current.activateTab(result.current.tabs[0].id));
+    let savingAs: Promise<void> = Promise.resolve();
+    act(() => { savingAs = result.current.handleSaveAs(); });
+    act(() => result.current.activateTab(bId));
+    await act(async () => { releasePrompt("C:/saved-draft.md"); await savingAs; });
+    expect(result.current.activeTabId).toBe(bId);
+    expect(result.current.filePath).toBe("C:/b.md");
+    expect(result.current.tabs[0].filePath).toBe("C:/saved-draft.md");
+    expect(result.current.tabs[0].content).toBe("same-tick draft");
+
+    // 3. checkTabDiskChanged catches external edits before close-all overwrite.
+    act(() => result.current.setContent("dirty b"));
+    (invoke as Mock).mockImplementation(async (command: string) => {
+      if (command === "get_file_info") return { modified: 999 };
+      return 30;
+    });
+    const conflictMtime = await act(() => result.current.checkTabDiskChanged(bId));
+    expect(conflictMtime).toBe(999);
+    expect(result.current.conflictPrompt?.diskMtime).toBe(999);
+  });
 });
