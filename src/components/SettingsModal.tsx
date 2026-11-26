@@ -12,6 +12,7 @@ import {
     getAIEnabled, setAIEnabled,
     getWordWrap, setWordWrap,
     getCodeFolding, setCodeFolding,
+    getAutoCloseBrackets, setAutoCloseBrackets,
     getCustomCss, setCustomCss,
     getFileHistory, setFileHistory,
     getSpellCheck, setSpellCheck,
@@ -252,6 +253,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [toolbar, setToolbarLocal] = useState(getToolbarEnabled);
     const [wordWrap, setWordWrapLocal] = useState(getWordWrap);
     const [codeFolding, setCodeFoldingLocal] = useState(getCodeFolding);
+    const [autoCloseBrackets, setAutoCloseBracketsLocal] = useState(getAutoCloseBrackets);
     const [customCss, setCustomCssLocal] = useState(getCustomCss);
     const [keepHistory, setKeepHistoryLocal] = useState(getFileHistory);
     const [historyCleared, setHistoryCleared] = useState(false);
@@ -660,6 +662,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     {matches("spell check", t("settings.spellCheck")) && (
                                         <ToggleRow label={t("settings.spellCheck")} description={t("settings.spellCheckHint")} checked={spellCheck}
                                             onChange={(v) => { setSpellCheckLocal(v); setSpellCheck(v); fire("paperling:spellcheck-toggle", v); }} />
+                                    )}
+                                    {matches("auto close auto-close brackets quotes parentheses pairs matching", t("settings.autoCloseBrackets")) && (
+                                        <ToggleRow label={t("settings.autoCloseBrackets")} description={t("settings.autoCloseBracketsDesc")} checked={autoCloseBrackets}
+                                            onChange={(v) => { setAutoCloseBracketsLocal(v); setAutoCloseBrackets(v); fire("paperling:auto-close-brackets-toggle", v); }} />
                                     )}
                                     {matches("word wrap", t("settings.wordWrap")) && (
                                         <ToggleRow label={t("settings.wordWrap")} description={t("settings.wordWrapHint")} checked={wordWrap}

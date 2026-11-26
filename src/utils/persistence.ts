@@ -204,6 +204,13 @@ const KEY_CODE_FOLDING = "paperling:codeFolding";
 export const getCodeFolding = (): boolean => safeGet<boolean>(KEY_CODE_FOLDING, true);
 export const setCodeFolding = (v: boolean): void => safeSet(KEY_CODE_FOLDING, v);
 
+// Auto-close brackets and quotes in the editor (issue #313, EDIT-04). On by
+// default; disabling stops CodeMirror's closeBrackets from inserting matching
+// closing characters on typing.
+const KEY_AUTO_CLOSE_BRACKETS = "paperling:autoCloseBrackets";
+export const getAutoCloseBrackets = (): boolean => safeGet<boolean>(KEY_AUTO_CLOSE_BRACKETS, true);
+export const setAutoCloseBrackets = (v: boolean): void => safeSet(KEY_AUTO_CLOSE_BRACKETS, v);
+
 // Keep earlier versions of files on this computer (HIST-01). On by default:
 // it exists for the day you didn't think you'd need it.
 const KEY_FILE_HISTORY = "paperling:fileHistory";

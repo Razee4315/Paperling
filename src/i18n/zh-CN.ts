@@ -517,7 +517,7 @@ const zhCN: Dict = {
 
         keywords: {
             appearance: "主题 外观 深色 浅色 纸张 午夜 强调色 配色 字体 字号 自定义 语言 中文 英文 interface chinese english",
-            editor: "文件历史 历史版本 备份 恢复 自定义样式 css 折叠 实时预览 隐藏标记 语法 打字机 工具栏 自动换行 拼写检查 vim 自动保存 阅读模式 可读行宽 分栏 预览 禅模式 文字方向 从右到左 rtl ltr 阿拉伯语 希伯来语 波斯语 乌尔都语",
+            editor: "文件历史 历史版本 备份 恢复 自定义样式 css 折叠 实时预览 隐藏标记 语法 打字机 工具栏 自动换行 拼写检查 自动补全 括号 引号 配对 闭合 vim 自动保存 阅读模式 可读行宽 分栏 预览 禅模式 文字方向 从右到左 rtl ltr 阿拉伯语 希伯来语 波斯语 乌尔都语",
             shortcuts: "快捷键 键位 热键 重新绑定 新建 打开 保存 关闭 标签页 命令面板 跳转到行 切换 分栏 禅模式 全屏 资源管理器 大纲 搜索 设置 加粗 斜体 链接 引用 查找 替换 选择下一个匹配项",
             ai: "ai 助手 接口 模型 密钥 服务商 对话历史 openai ollama anthropic 人工智能",
             about: "关于 版本 更新 引导 教程 帮助 许可证",
@@ -562,6 +562,8 @@ const zhCN: Dict = {
         wordWrapHint: "长行折行显示，而不是横向滚动",
         spellCheck: "拼写检查",
         spellCheckHint: "输入时给拼错的单词加下划线",
+        autoCloseBrackets: "自动补全括号和引号",
+        autoCloseBracketsDesc: "输入 (、[、{、\"、' 或 ` 时自动插入对应的闭合符号",
         vim: "Vim 模式",
         vimHint: "编辑器内的模态编辑：h/j/k/l、模式、操作符",
         autosave: "自动保存",

@@ -121,6 +121,7 @@ import {
   removeRecentFolder,
   getWordWrap,
   getCodeFolding,
+  getAutoCloseBrackets,
   setAIEnabled,
   setSavedViewMode,
   setSpellCheck,
@@ -130,6 +131,7 @@ import {
   setTypewriterMode,
   setWordWrap,
   setCodeFolding,
+  setAutoCloseBrackets,
   getZenMode,
   setZenMode,
   getReadableLineLength,
@@ -221,6 +223,7 @@ function AppContent() {
   const [toolbarVisible, setToolbarVisible] = usePersistedState<boolean>(getToolbarEnabled, setToolbarEnabled);
   const [wordWrapEnabled, setWordWrapEnabled] = usePersistedState<boolean>(getWordWrap, setWordWrap);
   const [codeFoldingEnabled, setCodeFoldingEnabled] = usePersistedState<boolean>(getCodeFolding, setCodeFolding);
+  const [autoCloseBracketsEnabled, setAutoCloseBracketsEnabled] = usePersistedState<boolean>(getAutoCloseBrackets, setAutoCloseBrackets);
   const [zenMode, setZenModeState] = usePersistedState<boolean>(getZenMode, setZenMode);
   // Live mirrors for the mount-once Settings event listener below, so the
   // Settings toggle routes through the same toggle (with view-mode
@@ -682,6 +685,7 @@ function AppContent() {
       ["paperling:toolbar-toggle", (e) => setToolbarVisible(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:wordwrap-toggle", (e) => setWordWrapEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:folding-toggle", (e) => setCodeFoldingEnabled(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:auto-close-brackets-toggle", (e) => setAutoCloseBracketsEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:spellcheck-toggle", (e) => setSpellCheckEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:live-preview-toggle", (e) => setLivePreviewEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:vim-toggle", (e) => setVimModeEnabled(!!(e as CustomEvent).detail?.enabled)],
@@ -2378,6 +2382,7 @@ function AppContent() {
                 wordWrap={wordWrapEnabled}
                 folding={codeFoldingEnabled && !IS_MOBILE}
                 spellCheck={spellCheckEnabled}
+                autoCloseBrackets={autoCloseBracketsEnabled}
                 livePreview={livePreviewEnabled && !isHtmlDoc}
                 vimMode={vimModeEnabled}
                 readableLineLength={readableLineLength}

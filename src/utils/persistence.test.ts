@@ -8,6 +8,7 @@ import {
     migrateLegacyKeys, getLastFile,
     getOpenInReader, setOpenInReader,
     getAutoSave, getToolbarEnabled, getSpellCheck, pinLegacyDefaults,
+    getAutoCloseBrackets, setAutoCloseBrackets,
     getZenMode, setZenMode,
     getAIHistoryTurns, setAIHistoryTurns, AI_HISTORY_TURNS_DEFAULT, AI_HISTORY_TURNS_MAX,
 } from "./persistence";
@@ -226,5 +227,17 @@ describe("AI chat history depth", () => {
     it("falls back to the default on a malformed stored value", () => {
         localStorage.setItem("paperling:aiHistoryTurns", JSON.stringify("lots"));
         expect(getAIHistoryTurns()).toBe(AI_HISTORY_TURNS_DEFAULT);
+    });
+});
+
+describe("auto-close brackets (#313, EDIT-04)", () => {
+    it("defaults on, round-trips, and falls back to default on malformed JSON", () => {
+        expect(getAutoCloseBrackets()).toBe(true);
+        setAutoCloseBrackets(false);
+        expect(getAutoCloseBrackets()).toBe(false);
+        setAutoCloseBrackets(true);
+        expect(getAutoCloseBrackets()).toBe(true);
+        localStorage.setItem("paperling:autoCloseBrackets", "{not json");
+        expect(getAutoCloseBrackets()).toBe(true);
     });
 });

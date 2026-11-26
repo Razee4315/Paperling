@@ -81,6 +81,8 @@ interface CodeEditorProps {
     /** Fold arrows in the gutter. Folding by keyboard stays available. EDIT-03. */
     folding?: boolean;
     spellCheck?: boolean;
+    /** Auto-insert matching closing quotes/brackets when typing (issue #313, EDIT-04). */
+    autoCloseBrackets?: boolean;
     /** Hide Markdown symbols except on the line being edited. LIVE-01. */
     livePreview?: boolean;
     /** Centre the text in a ~80-character column (Settings → Readable line
@@ -140,6 +142,8 @@ const foldUI = (gutter: boolean): Extension => [
     codeFolding({ placeholderText: "⋯" }),
     gutter ? foldGutter({ openText: "⌄", closedText: "›" }) : [],
 ];
+const closeBracketsExt = (enabled: boolean): Extension =>
+    enabled ? [closeBrackets(), keymap.of(closeBracketsKeymap)] : [];
 
 /** `:rock` offers 🚀, and picking one inserts the emoji itself, which reads the
  *  same in every app, where a shortcode only renders in some. EMOJI-01. */
@@ -249,6 +253,10 @@ function wrapEachRange(view: EditorView, mark: string): boolean {
  * it (`*` → *text*, `_`, `~`, `=` for ==highlight==), like Typora. The
  * cheatsheet promised this for years, backed by helpers that were never
  * wired; closeBrackets already covers brackets and quotes. EDIT-01.
+ *
+ * Kept separate from closeBracketsExt (EDIT-04): this only fires when a
+ * non-empty selection is active and never auto-inserts closing characters on an
+ * empty caret.
  */
 const WRAP_ON_TYPE = new Set(["*", "_", "~", "="]);
 const wrapSelectionOnType = EditorView.inputHandler.of((view, from, to, text) => {
@@ -313,6 +321,7 @@ function CodeEditorImpl({
     wordWrap = true,
     folding = true,
     spellCheck = false,
+    autoCloseBrackets = true,
     livePreview = false,
     vimMode = false,
     readableLineLength = false,
@@ -403,14 +412,15 @@ function CodeEditorImpl({
     // skipped, or it would throw away the exact position just restored.
     const restoredFromCacheRef = useRef(false);
     // Live setting values for rebuilding extensions on a restored state.
-    const liveSettingsRef = useRef({ wordWrap, folding, spellCheck, vimMode, textDirection, livePreview });
-    liveSettingsRef.current = { wordWrap, folding, spellCheck, vimMode, textDirection, livePreview };
+    const liveSettingsRef = useRef({ wordWrap, folding, spellCheck, autoCloseBrackets, vimMode, textDirection, livePreview });
+    liveSettingsRef.current = { wordWrap, folding, spellCheck, autoCloseBrackets, vimMode, textDirection, livePreview };
     const buildEditingKeymapRef = useRef<() => Extension>(() => []);
 
     // Reconfigurable extensions.
     const wrapCompRef = useRef(new Compartment());
     const foldCompRef = useRef(new Compartment());
     const spellCompRef = useRef(new Compartment());
+    const closeBracketsCompRef = useRef(new Compartment());
     const livePreviewCompRef = useRef(new Compartment());
     // Vim modal editing (issue #119) — toggled live from Settings.
     const vimCompRef = useRef(new Compartment());
@@ -514,6 +524,7 @@ function CodeEditorImpl({
         const wrapComp = wrapCompRef.current;
         const foldComp = foldCompRef.current;
         const spellComp = spellCompRef.current;
+        const closeBracketsComp = closeBracketsCompRef.current;
         const livePreviewComp = livePreviewCompRef.current;
         const vimComp = vimCompRef.current;
         const dirComp = dirCompRef.current;
@@ -711,7 +722,7 @@ function CodeEditorImpl({
                     historyComp.of(history()),
                     drawSelection(),
                     dropCursor(),
-                    closeBrackets(),
+                    closeBracketsComp.of(closeBracketsExt(autoCloseBrackets)),
                     wrapSelectionOnType,
                     // Multiple cursors (Ctrl+D, Ctrl/Cmd+click). Without this
                     // facet CodeMirror silently keeps only the main range.
@@ -732,7 +743,7 @@ function CodeEditorImpl({
                     dirComp.of(textDirectionExtension(textDirection)),
                     mergeComp.of([]),
                     keymapComp.of(buildEditingKeymap()),
-                    keymap.of([...closeBracketsKeymap, ...editorDefaultKeymap, ...historyKeymap]),
+                    keymap.of([...editorDefaultKeymap, ...historyKeymap]),
                     foldKeys,
                     updateListener,
                     pasteHandler,
@@ -1002,6 +1013,7 @@ function CodeEditorImpl({
                         wrapCompRef.current.reconfigure(live.wordWrap ? EditorView.lineWrapping : []),
                         foldCompRef.current.reconfigure(foldUI(live.folding)),
                         spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(live.spellCheck))),
+                        closeBracketsCompRef.current.reconfigure(closeBracketsExt(live.autoCloseBrackets)),
                         livePreviewCompRef.current.reconfigure(livePreviewExtension(live.livePreview)),
                         vimCompRef.current.reconfigure(live.vimMode ? vim() : []),
                         dirCompRef.current.reconfigure(textDirectionExtension(live.textDirection)),
@@ -1064,6 +1076,9 @@ function CodeEditorImpl({
     useEffect(() => {
         viewRef.current?.dispatch({ effects: spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(spellCheck))) });
     }, [spellCheck]);
+    useEffect(() => {
+        viewRef.current?.dispatch({ effects: closeBracketsCompRef.current.reconfigure(closeBracketsExt(autoCloseBrackets)) });
+    }, [autoCloseBrackets]);
     useEffect(() => {
         viewRef.current?.dispatch({ effects: livePreviewCompRef.current.reconfigure(livePreviewExtension(livePreview)) });
     }, [livePreview]);

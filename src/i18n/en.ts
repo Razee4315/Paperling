@@ -553,7 +553,7 @@ const en = {
         // in Chinese ("主题", "自动保存", …).
         keywords: {
             appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small language interface chinese english",
-            editor: "file history versions backup recover restore custom css style stylesheet fold folding arrows collapse typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
+            editor: "file history versions backup recover restore custom css style stylesheet fold folding arrows collapse typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim auto close auto-close brackets quotes parentheses pairs matching autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu",
             shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence",
             ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",
             about: "about version update tour guide help license",
@@ -598,6 +598,8 @@ const en = {
         wordWrapHint: "Wrap long lines instead of horizontal scroll",
         spellCheck: "Spell check",
         spellCheckHint: "Underline misspelled words while you type",
+        autoCloseBrackets: "Auto-close brackets and quotes",
+        autoCloseBracketsDesc: "Automatically insert matching closing ), ], }, \", ' and ` characters",
         vim: "Vim mode",
         vimHint: "Modal editing in the editor: h/j/k/l, modes, operators",
         autosave: "Autosave",

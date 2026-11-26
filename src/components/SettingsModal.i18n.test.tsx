@@ -7,7 +7,7 @@ import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { ThemeProvider } from "../context/ThemeContext";
 import { changeLocale, getLocale } from "../i18n";
-import { getLocalePreference } from "../utils/persistence";
+import { getAutoCloseBrackets, getLocalePreference } from "../utils/persistence";
 import { SettingsModal } from "./SettingsModal";
 
 afterEach(() => {
@@ -87,5 +87,30 @@ describe("Settings → Appearance → Language", () => {
 
         fireEvent.change(screen.getByPlaceholderText("搜索…"), { target: { value: "vim" } });
         await waitFor(() => expect(screen.getByText("Vim 模式")).toBeInTheDocument());
+    });
+});
+
+describe("Settings → Editor → Auto-close brackets (#313)", () => {
+    it("toggles auto-closing brackets in English and Chinese and broadcasts the change", async () => {
+        const events: boolean[] = [];
+        const onToggle = (e: Event) => events.push(!!(e as CustomEvent).detail?.enabled);
+        window.addEventListener("paperling:auto-close-brackets-toggle", onToggle);
+        try {
+            openSettings();
+            fireEvent.click(screen.getByRole("button", { name: /Editor/ }));
+            const toggle = await screen.findByRole("switch", { name: /Auto-close brackets and quotes/i });
+            expect(toggle).toHaveAttribute("aria-checked", "true");
+
+            fireEvent.click(toggle);
+            expect(toggle).toHaveAttribute("aria-checked", "false");
+            expect(getAutoCloseBrackets()).toBe(false);
+            expect(events).toEqual([false]);
+
+            changeLocale("zh-CN");
+            const zhToggle = await screen.findByRole("switch", { name: /自动补全括号和引号/ });
+            expect(zhToggle).toHaveAttribute("aria-checked", "false");
+        } finally {
+            window.removeEventListener("paperling:auto-close-brackets-toggle", onToggle);
+        }
     });
 });
