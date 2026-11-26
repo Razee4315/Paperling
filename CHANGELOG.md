@@ -13,16 +13,13 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 ### Added
 
-- **Chinese interface (简体中文) with a language setting (I18N-01).** Settings →
-  Appearance → **语言** offers *Follow system* (the default: a Chinese Windows
-  shows a Chinese UI with no setup), English, and 简体中文; the switch is
-  immediate, no restart. The window chrome, menus, formatting toolbar, tabs,
-  status bar, file explorer, outline, backlinks, cross-file search, statistics,
-  command palette, dialogs and all notifications are translated. Your notes are
-  never translated. Word counts and reading time use each language's own
-  phrasing ("3 words" / "3 词").
-  Still English-only: the AI panel, the Mermaid and find-bar controls, and the
-  command palette's command names.
+- **Simplified Chinese interface (简体中文) and language setting (`I18N-01`, #308, contributed by @nordenecke).** Settings → Appearance → **Language** offers *Follow system* (default), English, and 简体中文 with instant switching across menus, tabs, toolbars, panels, dialogs, shortcuts, and notifications, plus decoded CJK/non-ASCII local image paths (`IMG-04`).
+- **Auto-closing brackets and quotes toggle (`EDIT-04`, #313).** Disable automatic insertion of closing pairs in Settings → Editor → Writing.
+
+### Fixed
+
+- **Configurable and disable-able RTL/LTR direction hotkey (`BIDI-04`, `SHC-12`, #293).** Disable the Windows/Linux `Ctrl+Right/Left Shift` chord or bind/disable a custom text-direction shortcut in Settings → Shortcuts / Settings → Editor.
+- **Android: write edits back to device files (`ANDR-02`, #305).** Save and Autosave now write back to the original SAF/Downloads document instead of only updating the disposable cache mirror, and read-only or failed write-backs keep the buffer marked unsaved so closing a tab warns instead of losing edits.
 
 ## [1.2.0] - 2026-10-31
 
