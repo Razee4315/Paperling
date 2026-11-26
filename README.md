@@ -57,9 +57,9 @@ I wanted something you just open and write in: it renders Markdown beautifully w
   <img src="images/showcase.png" width="860" alt="Paperling preview rendering an integral equation, a balanced chemical reaction, a Mermaid flowchart, and a syntax-highlighted code block">
 </p>
 
-### Four themes
+### Seven themes
 
-Dark, Light, Paper, and Dracula.
+Dark, Graphite, Nord, Midnight, Light, Paper, and Dracula — all tuned for WCAG AA contrast.
 
 |                                   Dark                                   |                                   Light                                    |                                   Paper                                    |
 | :----------------------------------------------------------------------: | :------------------------------------------------------------------------: | :------------------------------------------------------------------------: |
@@ -81,13 +81,13 @@ Dark, Light, Paper, and Dracula.
 - **Typewriter mode** — caret stays vertically centered
 - **Formatting toolbar** (toggleable) and shortcuts: Ctrl+B / Ctrl+I / Ctrl+K / Ctrl+/
 - **Slash commands** — type `/` at line start for headings, lists, tables, math, mermaid, callouts, and more
-- **Auto-pair** brackets, quotes, and code marks; **list/quote continuation** on Enter
+- **Auto-pair** brackets, quotes, and code marks (toggleable in Settings); **list/quote continuation** on Enter
 - **Tab in tables** moves between cells; auto-creates new rows
 - **Visual table editing**: a toolbar appears when the caret is in a table, with buttons to add or delete rows and columns, set column alignment, and tidy the layout
 - **Find & Replace** (Ctrl+F / Ctrl+H) with regex and match counter; **replace across a whole folder** from folder search (Ctrl+Shift+F)
 - **Multiple cursors** — Ctrl+D selects the next occurrence; Ctrl/Cmd+click adds a cursor
 - **Lists and tasks from the keyboard** — Tab / Shift+Tab nest items, numbered lists renumber, Ctrl+Enter ticks a task
-- **Right-to-left languages** — Arabic, Hebrew, Persian and Urdu lines read right-to-left automatically; Ctrl+Right Shift / Ctrl+Left Shift switch the direction
+- **Right-to-left languages** — Arabic, Hebrew, Persian and Urdu lines read right-to-left automatically; text-direction hotkey (Ctrl+Right Shift / Ctrl+Left Shift) can be rebound or disabled in Settings
 - **Smart paste** — URL → link, rich HTML → markdown, TSV → GFM table
 - **Folding** — collapse headings, lists and code blocks from the gutter or Ctrl+Shift+[ / ]
 - **Text commands** — sort lines, change case, and insert the date, from the palette or the slash menu
@@ -102,10 +102,10 @@ Dark, Light, Paper, and Dracula.
 - **Chemistry** via mhchem — `$\ce{2 H2 + O2 -> 2 H2O}$`, ions, isotopes, Kröger-Vink defects
 - **Mermaid diagrams** (` ```mermaid `) — flowcharts, sequence, class, state, gantt, ER, mindmaps; zoom, pan, fullscreen, copy as PNG, save as SVG
 - **Callouts, #tags and %%comments%%** — Obsidian-style `> [!NOTE]` boxes (foldable), tag pills that search your folder, hidden comments
-- **Image lightbox** — click to zoom; lazy loading
+- **Image lightbox & drag-drop** — click to zoom, lazy loading, drop images to copy into `./images/`, and resize embeds with `![[image|WxH]]`
 - **Interactive task checkboxes** — toggling writes back to source
 - **Heading anchors** with click-to-jump
-- **Wikilinks** `[[other-file]]` and `[[other-file#Heading]]` resolve in the same folder; Ctrl/Cmd+click follows links in the editor too, and Ctrl+Alt+← / → go back and forward
+- **Wikilinks** `[[other-file]]`, `[[folder/note]]`, and `[[other-file#Heading]]` resolve across workspace subfolders and open tabs; Ctrl/Cmd+click follows links in the editor too, and Ctrl+Alt+← / → go back and forward
 - **Frontmatter** rendered as an editable Properties card
 
 ### <img src="images/art/icon-sparkles.png" width="26" alt=""> AI assistant
@@ -117,12 +117,12 @@ Dark, Light, Paper, and Dracula.
 - **AI side panel** — open it from the **AI** button next to Export (or `Alt+J` / `⌘J`). A VS Code-style chat docked on the right; content reflows beside it.
 - **Ask mode** — chat about the current document: summarize it, find something, ask questions. Answers stream in live.
 - **Agent mode** — describe a change in plain language and the AI proposes edits. They appear as an **inline diff in the editor** (green added / red removed) which you **review and accept or reject** — per change, or all at once. Nothing is written until you approve.
-- **Selection assist** — select text and press `Alt+J` / `⌘J` to rewrite, shorten, expand, continue, or translate it in place.
+- **Selection assist** — select text and press `Alt+J` / `⌘J` to rewrite, explain, shorten, expand, continue, or translate it into any of 8 languages in place.
 - **Bring your own model** — works with any OpenAI-compatible endpoint: OpenAI, Google Gemini (OpenAI-compat), Ollama, llama.cpp, and more. Configure it in **Settings → AI**; your API key is stored in the OS keychain.
 
 ### <img src="images/art/icon-folder.png" width="26" alt=""> Files & workflow
 
-- **Command palette** (Ctrl+P) — search commands, files, headings, toggles
+- **Command palette & Quick Switcher** (Ctrl+P) — search commands, workspace notes across subfolders, headings, toggles
 - **Cheatsheet** (`?`) — every shortcut categorized and searchable
 - **Settings modal** (Ctrl+,) — sidebar nav with Appearance / Editor / AI / About
 - **New File** (Ctrl+N) and **Save As** (Ctrl+Shift+S)
@@ -135,14 +135,15 @@ Dark, Light, Paper, and Dracula.
 - **Copy as rich text or HTML** — paste a whole document into Word, Gmail or Google Docs with its formatting
 - **Recent files** on the welcome screen — missing files marked
 - **Restore last opened file** on launch
-- **File Explorer** with folder navigation, a filter, recent folders, new note / new folder, rename (F2) and move to trash
+- **File Explorer** with inline expandable folder trees, a filter, recent folders, new note / new folder, rename (F2), duplicate, copy path, reveal in system file manager, and move to trash
 - **Custom keyboard shortcuts** — rebind any command in Settings → Shortcuts
 - **Outline pane** that follows the cursor
 - **Backlinks panel** showing which notes in the current folder link to the open file
 
 ### <img src="images/art/icon-theme-swatches.png" width="26" alt=""> Customization
 
-- **Seven themes** — Dark, Graphite, Nord, Midnight, Light, Paper, Dracula — with an adjustable accent color
+- **Seven themes** — Dark, Graphite, Nord, Midnight, Light, Paper, Dracula — with an adjustable accent color and WCAG AA contrast
+- **Eight languages** — English, 简体中文, Español, Français, Deutsch, 日本語, 한국어, and Português — following your OS language automatically or switchable live in Settings
 - **Five bundled fonts plus custom system fonts** — Inter, Merriweather, Lora, Source Serif, Fira Sans, or a locally installed family
 - **Four font sizes** and an optional **readable line length** column
 - **Custom CSS** — add your own styles in Settings

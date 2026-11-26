@@ -11,18 +11,25 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 ## [Unreleased]
 
-### Added
+## [1.3.0] - 2026-11-26
 
-- **Workspace navigation & media polish (`NAV-05`, `WIKI-02`, `IMG-06`, `AI-14`).** Quick Switcher and `[[wikilinks]]` now resolve nested workspace subfolders, dropped image files copy safely into `./images/` and insert Markdown image embeds, `![[image|WxH]]` embed dimensions resize rendered images, the file explorer supports inline folder tree expansion plus Duplicate / Copy path / Reveal actions, and the inline AI bubble adds **Explain** and a selectable **Translate** target language.
-- **Multilingual interface across 8 languages with OS auto-detection (`I18N-01`, `I18N-02`, #308 by @nordenecke).** Settings → Appearance → **Language** defaults to *Follow system* (reacting live to OS language changes like Theme's *System* mode) and offers English, 简体中文, Español, Français, Deutsch, 日本語, 한국어, and Português with instant UI switching, plus decoded CJK/non-ASCII local image paths (`IMG-04`).
-- **Wikilink `![[image]]` embeds (`IMG-EMBED-01`).** Allow `wikilink:` image `src` attributes through the sanitize schema with scheme and traversal checks so embedded local images render instead of staying on a loading skeleton.
-- **Auto-closing brackets and quotes toggle (`EDIT-04`, #313).** Disable automatic insertion of closing pairs in Settings → Editor → Writing.
+Paperling 1.3 speaks eight languages, navigates whole workspace folders effortlessly, handles embedded and dropped images smoothly, and brings a deep reliability, accessibility, and security pass across desktop and Android.
 
-### Fixed
+- **Eight languages, matching your system.** English, 简体中文, Español, Français, Deutsch, 日本語, 한국어, and Português — defaulting to *Follow system* and switching live in Settings → Appearance (#308).
+- **Navigate whole folders.** Quick Switcher and `[[wikilinks]]` now reach notes inside subfolders (and jump straight to open tabs), and the Files panel expands folders inline with Duplicate, Copy path, and Reveal actions.
+- **Images that just work.** Drop images into a note to copy them safely into `./images/`, render `![[image]]` embeds, resize them with `![[image|WxH]]`, and open non-ASCII or CJK image paths reliably.
+- **Writing & shortcuts.** Turn off auto-closing brackets and quotes in Settings → Editor (#313), and rebind or disable the RTL/LTR text-direction shortcut in Settings (#293).
+- **Inline AI assist.** Selection assist adds **Explain** alongside writing edits and lets you pick the target language when using **Translate**.
+- **Android: edits save back to your device.** Save and Autosave now write back to the original device file instead of only a temporary copy, and failed or read-only write-backs keep your unsaved warning intact (#305).
+- **Faster, sharper, and safer.** Higher WCAG AA text contrast across all seven themes, keyboard focus traps in dialogs, unclipped context menus, paused background preview and lazy-loaded editor chunks, stricter export CSP and diagram sanitization, atomic saves, case-only renames on Windows/macOS, and updated Rust security dependencies.
 
-- **Security, stability, performance, accessibility & backend hardening.** Tightened export HTML CSP (`style-src 'self' 'unsafe-inline'` and strict preview/diagram sanitization), atomic file/key/image writes, two-step case-only renames, symlink-safe workspace scans, non-blocking PDF export waits, paused background preview/deferred editor chunk loading, WCAG AA text contrast across all 7 themes, modal focus traps, and Android `IS_PENDING` MediaStore saves.
-- **Configurable and disable-able RTL/LTR direction hotkey (`BIDI-04`, `SHC-12`, #293).** Disable the Windows/Linux `Ctrl+Right/Left Shift` chord or bind/disable a custom text-direction shortcut in Settings → Shortcuts / Settings → Editor.
-- **Android: write edits back to device files (`ANDR-02`, #305).** Save and Autosave now write back to the original SAF/Downloads document instead of only updating the disposable cache mirror, and read-only or failed write-backs keep the buffer marked unsaved so closing a tab warns instead of losing edits.
+Your current settings are kept when you update.
+
+**[Full release notes](https://github.com/Razee4315/Paperling/blob/main/release-notes/v1.3.0.md)**
+
+### Thank you
+
+To @nordenecke for the Simplified Chinese interface contribution (#308), and to @dsvi, @HaveLightII, and @JackAidley for the bug reports and feature requests that shaped this release (#293, #305, #313).
 
 ## [1.2.0] - 2026-10-31
 
