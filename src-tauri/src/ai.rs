@@ -31,11 +31,21 @@ pub enum AiEvent {
 #[derive(Default)]
 pub struct AiCancel(Mutex<HashMap<u32, tokio::sync::oneshot::Sender<()>>>);
 
+/// Hard cap on streamed response size per request so an abusive/buggy endpoint
+/// cannot exhaust process memory.
+const MAX_AI_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
 /// One shared client so connection pools / TLS sessions are reused across
-/// requests instead of being rebuilt per call.
+/// requests instead of being rebuilt per call. Redirects are disabled so a
+/// configured API key can never be forwarded to a redirect target.
 fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT.get_or_init(reqwest::Client::new)
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
 }
 
 /// Split off every complete line in `buf` (up to and including the last
@@ -92,8 +102,13 @@ async fn run_request(
 
         let mut stream = resp.bytes_stream();
         let mut buf: Vec<u8> = Vec::new();
+        let mut total_bytes: usize = 0;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| format!("AI response stream failed: {e}"))?;
+            total_bytes = total_bytes.saturating_add(chunk.len());
+            if total_bytes > MAX_AI_RESPONSE_BYTES {
+                return Err("AI response exceeded maximum size limit".to_string());
+            }
             buf.extend_from_slice(&chunk);
             if let Some(lines) = take_complete_lines(&mut buf) {
                 let _ = channel.send(AiEvent::Chunk { data: lines });
@@ -170,7 +185,11 @@ pub async fn ai_request(
     }
 
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
-    state.0.lock().unwrap().insert(id, cancel_tx);
+    state
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id, cancel_tx);
 
     // "cancelled" is a contract with the frontend transport: it maps exactly
     // that string to an AbortError so a user cancel isn't shown as a failure.
@@ -181,14 +200,23 @@ pub async fn ai_request(
 
     // Single removal point: the select above is the only way out of the
     // request, so this covers success, error, timeout, and cancellation.
-    state.0.lock().unwrap().remove(&id);
+    state
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id);
     result
 }
 
 #[tauri::command]
 pub async fn ai_cancel(state: tauri::State<'_, AiCancel>, id: u32) -> Result<(), String> {
     // A missing id just means the request already finished — races are fine.
-    if let Some(tx) = state.0.lock().unwrap().remove(&id) {
+    if let Some(tx) = state
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id)
+    {
         let _ = tx.send(());
     }
     Ok(())

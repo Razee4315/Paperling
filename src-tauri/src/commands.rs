@@ -96,6 +96,12 @@ async fn detect_file_eol(path: &str) -> Eol {
 /// A file that won't decode was not readable as text anyway, so it stays plain
 /// UTF-8, which is what every save did before encodings were tracked. ENC-03.
 async fn detect_file_encoding(path: &str) -> TextEncoding {
+    if tokio::fs::metadata(path)
+        .await
+        .is_ok_and(|meta| meta.len() > MAX_TEXT_FILE_BYTES)
+    {
+        return TextEncoding::Utf8;
+    }
     match tokio::fs::read(path).await {
         Ok(bytes) => decode_text(bytes).map_or(TextEncoding::Utf8, |(_, encoding)| encoding),
         Err(_) => TextEncoding::Utf8,
@@ -258,6 +264,10 @@ async fn write_export_file_inner(path: String, data: Vec<u8>) -> Result<(), Comm
         )));
     }
 
+    let path = resolve_save_target(&path).await;
+    #[cfg(unix)]
+    let target_exists = PathBuf::from(&path).exists();
+
     // Atomic write, same scheme as `save_file`: temp file in the target's
     // directory (so the rename never crosses a filesystem boundary), fsync
     // before the rename, no temp left behind on failure. A crash mid-export
@@ -276,6 +286,10 @@ async fn write_export_file_inner(path: String, data: Vec<u8>) -> Result<(), Comm
             let _ = tokio::fs::remove_file(&tmp).await;
             return Err(CommandError::WriteError(e.to_string()));
         }
+    }
+    #[cfg(unix)]
+    if target_exists {
+        copy_permissions(&path, &tmp).await;
     }
     if let Err(e) = tokio::fs::rename(&tmp, &path).await {
         let _ = tokio::fs::remove_file(&tmp).await;
@@ -683,9 +697,23 @@ async fn rename_path_inner(path: String, new_name: String) -> Result<String, Com
     if !same_entry && tokio::fs::symlink_metadata(&target).await.is_ok() {
         return Err(CommandError::WriteError(format!("\"{}\" already exists", new_name)));
     }
-    tokio::fs::rename(&source, &target)
-        .await
-        .map_err(|e| CommandError::WriteError(e.to_string()))?;
+    // Two-step temp swap when only casing changes so case-insensitive filesystems
+    // (Windows NTFS, macOS APFS) reliably update the directory entry casing. RUST-01.
+    let case_only = same_entry && source.file_name() != Some(std::ffi::OsStr::new(&new_name));
+    if case_only {
+        let stage = PathBuf::from(unique_temp_path(&path, "paperling-rename-tmp"));
+        tokio::fs::rename(&source, &stage)
+            .await
+            .map_err(|e| CommandError::WriteError(e.to_string()))?;
+        if let Err(e) = tokio::fs::rename(&stage, &target).await {
+            let _ = tokio::fs::rename(&stage, &source).await;
+            return Err(CommandError::WriteError(e.to_string()));
+        }
+    } else {
+        tokio::fs::rename(&source, &target)
+            .await
+            .map_err(|e| CommandError::WriteError(e.to_string()))?;
+    }
     Ok(target.to_string_lossy().into_owned())
 }
 
@@ -894,6 +922,9 @@ fn search_markdown_tree(root: PathBuf, query: &str, case_sensitive: bool, whole_
                 Ok(t) => t,
                 Err(_) => continue,
             };
+            if file_type.is_symlink() {
+                continue;
+            }
             if file_type.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if name.starts_with('.') || name == "node_modules" || name == "target" {
@@ -1006,6 +1037,9 @@ fn find_backlinks_in_tree(root: PathBuf, target: PathBuf) -> Vec<FileSearchResul
                 Ok(file_type) => file_type,
                 Err(_) => continue,
             };
+            if file_type.is_symlink() {
+                continue;
+            }
             if file_type.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if name.starts_with('.') || name == "node_modules" || name == "target" {
@@ -1269,13 +1303,61 @@ pub async fn save_image(
     // Full path for the image (basename only, no traversal possible).
     let image_path = images_dir.join(&safe_name);
 
-    // Write the image data
-    tokio::fs::write(&image_path, &image_data)
-        .await
-        .map_err(|e| CommandError::WriteError(format!("Failed to write image: {}", e)))?;
+    // Atomic write via sibling temp file + sync + rename. RUST-04.
+    write_image_atomically(&image_path, &image_data).await?;
 
     // Return relative path for markdown (./images/filename.png)
     Ok(format!("./images/{}", safe_name))
+}
+
+async fn write_image_atomically(
+    image_path: &std::path::Path,
+    image_data: &[u8],
+) -> Result<(), CommandError> {
+    let tmp = PathBuf::from(unique_temp_path(
+        &image_path.to_string_lossy(),
+        "paperling-img-tmp",
+    ));
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut f = tokio::fs::File::create(&tmp)
+            .await
+            .map_err(|e| CommandError::WriteError(format!("Failed to write image: {e}")))?;
+        if let Err(e) = f.write_all(image_data).await {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(CommandError::WriteError(format!(
+                "Failed to write image: {e}"
+            )));
+        }
+        if let Err(e) = f.sync_all().await {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(CommandError::WriteError(format!(
+                "Failed to write image: {e}"
+            )));
+        }
+    }
+    if let Err(e) = tokio::fs::rename(&tmp, image_path).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(CommandError::WriteError(format!(
+            "Failed to write image: {e}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_image_extension(path: &std::path::Path) -> Result<(), CommandError> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !ALLOWED_IMAGE_EXTS.contains(&ext.as_str()) {
+        return Err(CommandError::ReadError(format!(
+            "Unsupported image extension '.{}'",
+            ext
+        )));
+    }
+    Ok(())
 }
 
 /// Reject a relative image path that tries to escape the document folder or name
@@ -1336,9 +1418,15 @@ pub async fn read_image_file(
     ensure_mobile_path_allowed(&app, std::path::Path::new(&base_dir))
         .map_err(CommandError::ReadError)?;
 
-    validate_rel_path(&rel_path)?;
-    let base = PathBuf::from(&base_dir);
-    let full = base.join(&rel_path);
+    let data = read_image_file_inner(&base_dir, &rel_path).await?;
+    Ok(Response::new(data))
+}
+
+async fn read_image_file_inner(base_dir: &str, rel_path: &str) -> Result<Vec<u8>, CommandError> {
+    validate_rel_path(rel_path)?;
+    validate_image_extension(std::path::Path::new(rel_path))?;
+    let base = PathBuf::from(base_dir);
+    let full = base.join(rel_path);
 
     let metadata = tokio::fs::metadata(&full)
         .await
@@ -1365,10 +1453,9 @@ pub async fn read_image_file(
         ));
     }
 
-    let data = tokio::fs::read(&canon_full)
+    tokio::fs::read(&canon_full)
         .await
-        .map_err(|e| CommandError::ReadError(e.to_string()))?;
-    Ok(Response::new(data))
+        .map_err(|e| CommandError::ReadError(e.to_string()))
 }
 
 // ===== AI API key — OS keychain (SECURITY-01) =====
@@ -1456,9 +1543,31 @@ pub fn set_ai_key(app: tauri::AppHandle, key: String) -> Result<(), String> {
     }
     // Atomic write (SAVE-02 discipline): a kill mid-write must never leave a
     // truncated secret file — temp + rename keeps the previous key readable.
-    let tmp = path.with_extension("paperling-tmp");
-    std::fs::write(&tmp, &key).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    let tmp = PathBuf::from(unique_temp_path(&path.to_string_lossy(), "paperling-tmp"));
+    let write_res = (|| -> std::io::Result<()> {
+        use std::io::Write as _;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&tmp)?;
+            f.write_all(key.as_bytes())?;
+            f.sync_all()?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&tmp, &key)?;
+        }
+        std::fs::rename(&tmp, &path)
+    })();
+    if let Err(e) = write_res {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    Ok(())
 }
 
 // ===== "Open with" handoff (Android intent → frontend) =====
@@ -1599,9 +1708,9 @@ pub fn exit_app() {
 mod tests {
     use super::{
         apply_eol, contains_whole_word, create_folder_inner, find_backlinks_in_tree,
-        read_file_inner, rename_path_inner, sanitize_image_name, save_file_inner,
-        search_markdown_tree, trash_path_inner, unique_temp_path, validate_entry_name,
-        validate_rel_path, write_export_file_inner, Eol,
+        read_file_inner, read_image_file_inner, rename_path_inner, sanitize_image_name,
+        save_file_inner, search_markdown_tree, trash_path_inner, unique_temp_path,
+        validate_entry_name, validate_rel_path, write_export_file_inner, Eol,
     };
     use crate::text_encoding::TextEncoding;
 
@@ -2186,6 +2295,40 @@ mod tests {
             let path = dir.join("out.docx").to_string_lossy().to_string();
             write_export_file_inner(path.clone(), Vec::new()).await.unwrap();
             assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn rename_updates_casing_and_read_image_checks_extension() {
+        tauri::async_runtime::block_on(async {
+            let dir = std::env::temp_dir()
+                .join(format!("paperling-rust-hardening-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+
+            let lower = dir.join("case.md");
+            std::fs::write(&lower, "casing").unwrap();
+            let upper = rename_path_inner(lower.to_string_lossy().into_owned(), "Case.md".into())
+                .await
+                .unwrap();
+            assert_eq!(
+                std::path::Path::new(&upper)
+                    .file_name()
+                    .and_then(|n| n.to_str()),
+                Some("Case.md")
+            );
+            assert_eq!(std::fs::read_to_string(&upper).unwrap(), "casing");
+
+            std::fs::write(dir.join("note.txt"), "secret").unwrap();
+            std::fs::write(dir.join("pic.png"), [0x89, b'P', b'N', b'G']).unwrap();
+            let base = dir.to_string_lossy().into_owned();
+            assert!(read_image_file_inner(&base, "note.txt").await.is_err());
+            assert_eq!(
+                read_image_file_inner(&base, "pic.png").await.unwrap(),
+                vec![0x89, b'P', b'N', b'G']
+            );
+
             std::fs::remove_dir_all(&dir).ok();
         });
     }

@@ -88,7 +88,10 @@ fn take_launch_file(launch: &mut LaunchFile) -> Option<String> {
 /// path can't slip between the stash and the pull.
 #[cfg(target_os = "macos")]
 fn open_os_file(app: &tauri::AppHandle, path: String) {
-    let forward = stash_unless_pulled(&mut app.state::<CliFile>().0.lock().unwrap(), path);
+    let forward = stash_unless_pulled(
+        &mut app.state::<CliFile>().0.lock().unwrap_or_else(|e| e.into_inner()),
+        path,
+    );
     let Some(path) = forward else { return };
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
@@ -106,7 +109,7 @@ fn open_os_file(app: &tauri::AppHandle, path: String) {
 /// `take()` so a webview reload doesn't re-open it.
 #[tauri::command]
 fn get_cli_file(state: tauri::State<CliFile>) -> Option<String> {
-    take_launch_file(&mut state.0.lock().unwrap())
+    take_launch_file(&mut state.0.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -22,10 +22,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static EXPORT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
+const MAX_PDF_HTML_BYTES: usize = 512 * 1024 * 1024;
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 #[tauri::command]
 pub async fn export_pdf(app: tauri::AppHandle, html: String, path: String) -> Result<(), String> {
     use std::sync::{mpsc, Mutex};
     use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+    if html.len() > MAX_PDF_HTML_BYTES {
+        return Err("Document HTML is too large for PDF export".into());
+    }
 
     let seq = EXPORT_SEQ.fetch_add(1, Ordering::Relaxed);
 
@@ -55,11 +62,14 @@ pub async fn export_pdf(app: tauri::AppHandle, html: String, path: String) -> Re
             seq,
             nanos,
         ));
-        match std::fs::File::options()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
+        let mut open_opts = std::fs::File::options();
+        open_opts.write(true).create_new(true);
+        #[cfg(unix)]
         {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            open_opts.mode(0o600);
+        }
+        match open_opts.open(&candidate) {
             Ok(mut file) => {
                 use std::io::Write as _;
                 match file.write_all(html.as_bytes()) {
@@ -147,7 +157,7 @@ pub async fn export_pdf(app: tauri::AppHandle, html: String, path: String) -> Re
 
     // The export CSS pulls no web fonts (system/local only) and images are
     // inlined, so a short settle is enough for layout to finalize.
-    std::thread::sleep(std::time::Duration::from_millis(250));
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
 
     // The native print call must run on the UI thread that owns the webview
     // (WebView2's PrintToPdf pumps messages there; NSPrintOperation is
@@ -172,7 +182,10 @@ pub async fn export_pdf(app: tauri::AppHandle, html: String, path: String) -> Re
     // asynchronously — so wait for the PDF to actually land on disk before
     // declaring success (the frontend shows "Exported" on Ok).
     #[cfg(target_os = "macos")]
-    let outcome = outcome.and_then(|()| wait_for_written_file(std::path::Path::new(&path)));
+    let outcome = match outcome {
+        Ok(()) => wait_for_written_file(std::path::Path::new(&path)).await,
+        Err(e) => Err(e),
+    };
 
     cleanup(window, &temp);
     outcome
@@ -181,11 +194,11 @@ pub async fn export_pdf(app: tauri::AppHandle, html: String, path: String) -> Re
 /// Poll until `path` exists, is non-empty, and its size has stopped changing —
 /// i.e. the print operation has finished writing it. Errors out after 60s.
 #[cfg(target_os = "macos")]
-fn wait_for_written_file(path: &std::path::Path) -> Result<(), String> {
+async fn wait_for_written_file(path: &std::path::Path) -> Result<(), String> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     let mut last_len: Option<u64> = None;
     while std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let len = match std::fs::metadata(path) {
             Ok(meta) if meta.len() > 0 => meta.len(),
             _ => continue,

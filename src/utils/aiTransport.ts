@@ -73,6 +73,7 @@ export async function aiFetch(
     };
     opts.signal?.addEventListener("abort", onAbort);
 
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
         await invoke("ai_request", {
             id,
@@ -85,7 +86,12 @@ export async function aiFetch(
         });
         // Done follows the command result almost immediately; the race guards
         // against a lost event wedging this promise (webview teardown edge).
-        await Promise.race([done, new Promise<void>((r) => setTimeout(r, 5000))]);
+        await Promise.race([
+            done,
+            new Promise<void>((r) => {
+                timer = setTimeout(r, 5000);
+            }),
+        ]);
         // An abort that landed after the Rust side already finished resolves
         // normally (ai_cancel no-ops) — without this, a stale suggestion could
         // surface in a bubble the user already dismissed.
@@ -96,6 +102,7 @@ export async function aiFetch(
         if (msg === "cancelled" || opts.signal?.aborted) throw abortError();
         throw new Error(msg);
     } finally {
+        if (timer !== undefined) clearTimeout(timer);
         opts.signal?.removeEventListener("abort", onAbort);
     }
 

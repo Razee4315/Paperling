@@ -333,15 +333,35 @@ const ACTIVITY_BODY = `\
         put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, safe)
         put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime)
         put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+        put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
       }
       val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
         ?: throw IllegalStateException("Could not create the Downloads entry")
-      contentResolver.openOutputStream(uri)?.use { out ->
-        out.write(content.toByteArray(Charsets.UTF_8))
-      } ?: throw IllegalStateException("Could not open the Downloads entry for writing")
-      val actualName = queryDisplayName(uri) ?: safe
-      val cache = File(workingDirFor(uri), actualName)
-      cache.writeText(content, Charsets.UTF_8)
+      val cache: File
+      val actualName: String
+      try {
+        contentResolver.openOutputStream(uri)?.use { out ->
+          out.write(content.toByteArray(Charsets.UTF_8))
+          out.flush()
+        } ?: throw IllegalStateException("Could not open the Downloads entry for writing")
+        val done = android.content.ContentValues().apply {
+          put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+        }
+        contentResolver.update(uri, done, null, null)
+        actualName = queryDisplayName(uri) ?: safe
+        val dir = workingDirFor(uri)
+        cache = File(dir, actualName)
+        val tmpCache = File.createTempFile("cache", ".part", dir)
+        try {
+          tmpCache.writeText(content, Charsets.UTF_8)
+          if (!tmpCache.renameTo(cache)) throw java.io.IOException("Could not write Downloads mirror")
+        } finally {
+          tmpCache.delete()
+        }
+      } catch (t: Throwable) {
+        try { contentResolver.delete(uri, null, null) } catch (_: Exception) {}
+        throw t
+      }
       rememberSourceUri(cache, uri, true)
       val js = "window.__paperlingOnSaveResult && window.__paperlingOnSaveResult(true, " +
         JSONObject.quote(cache.absolutePath) + ", " + JSONObject.quote(actualName) + ", " + JSONObject.quote(requestId) + ")"
@@ -589,14 +609,31 @@ const ACTIVITY_BODY = `\
 
   // Copies through a sibling temp file and renames it into place, so a read
   // that fails halfway can never truncate a working copy a tab already uses.
-  // Returns null when the provider gives no stream.
+  // Returns null when the provider gives no stream. Caps imports at 50 MB to
+  // match the Rust read_file limit. ANDR-04.
   private fun importToCache(uri: Uri, safe: String): File? {
+    val maxImportBytes = 50L * 1024L * 1024L
     val dir = workingDirFor(uri)
     val outFile = File(dir, safe)
     val tmp = File.createTempFile("import", ".part", dir)
     try {
       val input = contentResolver.openInputStream(uri) ?: return null
-      input.use { src -> tmp.outputStream().use { dst -> src.copyTo(dst) } }
+      input.use { src ->
+        tmp.outputStream().use { dst ->
+          val buffer = ByteArray(64 * 1024)
+          var total = 0L
+          while (true) {
+            val n = src.read(buffer)
+            if (n < 0) break
+            total += n
+            if (total > maxImportBytes) {
+              throw java.io.IOException("File is too large (maximum is 50 MB)")
+            }
+            dst.write(buffer, 0, n)
+          }
+          dst.flush()
+        }
+      }
       if (!tmp.renameTo(outFile)) throw java.io.IOException("Could not store the imported file")
       return outFile
     } finally {

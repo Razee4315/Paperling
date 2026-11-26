@@ -31,6 +31,9 @@ describe("Android generated activity (#252/#253/#254)", () => {
             expect(activity).toContain("takePersistableUriPermission");
             expect(activity).toContain('openOutputStream(uri, "wt")');
             expect(activity).toContain("__paperlingOnSyncResult");
+            expect(activity).toContain("MediaColumns.IS_PENDING");
+            expect(activity).toContain("contentResolver.delete(uri, null, null)");
+            expect(activity).toContain("maxImportBytes");
             expect(readFileSync(join(main, "res/xml/paperling_backup_rules.xml"), "utf8")).toContain("external-uris.json");
             expect(readFileSync(join(main, "res/xml/paperling_data_extraction_rules.xml"), "utf8")).toContain("external-uris.json");
             run();
