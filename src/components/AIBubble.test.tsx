@@ -47,4 +47,18 @@ describe("AIBubble", () => {
         expect(screen.getByText("Shorten")).toBeInTheDocument();
         expect(screen.getByText("Expand")).toBeInTheDocument();
     });
+
+    it("dismisses on Escape and supports ArrowRight focus cycling", () => {
+        const onClose = vi.fn();
+        render(
+            <AIBubble anchor={{ x: 0, y: 0 }} selectedText="hello" config={cfg} onReplace={noop} onInsert={noop} onClose={onClose} />
+        );
+        const rewrite = screen.getByRole("button", { name: "Rewrite" });
+        const shorten = screen.getByRole("button", { name: "Shorten" });
+        rewrite.focus();
+        fireEvent.keyDown(document, { key: "ArrowRight" });
+        expect(document.activeElement).toBe(shorten);
+        fireEvent.keyDown(document, { key: "Escape" });
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
 });

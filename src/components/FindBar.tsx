@@ -39,8 +39,8 @@ export interface FindController {
     isValidPattern(query: string, opts: FindOpts): boolean;
     /** Recompute + paint every match; returns the count and where to start. */
     search(query: string, opts: FindOpts): FindResult;
-    /** Emphasise + reveal match #index (0-based); no-op if out of range. */
-    setActive(index: number): void;
+    /** Emphasise + optionally reveal match #index (0-based); no-op if out of range. */
+    setActive(index: number, reveal?: boolean): void;
     /** Remove every highlight this controller painted. */
     clear(): void;
     /**
@@ -105,23 +105,31 @@ const persistFindState = (s: PersistedFindState) => {
 export function FindBar({ isOpen, initialMode = "find", controller, revision, onClose, openRequest }: FindBarProps) {
     const [findState, setFindState] = usePersistedState(loadFindState, persistFindState);
     const { query, replacement, caseSensitive, regex } = findState;
-    const showReplace = (initialMode === "replace" && controller.supportsReplace) || (findState.showReplace && controller.supportsReplace);
+    const showReplace = findState.showReplace && controller.supportsReplace;
     const [activeIdx, setActiveIdx] = useState(-1);
     const [count, setCount] = useState(0);
+    const [searchVersion, setSearchVersion] = useState(0);
     const [invalid, setInvalid] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
+    const shouldRevealRef = useRef(true);
 
     const useRegex = regex && controller.supportsRegex;
 
     const setQuery = (v: string) => setFindState((s) => ({ ...s, query: v }));
     const setReplacement = (v: string) => setFindState((s) => ({ ...s, replacement: v }));
 
+    const prevOpenRef = useRef(false);
     useEffect(() => {
+        const openedNow = isOpen && !prevOpenRef.current;
+        prevOpenRef.current = isOpen;
+        if (openedNow && initialMode === "replace" && controller.supportsReplace) {
+            setFindState((s) => (s.showReplace ? s : { ...s, showReplace: true }));
+        }
         if (isOpen) {
             inputRef.current?.focus();
             inputRef.current?.select();
         }
-    }, [isOpen, initialMode, controller]);
+    }, [isOpen, initialMode, controller.supportsReplace, setFindState]);
 
     // An open request (possibly on an already-open bar) seeds the query from
     // the selection and puts the caret back in the field. FIND-06/07.
@@ -130,13 +138,20 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
         if (!openRequest || openRequest.nonce === lastRequestRef.current) return;
         lastRequestRef.current = openRequest.nonce;
         const seed = openRequest.text;
-        if (seed) setFindState((s) => ({ ...s, query: s.regex && controller.supportsRegex ? escapeRegex(seed) : seed }));
+        const forceReplace = initialMode === "replace" && controller.supportsReplace;
+        if (seed || forceReplace) {
+            setFindState((s) => ({
+                ...s,
+                ...(seed ? { query: s.regex && controller.supportsRegex ? escapeRegex(seed) : seed } : {}),
+                ...(forceReplace ? { showReplace: true } : {}),
+            }));
+        }
         // After the render that applies the seed, so select() covers it.
         requestAnimationFrame(() => {
             inputRef.current?.focus();
             inputRef.current?.select();
         });
-    }, [openRequest, controller, setFindState]);
+    }, [openRequest, initialMode, controller, setFindState]);
 
     // Clear the previous highlights the instant the query (or its options)
     // changes, so nothing stale lingers on screen during the debounce window —
@@ -154,6 +169,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
         const q = query;
         const opts: FindOpts = { caseSensitive, regex: useRegex };
         if (!q) {
+            lastSearchKeyRef.current = "";
             controller.clear();
             setCount(0);
             setActiveIdx(-1);
@@ -168,23 +184,31 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
             return;
         }
         const key = `${q}\u0000${caseSensitive}\u0000${useRegex}`;
-        const delay = key === lastSearchKeyRef.current ? REVISION_DEBOUNCE_MS : QUERY_DEBOUNCE_MS;
+        const passiveRevision = key === lastSearchKeyRef.current;
+        const delay = passiveRevision ? REVISION_DEBOUNCE_MS : QUERY_DEBOUNCE_MS;
         const id = window.setTimeout(() => {
             lastSearchKeyRef.current = key;
+            shouldRevealRef.current = !passiveRevision;
             const { count: n, activeIndex } = controller.search(q, opts);
             setInvalid(false);
             setCount(n);
             setActiveIdx(n > 0 ? activeIndex : -1);
+            setSearchVersion((v) => v + 1);
             if (n === 0) controller.clear();
         }, delay);
         return () => window.clearTimeout(id);
     }, [isOpen, query, caseSensitive, regex, useRegex, revision, controller]);
 
-    // Emphasise + reveal the active match whenever it (or the result set) changes.
-    // The all-matches paint happens in search(); this only moves the emphasis.
+    // Emphasise + optionally reveal the active match whenever it (or the result
+    // set) changes. Passive revision refreshes pass reveal=false so typing in
+    // the editor never yanks selection/scroll away from the user.
     useEffect(() => {
-        if (activeIdx >= 0 && activeIdx < count) controller.setActive(activeIdx);
-    }, [activeIdx, count, controller]);
+        if (activeIdx >= 0 && activeIdx < count) {
+            const reveal = shouldRevealRef.current;
+            shouldRevealRef.current = true;
+            controller.setActive(activeIdx, reveal);
+        }
+    }, [activeIdx, count, searchVersion, controller]);
 
     // Drop every highlight when the bar closes or unmounts.
     useEffect(() => {
@@ -193,14 +217,17 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
     useEffect(() => () => controller.clear(), [controller]);
 
     const next = useCallback(() => {
+        shouldRevealRef.current = true;
         setActiveIdx((i) => (count === 0 ? -1 : (i + 1) % count));
     }, [count]);
     const prev = useCallback(() => {
+        shouldRevealRef.current = true;
         setActiveIdx((i) => (count === 0 ? -1 : (i - 1 + count) % count));
     }, [count]);
 
     const replaceCurrent = useCallback(() => {
         if (activeIdx < 0 || !controller.replaceActive) return;
+        shouldRevealRef.current = true;
         // Adopt the fresh result: the active index lands on the next match
         // (the caret was just advanced past the replacement), so repeated
         // Replace presses walk the list like VS Code (FIND-03).
@@ -208,18 +235,22 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
         if (fresh) {
             setCount(fresh.count);
             setActiveIdx(fresh.count > 0 ? fresh.activeIndex : -1);
+            setSearchVersion((v) => v + 1);
         }
     }, [activeIdx, controller, replacement, query, caseSensitive, useRegex]);
     const replaceAll = useCallback(() => {
         if (count === 0 || !controller.replaceAll) return;
+        shouldRevealRef.current = true;
         const fresh = controller.replaceAll(replacement, query, { caseSensitive, regex: useRegex });
         if (fresh) {
             setCount(fresh.count);
             setActiveIdx(fresh.count > 0 ? fresh.activeIndex : -1);
+            setSearchVersion((v) => v + 1);
         }
     }, [count, controller, replacement, query, caseSensitive, useRegex]);
 
     const handleKey = (e: React.KeyboardEvent) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === "Escape") {
             e.preventDefault();
             onClose();
@@ -235,6 +266,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
     // keyboard flow "query → Tab → Enter" navigate instead of replacing
     // (FIND-04). Shift+Enter still goes to the previous match.
     const handleReplaceKey = (e: React.KeyboardEvent) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === "Enter") {
             e.preventDefault();
             e.stopPropagation();

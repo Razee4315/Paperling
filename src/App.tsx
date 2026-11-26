@@ -40,7 +40,7 @@ import { useCustomCss } from "./hooks/useCustomCss";
 import { getWorkspaceDirectory, setWorkspaceDirectory } from "./utils/persistence";
 import { isTextDirection, type TextDirection } from "./utils/textDirection";
 import { joinNotesPath } from "./utils/mobileFiles";
-import { openSystemFilePicker, saveToDownloads, DOWNLOADS_SENTINEL } from "./utils/nativePicker";
+import { openSystemFilePicker, saveToDownloads, makeDownloadsSentinel, parseDownloadsSentinel } from "./utils/nativePicker";
 import { normalizeMarkdownFileName } from "./utils/mobileFiles";
 
 // === Lazy-loaded screens / dialogs ===
@@ -360,8 +360,8 @@ function AppContent() {
       }
       if (choice.destination === "downloads") {
         // useFileSession owns the note content and performs the native
-        // MediaStore write; the sentinel just reports the chosen destination.
-        req.resolve(DOWNLOADS_SENTINEL);
+        // MediaStore write; encode the chosen filename in the sentinel.
+        req.resolve(makeDownloadsSentinel(choice.name));
         return;
       }
       if (!notesDir) {
@@ -399,8 +399,9 @@ function AppContent() {
   const promptForSavePath = useCallback(
     (defaultName: string | null, defaultDir?: string | null): Promise<string | null> => {
       if (IS_MOBILE) return mobilePromptSavePath(defaultName);
+      const html = isHtmlPath(defaultName);
       return save({
-        filters: [{ name: "Markdown", extensions: ["md"] }],
+        filters: [html ? { name: "HTML", extensions: ["html", "htm"] } : { name: "Markdown", extensions: ["md"] }],
         // Open the dialog in the relevant folder, not wherever the OS last
         // was. SAVE-05.
         defaultPath: defaultName && defaultDir ? joinPath(defaultDir, defaultName) : defaultName ?? undefined,
@@ -859,10 +860,12 @@ function AppContent() {
         if (!selected) return; // cancelled a save-as → keep the app open
         path = selected;
       }
-      if (path === DOWNLOADS_SENTINEL) {
-        const cachePath = await saveToDownloads(normalizeMarkdownFileName(dirty.fileName), dirty.content);
+      const dlName = parseDownloadsSentinel(path);
+      if (dlName !== null) {
+        const chosenName = dlName || dirty.fileName;
+        const cachePath = await saveToDownloads(normalizeMarkdownFileName(chosenName), dirty.content);
         if (!cachePath.ok || !cachePath.path) {
-          showToast(cachePath.error || t("toast.couldNotSaveNameToDownloads", { name: dirty.fileName }), "error");
+          showToast(cachePath.error || t("toast.couldNotSaveNameToDownloads", { name: chosenName }), "error");
           return;
         }
         path = cachePath.path;
@@ -886,8 +889,9 @@ function AppContent() {
     const copyName = `${(fileName ?? "Untitled.md").replace(/\.md$/i, "")} (copy).md`;
     let selected = await promptForSavePath(copyName, dirOf(filePath));
     if (!selected) return;
-    if (selected === DOWNLOADS_SENTINEL) {
-      const res = await saveToDownloads(normalizeMarkdownFileName(copyName), content);
+    const dlCopyName = parseDownloadsSentinel(selected);
+    if (dlCopyName !== null) {
+      const res = await saveToDownloads(normalizeMarkdownFileName(dlCopyName || copyName), content);
       if (!res.ok || !res.path) {
         showToast(res.error || t("toast.couldNotSaveCopy"), "error");
         return;
@@ -1317,6 +1321,8 @@ function AppContent() {
       req.resolve(null);
       return true;
     }
+    if (conflictPrompt) return true;
+    if (historyTarget) { setHistoryTarget(null); return true; }
     if (closeTabPrompt) { cancelCloseTab(); return true; }
     if (showUnsavedBeforeClose) { setShowUnsavedBeforeClose(false); return true; }
     if (showTour) { handleCloseTour(); return true; }

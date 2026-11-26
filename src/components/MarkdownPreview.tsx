@@ -12,7 +12,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { rehypeBlockDirection, type TextDirection } from "../utils/textDirection";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { parseFrontmatter, serializeFrontmatter, type FrontmatterValue } from "../utils/frontmatter";
+import { parseFrontmatter, updateFrontmatterKey, type FrontmatterValue } from "../utils/frontmatter";
 import { IS_MOBILE } from "../utils/platform";
 import { createLocalImageCache } from "../utils/localImageCache";
 import { writeCleanSelection } from "../utils/previewCopy";
@@ -46,7 +46,7 @@ function OrderedList({ node, children, style, ...props }: React.ComponentProps<"
 // matches, but only to warm the bundle while someone is mid-typing a chemistry
 // block: RENDERING still requires math delimiters ($...$ or $$...$$), because
 // nothing converts a bare \ce{} into a math node (#111).
-const MATH_DETECTION_REGEX = /(\$\$[\s\S]+?\$\$)|((?:^|[^\d$])\$[^\s$][^\n$]*?[^\s$]\$(?!\d))|(\\ce\{)|(\\pu\{)/m;
+const MATH_DETECTION_REGEX = /(\$\$[\s\S]+?\$\$)|(^ {0,3}(?:`{3,}|~{3,})[ \t]*math\b)|((?:^|[^\d$])\$(?:[^\s$]|[^\s$][^\n$]*?[^\s$])\$(?!\d))|(\\ce\{)|(\\pu\{)/m;
 const hasMath = (s: string): boolean => MATH_DETECTION_REGEX.test(s);
 
 // rehype-highlight config. `detect: false` is the library default — pinned here
@@ -255,6 +255,9 @@ const loadMathPlugins = (): Promise<PluginPair> => {
     ]).then(([rm, rk]) => {
         mathPluginsCache = { remark: rm.default, rehype: rk.default };
         return mathPluginsCache;
+    }).catch((err) => {
+        mathLoadPromise = null;
+        throw err;
     });
     return mathLoadPromise;
 };
@@ -618,30 +621,67 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) 
     );
 }
 
+function FrontmatterScalarInput({
+    value,
+    onCommit,
+}: {
+    value: string | number;
+    onCommit: (next: FrontmatterValue) => void;
+}) {
+    const [draft, setDraft] = useState(String(value));
+    useEffect(() => {
+        setDraft(String(value));
+    }, [value]);
+    return (
+        <input
+            type={typeof value === "number" ? "number" : "text"}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+                if (typeof value === "number") {
+                    const parsed = draft.trim() === "" ? NaN : Number(draft);
+                    if (Number.isFinite(parsed)) onCommit(parsed);
+                    else setDraft(String(value));
+                } else {
+                    onCommit(draft);
+                }
+            }}
+            onKeyDown={(e) => {
+                if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+            }}
+            className="w-full px-2 py-0.5 text-sm bg-transparent border-b border-transparent hover:border-[var(--border)] focus:border-[var(--accent)] outline-none text-[var(--text-primary)]"
+        />
+    );
+}
+
 /** Render YAML frontmatter as a collapsible, editable metadata card. */
 function FrontmatterCard({
     data,
+    complexKeys = [],
     editable,
-    onChange,
+    onChangeKey,
 }: {
     data: Record<string, FrontmatterValue>;
+    complexKeys?: readonly string[];
     editable: boolean;
-    onChange?: (next: Record<string, FrontmatterValue>) => void;
+    onChangeKey?: (key: string, value: FrontmatterValue) => void;
 }) {
     const [collapsed, setCollapsed] = useState(false);
+    const complexSet = new Set(complexKeys);
     const entries = Object.entries(data);
     if (entries.length === 0) return null;
 
-    const updateKey = (k: string, v: FrontmatterValue) => onChange?.({ ...data, [k]: v });
+    const updateKey = (k: string, v: FrontmatterValue) => onChangeKey?.(k, v);
 
     const renderValue = (k: string, v: FrontmatterValue) => {
+        const keyEditable = editable && !complexSet.has(k);
         if (Array.isArray(v)) {
             return (
                 <div className="flex flex-wrap gap-1 items-center">
                     {v.map((item, i) => (
                         <span key={i} className="px-2 py-0.5 text-xs bg-[var(--bg-hover)] rounded-[var(--radius-sm)] border border-[var(--border-subtle)] text-[var(--text-primary)] flex items-center gap-1">
                             {item}
-                            {editable && (
+                            {keyEditable && (
                                 <button
                                     type="button"
                                     onClick={() => updateKey(k, v.filter((_, idx) => idx !== i))}
@@ -653,7 +693,7 @@ function FrontmatterCard({
                             )}
                         </span>
                     ))}
-                    {editable && (
+                    {keyEditable && (
                         <input
                             type="text"
                             placeholder="+ add"
@@ -673,7 +713,7 @@ function FrontmatterCard({
             );
         }
         if (typeof v === "boolean") {
-            if (editable) {
+            if (keyEditable) {
                 return (
                     <button
                         type="button"
@@ -687,17 +727,13 @@ function FrontmatterCard({
             }
             return <span className="text-xs font-mono">{v ? "true" : "false"}</span>;
         }
-        if (editable) {
+        if (keyEditable) {
             return (
-                <input
-                    type={typeof v === "number" ? "number" : "text"}
-                    defaultValue={String(v)}
-                    onBlur={(e) => {
-                        const raw = e.target.value;
-                        const next: FrontmatterValue = typeof v === "number" ? Number(raw) : raw;
+                <FrontmatterScalarInput
+                    value={v}
+                    onCommit={(next) => {
                         if (next !== v) updateKey(k, next);
                     }}
-                    className="w-full px-2 py-0.5 text-sm bg-transparent border-b border-transparent hover:border-[var(--border)] focus:border-[var(--accent)] outline-none text-[var(--text-primary)]"
                 />
             );
         }
@@ -1043,7 +1079,7 @@ function MarkdownPreviewImpl({
         a: ({ href, children, node, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) => {
             // Wikilink: open same-folder file via callback
             if (href && href.startsWith("wikilink:")) {
-                const target = decodeURIComponent(href.slice("wikilink:".length));
+                const target = decodeMarkdownPath(href.slice("wikilink:".length));
                 return (
                     <a
                         {...rest}
@@ -1073,7 +1109,7 @@ function MarkdownPreviewImpl({
                         href={href}
                         onClick={(e) => {
                             e.preventDefault();
-                            const id = decodeURIComponent(href.slice(1));
+                            const id = decodeMarkdownPath(href.slice(1));
                             let el: HTMLElement | null = document.getElementById(id);
                             if (!el) {
                                 // Fuzzy fallback: find a heading whose textContent
@@ -1203,7 +1239,7 @@ function MarkdownPreviewImpl({
     // entry is off by the number of frontmatter lines.
     const fmOffsetRef = useRef(0);
 
-    const { body: parsedBody, data: frontmatter, hasFrontmatter } = useMemo(
+    const { body: parsedBody, data: frontmatter, complexKeys, hasFrontmatter } = useMemo(
         () => parseFrontmatter(previewContent),
         [previewContent]
     );
@@ -1233,9 +1269,9 @@ function MarkdownPreviewImpl({
         if (mathPlugins) return;
         if (!hasMath(renderBody)) return;
         let cancelled = false;
-        loadMathPlugins().then((p) => {
-            if (!cancelled) setMathPlugins(p);
-        });
+        loadMathPlugins()
+            .then((p) => { if (!cancelled) setMathPlugins(p); })
+            .catch(() => { /* leave math literal if dynamic chunk fails to load */ });
         return () => { cancelled = true; };
     }, [renderBody, mathPlugins]);
 
@@ -1646,11 +1682,13 @@ function MarkdownPreviewImpl({
                 <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 pt-12 pb-28`}>
                     {hasFrontmatter && (
                         <FrontmatterCard
+                            key={docKey ?? "__no_doc__"}
                             data={frontmatter}
+                            complexKeys={complexKeys}
                             editable={!!onContentChange && !editingBlock}
-                            onChange={(next) => {
+                            onChangeKey={(key, val) => {
                                 if (!onContentChange) return;
-                                onContentChange(serializeFrontmatter(next, parsedBody));
+                                onContentChange(updateFrontmatterKey(liveContent ?? previewContent, key, val));
                             }}
                         />
                     )}

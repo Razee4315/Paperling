@@ -50,6 +50,7 @@ interface SlashMenuProps {
 export function SlashMenu({ isOpen, position, query, onSelect, onClose }: SlashMenuProps) {
     const [activeIdx, setActiveIdx] = useState(0);
     const listRef = useRef<HTMLUListElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
 
     // Rank: label/word prefix first ("/h" → Headings before "Math"), then any
     // substring. Stable within a rank, so the menu order is preserved.
@@ -75,8 +76,15 @@ export function SlashMenu({ isOpen, position, query, onSelect, onClose }: SlashM
     useEffect(() => { setActiveIdx(0); }, [query, isOpen]);
 
     useEffect(() => {
-        if (!isOpen) return;
+        const list = listRef.current;
+        if (!list) return;
+        list.querySelector<HTMLElement>(`[data-slash-idx="${activeIdx}"]`)?.scrollIntoView?.({ block: "nearest" });
+    }, [activeIdx, isOpen, query]);
+
+    useEffect(() => {
+        if (!isOpen || !position || filtered.length === 0) return;
         const handler = (e: KeyboardEvent) => {
+            if (e.isComposing || e.keyCode === 229) return;
             if (e.key === "ArrowDown") {
                 e.preventDefault();
                 setActiveIdx((i) => (i + 1) % filtered.length);
@@ -95,16 +103,26 @@ export function SlashMenu({ isOpen, position, query, onSelect, onClose }: SlashM
         };
         document.addEventListener("keydown", handler, true);
         return () => document.removeEventListener("keydown", handler, true);
-    }, [isOpen, activeIdx, filtered, onSelect, onClose]);
+    }, [isOpen, position, activeIdx, filtered, onSelect, onClose]);
 
     if (!isOpen || !position || filtered.length === 0) return null;
 
+    const menuWidth = 288;
+    const menuMaxHeight = 288;
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+    const left = Math.max(8, Math.min(position.x, vw - menuWidth - 8));
+    const top = position.y + menuMaxHeight + 8 > vh
+        ? Math.max(8, position.y - menuMaxHeight - 28)
+        : Math.max(8, position.y);
+
     return (
         <div
+            ref={menuRef}
             role="listbox"
             aria-label="Slash commands"
             className="fixed z-[80] w-72 max-h-72 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[var(--radius-md)] shadow-2xl animate-fade-in"
-            style={{ left: position.x, top: position.y }}
+            style={{ left, top }}
         >
             <ul ref={listRef} className="py-1">
                 {filtered.map((cmd, i) => {
@@ -112,6 +130,7 @@ export function SlashMenu({ isOpen, position, query, onSelect, onClose }: SlashM
                     return (
                         <li key={cmd.id}>
                             <button
+                                data-slash-idx={i}
                                 role="option"
                                 aria-selected={active}
                                 onMouseDown={(e) => e.preventDefault()}

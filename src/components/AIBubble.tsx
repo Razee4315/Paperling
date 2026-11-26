@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { runAIAction, type AIAction, type AIConfig } from "../utils/aiAssist";
+import { attachFocusTrap } from "../utils/focusTrap";
 
 interface AIBubbleProps {
     /** Anchor pixel position (top-left of selection or caret). Null hides bubble. */
@@ -38,6 +39,44 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
             abortRef.current = null;
         }
     }, [anchor]);
+
+    // Trap keyboard focus when the bubble opens, support Escape & outside click
+    // dismissal, and restore focus cleanly on unmount.
+    useEffect(() => {
+        if (!anchor) return;
+        const el = bubbleRef.current;
+        if (!el) return;
+        const detachTrap = attachFocusTrap(el);
+        const firstBtn = el.querySelector<HTMLButtonElement>("button:not([disabled])");
+        firstBtn?.focus();
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+            } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button:not([disabled])"));
+                const idx = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                if (idx >= 0 && buttons.length > 0) {
+                    e.preventDefault();
+                    const next = e.key === "ArrowRight"
+                        ? (idx + 1) % buttons.length
+                        : (idx - 1 + buttons.length) % buttons.length;
+                    buttons[next].focus();
+                }
+            }
+        };
+        const onPointerDown = (e: PointerEvent) => {
+            if (!el.contains(e.target as Node)) onClose();
+        };
+        document.addEventListener("keydown", onKeyDown, true);
+        document.addEventListener("pointerdown", onPointerDown, true);
+        return () => {
+            detachTrap();
+            document.removeEventListener("keydown", onKeyDown, true);
+            document.removeEventListener("pointerdown", onPointerDown, true);
+        };
+    }, [anchor, onClose]);
 
     // Final-cleanup: parents commonly unmount AIBubble outright (e.g. by
     // setting their own `aiBubble` state to null) instead of toggling `anchor`.

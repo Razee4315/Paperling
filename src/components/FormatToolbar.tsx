@@ -1,6 +1,6 @@
 import type { EditorResult, EditorState } from "../utils/editorActions";
 import { formatShortcut, aiShortcutLabel } from "../config/keybindings";
-import { wrapSelection, insertLink } from "../utils/editorActions";
+import { wrapSelection, insertLink, toggleLinePrefix } from "../utils/editorActions";
 import { useI18n } from "../i18n";
 
 interface FormatToolbarProps {
@@ -57,8 +57,7 @@ export function FormatToolbar({ getState, apply, insert, onAIAssist }: FormatToo
         const st = getState();
         if (!st) return;
         const pos = st.selStart;
-        const before = st.text.slice(0, pos);
-        const ls = before.lastIndexOf("\n") + 1;
+        const ls = pos <= 0 ? 0 : st.text.lastIndexOf("\n", pos - 1) + 1;
         const lineEnd = st.text.indexOf("\n", pos);
         const end = lineEnd === -1 ? st.text.length : lineEnd;
         const line = st.text.slice(ls, end);
@@ -75,19 +74,7 @@ export function FormatToolbar({ getState, apply, insert, onAIAssist }: FormatToo
     const block = (prefix: string) => () => {
         const st = getState();
         if (!st) return;
-        const pos = st.selStart;
-        const before = st.text.slice(0, pos);
-        const ls = before.lastIndexOf("\n") + 1;
-        const lineEnd = st.text.indexOf("\n", pos);
-        const end = lineEnd === -1 ? st.text.length : lineEnd;
-        const line = st.text.slice(ls, end);
-        const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
-        const delta = newLine.length - line.length;
-        apply({
-            text: st.text.slice(0, ls) + newLine + st.text.slice(end),
-            selStart: pos + delta,
-            selEnd: pos + delta,
-        });
+        apply(toggleLinePrefix(st, prefix));
     };
 
     const codeBlock = () => {

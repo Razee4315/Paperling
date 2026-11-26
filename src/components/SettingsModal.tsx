@@ -8,7 +8,7 @@ import { isMac } from "../config/keybindings";
 import {
     getTypewriterMode, setTypewriterMode,
     getToolbarEnabled, setToolbarEnabled,
-    getAIConfig, setAIConfig,
+    getAIConfig, setAIConfig, flushPendingAIKey,
     getAIEnabled, setAIEnabled,
     getWordWrap, setWordWrap,
     getCodeFolding, setCodeFolding,
@@ -309,6 +309,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [appVersion, setAppVersion] = useState("");
 
     const [ai, setAi] = useState(getAIConfig);
+    const [showAiKey, setShowAiKey] = useState(false);
     const [aiEnabled, setAiEnabledLocal] = useState(getAIEnabled);
     const [aiHistoryTurns, setAiHistoryTurnsLocal] = useState(getAIHistoryTurns);
     const [aiIconAnimation, setAiIconAnimationLocal] = useState(getAIIconAnimation);
@@ -395,19 +396,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         return () => { cancelled = true; };
     }, [isOpen, appVersion]);
 
-    // Persist AI fields on close. The endpoint/model/key inputs save on blur,
-    // but Escape-to-close or backdrop-click can fire before the input loses
-    // focus, dropping the in-flight edit. Refresh persistence on every close
-    // transition so unblurred edits survive (only when the endpoint is valid;
-    // an invalid URL is left unsaved so the user can fix it on next open).
+    // Persist AI fields on unmount / close transition (SettingsModal is mounted
+    // conditionally on showSettings, so cleanup always runs on close).
     const aiRef = useRef(ai);
     aiRef.current = ai;
     useEffect(() => {
-        if (isOpen) return; // only fire on open→close transition
-        const current = aiRef.current;
-        if (current.endpoint && !isValidEndpoint(current.endpoint)) return;
-        setAIConfig(current);
-    }, [isOpen]);
+        return () => {
+            const current = aiRef.current;
+            if (current.endpoint && !isValidEndpoint(current.endpoint)) return;
+            setAIConfig(current, true);
+        };
+    }, []);
 
     if (!isOpen) return null;
 
@@ -896,18 +895,31 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     </label>
                                     <label className="block">
                                         <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{t("settings.aiApiKey")}</span>
-                                        <input
-                                            type="password"
-                                            value={ai.apiKey}
-                                            onChange={(e) => updateAi({ apiKey: e.target.value })}
-                                            placeholder={activeProvider?.keyOptional
-                                                ? t("settings.aiApiKeyNotNeeded")
-                                                : activeProvider
-                                                    ? t("settings.aiApiKeyNeeded", { provider: providerText("aiProviderName", activeProvider.id, activeProvider.name) })
-                                                    : t("settings.aiApiKeyOptional")}
-                                            autoComplete="off"
-                                            className="mt-1 w-full px-3 py-2 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] font-mono"
-                                        />
+                                        <div className="mt-1 relative flex items-center">
+                                            <input
+                                                type={showAiKey ? "text" : "password"}
+                                                value={ai.apiKey}
+                                                onChange={(e) => updateAi({ apiKey: e.target.value })}
+                                                onBlur={flushPendingAIKey}
+                                                placeholder={activeProvider?.keyOptional
+                                                    ? t("settings.aiApiKeyNotNeeded")
+                                                    : activeProvider
+                                                        ? t("settings.aiApiKeyNeeded", { provider: providerText("aiProviderName", activeProvider.id, activeProvider.name) })
+                                                        : t("settings.aiApiKeyOptional")}
+                                                autoComplete="off"
+                                                className="w-full px-3 py-2 pr-9 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] font-mono"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowAiKey((v) => !v)}
+                                                aria-label={showAiKey ? "Hide API key" : "Show API key"}
+                                                className="absolute right-2 p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                            >
+                                                <span className="material-symbols-outlined text-[16px]">
+                                                    {showAiKey ? "visibility_off" : "visibility"}
+                                                </span>
+                                            </button>
+                                        </div>
                                         {activeProvider && (
                                             <span className="block mt-1 text-[11px] text-[var(--text-muted)]">{providerText("aiKeyHint", activeProvider.id, activeProvider.keyHint)}</span>
                                         )}

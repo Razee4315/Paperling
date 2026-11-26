@@ -23,8 +23,8 @@ const INDENT = "  "; // 2 spaces — markdown-friendly nested lists
 /* ---------- Selection / line helpers ---------- */
 
 const lineStartIndex = (text: string, pos: number): number => {
-    const before = text.slice(0, pos);
-    const nl = before.lastIndexOf("\n");
+    if (pos <= 0) return 0;
+    const nl = text.lastIndexOf("\n", pos - 1);
     return nl === -1 ? 0 : nl + 1;
 };
 
@@ -32,6 +32,13 @@ const lineEndIndex = (text: string, pos: number): number => {
     const idx = text.indexOf("\n", pos);
     return idx === -1 ? text.length : idx;
 };
+
+function cellEntryOffset(line: string, pipes: number[], idx: number, lineStart: number): number {
+    const pipePos = pipes[idx];
+    const nextPipe = pipes[idx + 1] ?? line.length;
+    const after = pipePos + 1;
+    return lineStart + (after < nextPipe && line[after] === " " ? after + 1 : after);
+}
 
 /* ---------- Table cell navigation ---------- */
 
@@ -54,9 +61,9 @@ export function handleTableTab(state: EditorState, shift: boolean): EditorResult
     const line = text.slice(ls, le);
     if (!isTableLine(line)) return null;
 
-    // Find pipe positions on the current line
+    // Find unescaped pipe positions on the current line
     const pipes: number[] = [];
-    for (let i = 0; i < line.length; i++) if (line[i] === "|") pipes.push(i);
+    for (let i = 0; i < line.length; i++) if (line[i] === "|" && line[i - 1] !== "\\") pipes.push(i);
     if (pipes.length < 2) return null;
 
     const localPos = selStart - ls;
@@ -71,7 +78,7 @@ export function handleTableTab(state: EditorState, shift: boolean): EditorResult
     if (!shift) {
         if (cellIdx < pipes.length - 2) {
             // Next cell, place caret at content start
-            const target = ls + pipes[cellIdx + 1] + 2;
+            const target = cellEntryOffset(line, pipes, cellIdx + 1, ls);
             return { text, selStart: target, selEnd: target };
         }
         // Last cell — go to next row's first cell, skipping separator rows.
@@ -101,15 +108,16 @@ export function handleTableTab(state: EditorState, shift: boolean): EditorResult
                 continue;
             }
             // Found a body row — go to its first cell
-            const firstPipe = scan + nextLine.indexOf("|");
-            const target = firstPipe + 2;
+            const nextPipes: number[] = [];
+            for (let i = 0; i < nextLine.length; i++) if (nextLine[i] === "|" && nextLine[i - 1] !== "\\") nextPipes.push(i);
+            const target = nextPipes.length >= 2 ? cellEntryOffset(nextLine, nextPipes, 0, scan) : scan + nextLine.indexOf("|") + 2;
             return { text, selStart: target, selEnd: target };
         }
     }
 
     // Shift+Tab — previous cell
     if (cellIdx > 0) {
-        const target = ls + pipes[cellIdx - 1] + 2;
+        const target = cellEntryOffset(line, pipes, cellIdx - 1, ls);
         return { text, selStart: target, selEnd: target };
     }
     // First cell — try previous row
@@ -125,8 +133,9 @@ export function handleTableTab(state: EditorState, shift: boolean): EditorResult
             }
             // Last cell of prev row
             const prevPipes: number[] = [];
-            for (let i = 0; i < prevLine.length; i++) if (prevLine[i] === "|") prevPipes.push(i);
-            const target = prevLs + prevPipes[prevPipes.length - 2] + 2;
+            for (let i = 0; i < prevLine.length; i++) if (prevLine[i] === "|" && prevLine[i - 1] !== "\\") prevPipes.push(i);
+            if (prevPipes.length < 2) break;
+            const target = cellEntryOffset(prevLine, prevPipes, prevPipes.length - 2, prevLs);
             return { text, selStart: target, selEnd: target };
         }
     }
@@ -135,10 +144,16 @@ export function handleTableTab(state: EditorState, shift: boolean): EditorResult
 
 /* ---------- Tab / Shift+Tab ---------- */
 
-export function handleTab(state: EditorState, shift: boolean): EditorResult | null {
+export interface EditorKeyOpts {
+    inCodeBlock?: boolean;
+}
+
+export function handleTab(state: EditorState, shift: boolean, opts?: EditorKeyOpts): EditorResult | null {
     // Try table-tab first; falls through to indent if not in a table.
-    const tableResult = handleTableTab(state, shift);
-    if (tableResult) return tableResult;
+    if (!opts?.inCodeBlock) {
+        const tableResult = handleTableTab(state, shift);
+        if (tableResult) return tableResult;
+    }
 
     const { text, selStart, selEnd } = state;
 
@@ -152,7 +167,7 @@ export function handleTab(state: EditorState, shift: boolean): EditorResult | nu
 
         let newBlock: string;
         if (shift) {
-            newBlock = lines.map((l) => l.startsWith(INDENT) ? l.slice(INDENT.length) : l.startsWith(" ") ? l.slice(1) : l).join("\n");
+            newBlock = lines.map((l) => l.startsWith(INDENT) ? l.slice(INDENT.length) : (l.startsWith(" ") || l.startsWith("\t")) ? l.slice(1) : l).join("\n");
         } else {
             newBlock = lines.map((l) => INDENT + l).join("\n");
         }
@@ -170,18 +185,20 @@ export function handleTab(state: EditorState, shift: boolean): EditorResult | nu
     // nests / un-nests the whole ITEM, like Obsidian, Typora and VS Code. It
     // used to splice two spaces at the caret (mid-text on a typical "- item|")
     // so Tab could never build a nested list. EDIT-04.
-    const listResult = indentListItem(state, shift);
-    if (listResult) return listResult;
+    if (!opts?.inCodeBlock) {
+        const listResult = indentListItem(state, shift);
+        if (listResult) return listResult;
+    }
 
     // Single-line: insert / remove indent at cursor
     if (shift) {
         const ls = lineStartIndex(text, selStart);
-        const head = text.slice(ls, ls + INDENT.length);
-        if (head === INDENT) {
+        const removed = text.startsWith(INDENT, ls) ? INDENT.length : (text[ls] === " " || text[ls] === "\t") ? 1 : 0;
+        if (removed > 0) {
             return {
-                text: text.slice(0, ls) + text.slice(ls + INDENT.length),
-                selStart: Math.max(ls, selStart - INDENT.length),
-                selEnd: Math.max(ls, selEnd - INDENT.length),
+                text: text.slice(0, ls) + text.slice(ls + removed),
+                selStart: Math.max(ls, selStart - removed),
+                selEnd: Math.max(ls, selEnd - removed),
             };
         }
         return null;
@@ -319,7 +336,8 @@ function indentListItem(state: EditorState, shift: boolean): EditorResult | null
     };
 }
 
-export function handleEnter(state: EditorState): EditorResult | null {
+export function handleEnter(state: EditorState, opts?: EditorKeyOpts): EditorResult | null {
+    if (opts?.inCodeBlock) return null;
     const { text, selStart, selEnd } = state;
     if (selStart !== selEnd) return null;
 
@@ -425,6 +443,34 @@ export function handleEnter(state: EditorState): EditorResult | null {
 
 /* ---------- Bold / Italic / Link ---------- */
 
+function countCharLeft(text: string, pos: number, ch: string): number {
+    let n = 0;
+    while (pos - 1 - n >= 0 && text[pos - 1 - n] === ch) n++;
+    return n;
+}
+
+function countCharRight(text: string, pos: number, ch: string): number {
+    let n = 0;
+    while (pos + n < text.length && text[pos + n] === ch) n++;
+    return n;
+}
+
+function containsStandaloneDelimiter(inner: string, delim: string): boolean {
+    if (delim === "*") {
+        // Odd asterisk runs (* or ***) indicate an inline italic delimiter;
+        // an even run (**) belongs to bold markup nested or neighboring inside.
+        for (let i = 0; i < inner.length; i++) {
+            if (inner[i] !== "*") continue;
+            let run = 1;
+            while (i + run < inner.length && inner[i + run] === "*") run++;
+            if (run % 2 === 1) return true;
+            i += run - 1;
+        }
+        return false;
+    }
+    return inner.includes(delim);
+}
+
 export function wrapSelection(
     state: EditorState,
     left: string,
@@ -435,9 +481,9 @@ export function wrapSelection(
     const selected = text.slice(selStart, selEnd) || placeholder;
 
     // Toggle, case 1: the selection carries its OWN markers (e.g. "**bold**"
-    // selected, Ctrl+B pressed) — strip them. The outside-marker check below
-    // can't see this case and used to double-wrap. SHC-07. Symmetric pairs
-    // only: an asymmetric wrap like [x](y) has no meaningful inside form.
+    // selected, Ctrl+B pressed) — strip them. SHC-07. Guard against stripping
+    // "**bold**" as "*italic*", or stripping across two disjoint spans like
+    // "**a** and **b**".
     if (
         selStart !== selEnd &&
         right === left &&
@@ -445,18 +491,27 @@ export function wrapSelection(
         selected.startsWith(left) &&
         selected.endsWith(right)
     ) {
+        const edgeOk =
+            left !== "*" ||
+            (countCharRight(selected, 0, "*") % 2 === 1 && countCharLeft(selected, selected.length, "*") % 2 === 1);
         const inner = selected.slice(left.length, selected.length - right.length);
-        return {
-            text: text.slice(0, selStart) + inner + text.slice(selEnd),
-            selStart,
-            selEnd: selStart + inner.length,
-        };
+        if (edgeOk && !containsStandaloneDelimiter(inner, left)) {
+            return {
+                text: text.slice(0, selStart) + inner + text.slice(selEnd),
+                selStart,
+                selEnd: selStart + inner.length,
+            };
+        }
     }
 
     // Toggle, case 2: the markers sit just OUTSIDE the selection.
     const beforeSel = text.slice(Math.max(0, selStart - left.length), selStart);
     const afterSel = text.slice(selEnd, selEnd + right.length);
-    if (selStart !== selEnd && beforeSel === left && afterSel === right) {
+    const outsideIsStarPair =
+        left !== "*" ||
+        right !== "*" ||
+        (countCharLeft(text, selStart, "*") % 2 === 1 && countCharRight(text, selEnd, "*") % 2 === 1);
+    if (selStart !== selEnd && beforeSel === left && afterSel === right && outsideIsStarPair) {
         return {
             text: text.slice(0, selStart - left.length) + selected + text.slice(selEnd + right.length),
             selStart: selStart - left.length,
@@ -469,6 +524,53 @@ export function wrapSelection(
         text: text.slice(0, selStart) + wrapped + text.slice(selEnd),
         selStart: selStart + left.length,
         selEnd: selStart + left.length + selected.length,
+    };
+}
+
+/**
+ * Toggle a line-start Markdown prefix (`> `, `- `, `1. `, `- [ ] `) across the
+ * caret line or all selected lines, safely clamping offsets so col 0 on line 1
+ * never produces negative selection points.
+ */
+export function toggleLinePrefix(state: EditorState, prefix: string): EditorResult {
+    const { text, selStart, selEnd } = state;
+    const blockStart = lineStartIndex(text, selStart);
+    const blockEnd = lineEndIndex(text, Math.max(selStart, selEnd - (selEnd > selStart && text[selEnd - 1] === "\n" ? 1 : 0)));
+    const lines = text.slice(blockStart, blockEnd).split("\n");
+    const multiLine = lines.length > 1;
+    const targetLines = multiLine ? lines.filter((l) => l.length > 0) : lines;
+    const strip = targetLines.length > 0 && targetLines.every((l) => l.startsWith(prefix));
+
+    const shifts: Array<{ ls: number; delta: number }> = [];
+    let offset = blockStart;
+    const out = lines.map((line) => {
+        let next = line;
+        if (strip) {
+            if (line.startsWith(prefix)) next = line.slice(prefix.length);
+        } else if (!multiLine || line.length > 0) {
+            next = prefix + line;
+        }
+        const delta = next.length - line.length;
+        if (delta !== 0) shifts.push({ ls: offset, delta });
+        offset += line.length + 1;
+        return next;
+    });
+
+    const mapPos = (p: number) => {
+        let shifted = p;
+        for (const s of shifts) {
+            if (p >= s.ls) {
+                shifted = Math.max(s.ls, shifted + s.delta);
+            }
+        }
+        return shifted;
+    };
+
+    const nextText = text.slice(0, blockStart) + out.join("\n") + text.slice(blockEnd);
+    return {
+        text: nextText,
+        selStart: Math.min(nextText.length, Math.max(0, mapPos(selStart))),
+        selEnd: Math.min(nextText.length, Math.max(0, mapPos(selEnd))),
     };
 }
 

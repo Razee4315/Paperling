@@ -219,3 +219,15 @@ it("opens a link in a reply through the OS opener instead of navigating", async 
     fireEvent.click(screen.getByRole("link", { name: "docs" }));
     expect(openUrl).toHaveBeenCalledWith("https://example.com/docs");
 });
+
+it("blocks protocol-relative // remote image URLs when Load remote images is off", async () => {
+    localStorage.setItem("paperling:remoteImages", "false");
+    vi.mocked(streamChat).mockImplementation(async (_m, _c, opts) => {
+        opts?.onToken?.("![px](//evil.example/px.png)");
+        return "![px](//evil.example/px.png)";
+    });
+    render(<AIPanel {...props} />);
+    await send("draw me a tracker");
+    expect(screen.getByText(/Remote image blocked/)).toBeInTheDocument();
+    expect(screen.queryByRole("img")).toBeNull();
+});

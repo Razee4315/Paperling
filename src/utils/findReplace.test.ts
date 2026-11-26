@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findAll, matchLength, expandReplacement, replaceOne, replaceAllMatches, isValidPattern } from "./findReplace";
+import { findAll, findAllMatches, matchLength, expandReplacement, replaceOne, replaceAllMatches, isValidPattern } from "./findReplace";
 
 describe("findAll", () => {
     it("returns no matches for an empty needle", () => {
@@ -165,5 +165,22 @@ describe("isValidPattern", () => {
     it("rejects an uncompilable regex", () => {
         expect(isValidPattern("(", true)).toBe(false);
         expect(isValidPattern("[", true)).toBe(false);
+    });
+
+    it("matches multiline anchors, non-ASCII case-insensitive UTF-16 offsets, and regex capture replacement", () => {
+        const ml = findAllMatches("alpha\nbeta\ngamma", "^beta$", false, true);
+        expect(ml).toEqual([{ from: 6, to: 10 }]);
+
+        // Non-ASCII case-insensitive match + UTF-16 length safety ("İ".toLowerCase() expands from 1 to 2 code units)
+        const trText = "x É end";
+        const ci = findAllMatches(trText, "é", false, false);
+        expect(ci.length).toBe(1);
+        expect(trText.slice(ci[0].from, ci[0].to)).toBe("É");
+        const after = findAllMatches("İ end", "end", false, false);
+        expect(after).toEqual([{ from: 2, to: 5 }]);
+        expect("İ end".slice(after[0].from, after[0].to)).toBe("end");
+
+        const rep = replaceAllMatches("id=42 id=99", [0, 6], "id=(\\d+)", "[$1]", false, true);
+        expect(rep?.content).toBe("[42] [99]");
     });
 });

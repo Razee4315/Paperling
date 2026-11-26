@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isAndroidCachePath, openSystemFilePicker, saveToDownloads, syncToSource } from "./nativePicker";
+import { isAndroidCachePath, makeDownloadsSentinel, openSystemFilePicker, parseDownloadsSentinel, saveToDownloads, syncToSource } from "./nativePicker";
 
 const w = window as unknown as {
     PaperlingAndroid?: {
@@ -107,5 +107,11 @@ describe("Android source write-back bridge (#305, ANDR-02)", () => {
         await vi.advanceTimersByTimeAsync(15_000);
         expect((await res).error).toContain("timed out");
         expect(w.__paperlingOnSyncResult).toBeUndefined();
+    });
+
+    it("encodes and parses Android Downloads save sentinels without losing chosen filename", () => {
+        const sentinel = makeDownloadsSentinel("notes-export.md");
+        expect(parseDownloadsSentinel(sentinel)).toBe("notes-export.md");
+        expect(parseDownloadsSentinel("C:/docs/plain.md")).toBeNull();
     });
 });

@@ -52,6 +52,17 @@ export function openSystemFilePicker(): boolean {
  */
 export const DOWNLOADS_SENTINEL = "__paperling:downloads";
 
+export function makeDownloadsSentinel(name: string): string {
+    return `${DOWNLOADS_SENTINEL}:${name}`;
+}
+
+export function parseDownloadsSentinel(value: string | null | undefined): string | null {
+    if (!value) return null;
+    if (value === DOWNLOADS_SENTINEL) return "";
+    if (value.startsWith(`${DOWNLOADS_SENTINEL}:`)) return value.slice(DOWNLOADS_SENTINEL.length + 1);
+    return null;
+}
+
 export interface DownloadsSaveResult {
     ok: boolean;
     /** App-cache mirror of the Downloads file; a real path the app can use. */

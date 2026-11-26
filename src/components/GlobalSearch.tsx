@@ -99,6 +99,8 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
     const panelRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const reqIdRef = useRef(0);
+    const settledKeyRef = useRef("");
+    const searchKey = `${query.trim()}\u0000${caseSensitive}\u0000${wholeWord}`;
 
     // Flat list of every match, in render order, for arrow-key navigation.
     const flat = useMemo<FlatItem[]>(
@@ -136,19 +138,23 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
     // responses (a slow early query resolving after a faster later one).
     useEffect(() => {
         if (!isOpen) return;
+        setConfirmPending(false);
         const q = query.trim();
         if (!q || !directory) {
+            settledKeyRef.current = "";
             setResults([]);
             setLoading(false);
             setError(null);
             return;
         }
         const id = ++reqIdRef.current;
+        const keyForReq = `${q}\u0000${caseSensitive}\u0000${wholeWord}`;
         setLoading(true);
         const handle = window.setTimeout(() => {
             invoke<FileResult[]>("search_files", { directory, query: q, caseSensitive, wholeWord })
                 .then((res) => {
                     if (reqIdRef.current !== id) return;
+                    settledKeyRef.current = keyForReq;
                     setResults(res);
                     setError(null);
                     setActive(0);
@@ -188,6 +194,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
     // file goes through read_file/save_file so the atomic-write and EOL
     // handling applies. Each file's before/after is kept for "Undo replace".
     const runReplaceAll = async () => {
+        if (loading || settledKeyRef.current !== searchKey) return;
         setReplacing(true);
         let totalReplaced = 0;
         const undo: ReplaceUndoEntry[] = [];
@@ -267,6 +274,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
         if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => Math.min(i + 1, Math.max(0, totalMatches - 1))); }
         else if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)); }
@@ -275,7 +283,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
             // opening a search result.
             if ((e.target as HTMLElement).dataset.replaceInput !== undefined) {
                 e.preventDefault();
-                if (replacing || replacement === query.trim()) return;
+                if (replacing || loading || settledKeyRef.current !== searchKey || replacement === query.trim()) return;
                 if (confirmPending) void runReplaceAll();
                 else setConfirmPending(true);
                 return;
@@ -298,6 +306,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
             <div
                 ref={panelRef}
                 role="dialog"
+                aria-modal="true"
                 aria-label={t("search.ariaLabel")}
                 onKeyDown={handleKeyDown}
                 className="w-[min(680px,92vw)] max-h-[70vh] flex flex-col bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden"

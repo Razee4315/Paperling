@@ -164,4 +164,16 @@ describe("buildAskMessages", () => {
         expect(last.content).toContain("the selected bit");
         expect(last.content.toLowerCase()).toContain("selected");
     });
+
+    it("parses empty REPLACE deletion blocks and strips inline data URIs from AI context", () => {
+        const deleted = parseEdits("<<<<<<< SEARCH\nremove me\n=======\n>>>>>>> REPLACE\n", "before\nremove me\nafter");
+        expect(deleted.hasEdits).toBe(true);
+        expect(deleted.applied).toBe(1);
+        expect(deleted.proposedDoc).toBe("before\n\nafter");
+
+        const msgs = buildAskMessages([], "before ![](data:image/png;base64,AAAA) after", "", "summarize");
+        const userMsg = msgs[msgs.length - 1];
+        expect(userMsg.content).not.toContain("data:image/png;base64");
+        expect(userMsg.content).toContain("image-omitted");
+    });
 });

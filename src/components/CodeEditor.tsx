@@ -13,7 +13,7 @@ import {
 } from "@codemirror/view";
 import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { syntaxHighlighting, HighlightStyle, codeFolding, foldAll, foldGutter, foldKeymap, unfoldAll } from "@codemirror/language";
+import { syntaxHighlighting, HighlightStyle, syntaxTree, codeFolding, foldAll, foldGutter, foldKeymap, unfoldAll } from "@codemirror/language";
 import { autocompletion, closeBrackets, closeBracketsKeymap, type CompletionContext, type CompletionResult, type Completion } from "@codemirror/autocomplete";
 import { unifiedMergeView, getChunks, getOriginalDoc } from "@codemirror/merge";
 import { vim } from "@replit/codemirror-vim";
@@ -22,6 +22,7 @@ import { getImageFromClipboard, saveImageToFile, createMarkdownImage } from "../
 import {
     handleTab,
     handleEnter,
+    toggleLinePrefix,
     wrapSelection,
     insertLink,
     toggleTask,
@@ -264,7 +265,7 @@ function wrapEachRange(view: EditorView, mark: string): boolean {
  */
 const WRAP_ON_TYPE = new Set(["*", "_", "~", "="]);
 const wrapSelectionOnType = EditorView.inputHandler.of((view, from, to, text) => {
-    if (!WRAP_ON_TYPE.has(text) || from === to) return false;
+    if (view.composing || !WRAP_ON_TYPE.has(text) || from === to) return false;
     const { ranges } = view.state.selection;
     if (ranges.some((r) => r.empty)) return false;
     view.dispatch(
@@ -279,6 +280,27 @@ const wrapSelectionOnType = EditorView.inputHandler.of((view, from, to, text) =>
     );
     return true;
 });
+
+function isInSyntaxNode(view: EditorView, pos: number, names: Set<string>): boolean {
+    let cur: ReturnType<ReturnType<typeof syntaxTree>["resolveInner"]> | null = syntaxTree(view.state).resolveInner(pos, -1);
+    while (cur) {
+        if (names.has(cur.name)) return true;
+        cur = cur.parent;
+    }
+    return false;
+}
+const CODE_BLOCK_NODES = new Set(["FencedCode", "CodeBlock"]);
+const CODE_OR_INLINE_NODES = new Set(["FencedCode", "CodeBlock", "InlineCode"]);
+
+function isInFrontmatterRange(doc: CMEditorState["doc"], pos: number): boolean {
+    if (doc.lines < 2 || doc.line(1).text.trimEnd() !== "---") return false;
+    for (let ln = 2; ln <= Math.min(doc.lines, 200); ln++) {
+        const line = doc.line(ln);
+        const t = line.text.trimEnd();
+        if (t === "---" || t === "...") return pos <= line.to;
+    }
+    return false;
+}
 
 /** Build the EditorState shape the (tested) editorActions helpers expect. */
 function toEdState(view: EditorView): EditorState {
@@ -358,7 +380,9 @@ function CodeEditorImpl({
     requestFindRef.current = requestFind;
     const [slashState, setSlashState] = useState<{ from: number; pos: { x: number; y: number } } | null>(null);
     const [slashQuery, setSlashQuery] = useState("");
+    const dismissedSlashFromRef = useRef<number | null>(null);
     const [aiBubble, setAIBubble] = useState<{ x: number; y: number; selStart: number; selEnd: number; text: string } | null>(null);
+    const aiBubbleAnchor = useMemo(() => (aiBubble ? { x: aiBubble.x, y: aiBubble.y } : null), [aiBubble?.x, aiBubble?.y]);
     const [reviewActive, setReviewActive] = useState(false);
     // Floating table toolbar: set when the caret is inside a markdown table.
     const [tableUI, setTableUI] = useState<{ x: number; y: number; align: Align } | null>(null);
@@ -545,8 +569,15 @@ function CodeEditorImpl({
         // open editor immediately. SHC-10 / SHC-12 (omit disabled bindings).
         const buildEditingKeymap = () => {
             const bindings: KeyBinding[] = [
-                { key: "Tab", run: (v) => runAction(v, (st) => handleTab(st, false)), shift: (v) => runAction(v, (st) => handleTab(st, true)) },
-                { key: "Enter", run: (v) => runAction(v, handleEnter) },
+                {
+                    key: "Tab",
+                    run: (v) => runAction(v, (st) => handleTab(st, false, { inCodeBlock: isInSyntaxNode(v, v.state.selection.main.head, CODE_BLOCK_NODES) })),
+                    shift: (v) => runAction(v, (st) => handleTab(st, true, { inCodeBlock: isInSyntaxNode(v, v.state.selection.main.head, CODE_BLOCK_NODES) })),
+                },
+                {
+                    key: "Enter",
+                    run: (v) => runAction(v, (st) => handleEnter(st, { inCodeBlock: isInSyntaxNode(v, v.state.selection.main.head, CODE_BLOCK_NODES) })),
+                },
                 { key: toCmKey("bold"), run: (v) => wrapEachRange(v, "**") || (applyResultToView(v, wrapSelection(toEdState(v), "**", "**", "bold")), true) },
                 { key: toCmKey("italic"), run: (v) => wrapEachRange(v, "*") || (applyResultToView(v, wrapSelection(toEdState(v), "*", "*", "italic")), true) },
                 { key: toCmKey("strikethrough"), run: (v) => wrapEachRange(v, "~~") || (applyResultToView(v, wrapSelection(toEdState(v), "~~", "~~", "text")), true) },
@@ -557,20 +588,7 @@ function CodeEditorImpl({
                 { key: toCmKey("link"), run: (v) => { applyResultToView(v, insertLink(toEdState(v))); return true; } },
                 // Ctrl/Cmd+Enter ticks the task on the caret line(s). TASK-01.
                 { key: toCmKey("toggleTask"), run: (v) => runAction(v, toggleTask) },
-                {
-                    key: toCmKey("blockquote"), run: (v) => {
-                        const st = toEdState(v);
-                        const ls = st.text.lastIndexOf("\n", st.selStart - 1) + 1;
-                        const lineEnd = st.text.indexOf("\n", st.selStart);
-                        const end = lineEnd === -1 ? st.text.length : lineEnd;
-                        const line = st.text.slice(ls, end);
-                        const quoted = line.startsWith("> ");
-                        const newLine = quoted ? line.slice(2) : "> " + line;
-                        const delta = newLine.length - line.length;
-                        applyResultToView(v, { text: st.text.slice(0, ls) + newLine + st.text.slice(end), selStart: st.selStart + delta, selEnd: st.selEnd + delta });
-                        return true;
-                    }
-                },
+                { key: toCmKey("blockquote"), run: (v) => runAction(v, (st) => toggleLinePrefix(st, "> ")) },
                 { key: toCmKey("find"), run: () => { requestFindRef.current("find"); return true; } },
                 { key: toCmKey("replace"), run: () => { requestFindRef.current("replace"); return true; } },
                 // NB: the AI shortcut (Alt+J / ⌘J) is handled at the App window level
@@ -651,7 +669,7 @@ function CodeEditorImpl({
                     const pos = head;
                     requestAnimationFrame(() => {
                         const v = viewRef.current;
-                        if (v) v.dispatch({ effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+                        if (v) v.dispatch({ effects: EditorView.scrollIntoView(Math.min(pos, v.state.doc.length), { y: "center" }) });
                     });
                 }
             }
@@ -710,15 +728,16 @@ function CodeEditorImpl({
             },
         });
 
-        // Arm the paste-as-plain-text latch (PASTE-03). One listener for the
-        // editor's lifetime; it only flips a flag.
+        // Arm the paste-as-plain-text latch (PASTE-03), scoped to the editor DOM.
+        const editorHost = containerRef.current;
         const onPasteShortcutKeydown = (e: KeyboardEvent) => {
             const mod = isMac ? e.metaKey : e.ctrlKey;
-            if (mod && e.shiftKey && !e.altKey && (e.key === "v" || e.key === "V")) {
+            const modOk = mod && e.shiftKey && (isMac ? !e.ctrlKey : !e.altKey);
+            if (modOk && (e.key === "v" || e.key === "V")) {
                 forcePlainTextRef.current = true;
             }
         };
-        window.addEventListener("keydown", onPasteShortcutKeydown);
+        editorHost.addEventListener("keydown", onPasteShortcutKeydown, true);
 
         const view = new EditorView({
             parent: containerRef.current,
@@ -770,9 +789,13 @@ function CodeEditorImpl({
             view.dispatch({ effects: keymapComp.reconfigure(buildEditingKeymap()) });
         window.addEventListener("paperling:keybindings-changed", onBindingsChanged);
 
+        const onScrollHideTable = () => detectTable(view);
+        view.scrollDOM.addEventListener("scroll", onScrollHideTable, { passive: true });
+
         return () => {
-            window.removeEventListener("keydown", onPasteShortcutKeydown);
+            editorHost.removeEventListener("keydown", onPasteShortcutKeydown, true);
             window.removeEventListener("paperling:keybindings-changed", onBindingsChanged);
+            view.scrollDOM.removeEventListener("scroll", onScrollHideTable);
             view.destroy();
             viewRef.current = null;
         };
@@ -800,15 +823,35 @@ function CodeEditorImpl({
         const doc = view.state.doc;
         const cur = slashStateRef.current;
         if (cur) {
-            if (head < cur.from + 1) { setSlashState(null); setSlashQuery(""); return; }
+            if (head < cur.from + 1 || isInSyntaxNode(view, head, CODE_OR_INLINE_NODES)) {
+                setSlashState(null);
+                setSlashQuery("");
+                return;
+            }
             const between = doc.sliceString(cur.from + 1, head);
-            if (between.includes("\n") || between.includes(" ")) { setSlashState(null); setSlashQuery(""); return; }
+            if (between.includes("\n") || between.includes(" ")) {
+                dismissedSlashFromRef.current = null;
+                setSlashState(null);
+                setSlashQuery("");
+                return;
+            }
             setSlashQuery(between);
             return;
         }
         // Everything below OPENS the menu — only for text the user just typed.
-        if (!typed) return;
+        if (!typed) {
+            if (dismissedSlashFromRef.current !== null) {
+                const line = doc.lineAt(head);
+                const between = head >= dismissedSlashFromRef.current ? doc.sliceString(dismissedSlashFromRef.current, head) : "\n";
+                if (between.includes("\n") || between.includes(" ") || head < line.from || head <= dismissedSlashFromRef.current) {
+                    dismissedSlashFromRef.current = null;
+                }
+            }
+            return;
+        }
+        if (isInSyntaxNode(view, head, CODE_OR_INLINE_NODES)) return;
         if (head > 0 && doc.sliceString(head - 1, head) === "/") {
+            dismissedSlashFromRef.current = null;
             const line = doc.lineAt(head);
             const lineHead = doc.sliceString(line.from, head - 1);
             if (lineHead === "" || /^\s*$/.test(lineHead) || /\s$/.test(lineHead)) {
@@ -820,19 +863,14 @@ function CodeEditorImpl({
             }
             return;
         }
-        // Self-healing open: if a burst-typed "/query" (slash at line start,
-        // no spaces after it) is at the caret but the open branch missed the
-        // "/" keystroke — the slash state updates through React, so very fast
-        // typing could process subsequent letters before the state/ref sync
-        // landed and the menu never opened at all — re-arm it from the text
-        // itself. SlashMenu's from-anchor makes selection still replace the
-        // whole "/query" token. Only non-empty queries qualify (a bare "/"
-        // typing straight through stays untouched). SLASH-01.
+        // Self-healing open: SLASH-01. Skip if the user explicitly dismissed this token.
         {
             const line = doc.lineAt(head);
             const upToCaret = doc.sliceString(line.from, head);
             const slashIdx = upToCaret.lastIndexOf("/");
             if (slashIdx >= 0) {
+                const slashPos = line.from + slashIdx;
+                if (dismissedSlashFromRef.current === slashPos) return;
                 const before = upToCaret.slice(0, slashIdx);
                 const query = upToCaret.slice(slashIdx + 1);
                 if (
@@ -841,9 +879,9 @@ function CodeEditorImpl({
                     !query.includes(" ") &&
                     (before === "" || /\s$/.test(before))
                 ) {
-                    const coords = view.coordsAtPos(line.from + slashIdx);
+                    const coords = view.coordsAtPos(slashPos);
                     if (coords) {
-                        setSlashState({ from: line.from + slashIdx, pos: { x: coords.left, y: coords.bottom + 4 } });
+                        setSlashState({ from: slashPos, pos: { x: coords.left, y: coords.bottom + 4 } });
                         setSlashQuery(query);
                     }
                 }
@@ -851,14 +889,10 @@ function CodeEditorImpl({
         }
     }
 
-    // Show the floating table toolbar when the caret is inside a markdown table.
-    // Cheap guard first (current line has a pipe), then scan only the contiguous
-    // run of pipe-containing lines around the caret. The old version called
-    // doc.toString() here — a full-document copy on EVERY cursor move that
-    // landed on a pipe line, which is megabytes per keystroke on a huge doc.
     function detectTable(view: EditorView) {
         if (reviewingRef.current) { setTableUI(null); return; }
         const head = view.state.selection.main.head;
+        if (isInSyntaxNode(view, head, CODE_BLOCK_NODES)) { setTableUI(null); return; }
         const doc = view.state.doc;
         const curLine = doc.lineAt(head);
         if (!curLine.text.includes("|")) { setTableUI(null); return; }
@@ -878,21 +912,35 @@ function CodeEditorImpl({
         if (!region) { setTableUI(null); return; }
         const { colIndex } = locateCell(region, head - sliceFrom);
         const coords = view.coordsAtPos(region.from + sliceFrom);
-        if (!coords) { setTableUI(null); return; }
+        const scrollRect = view.scrollDOM.getBoundingClientRect();
+        if (!coords || coords.bottom < scrollRect.top || coords.top > scrollRect.bottom) {
+            setTableUI(null);
+            return;
+        }
         setTableUI({ x: coords.left, y: coords.top, align: region.model.aligns[colIndex] ?? "none" });
     }
 
     function handlePaste(event: ClipboardEvent, view: EditorView): boolean {
+        const forcePlain = forcePlainTextRef.current;
+        forcePlainTextRef.current = false;
+
         const imageFile = getImageFromClipboard(event);
         if (imageFile) {
             event.preventDefault();
             if (!filePathRef.current) { onErrorRef.current?.("Please save your file first before pasting images."); return true; }
+            const targetPath = filePathRef.current;
+            const originDocKey = docKeyRef.current;
+            const sel = view.state.selection.main;
+            const from = sel.from;
+            const to = sel.to;
             (async () => {
                 try {
-                    const imagePath = await saveImageToFile(imageFile, filePathRef.current!);
+                    const imagePath = await saveImageToFile(imageFile, targetPath);
+                    if (viewRef.current !== view || docKeyRef.current !== originDocKey) return;
+                    const now = view.state.selection.main;
+                    if (now.from !== from || now.to !== to) return;
                     const md = createMarkdownImage(imagePath, `image-${Date.now()}`);
-                    const sel = view.state.selection.main;
-                    view.dispatch({ changes: { from: sel.from, to: sel.to, insert: md }, selection: { anchor: sel.from + md.length } });
+                    view.dispatch({ changes: { from, to, insert: md }, selection: { anchor: from + md.length } });
                     onImagePasteRef.current?.();
                 } catch (error) {
                     const msg = typeof error === "string" ? error : (error as { message?: string })?.message;
@@ -901,48 +949,40 @@ function CodeEditorImpl({
             })();
             return true;
         }
+        if (forcePlain) return false;
         const cd = event.clipboardData;
         if (!cd) return false;
         const html = cd.getData("text/html");
         const text = cd.getData("text/plain");
         const state = toEdState(view);
+        const pos = view.state.selection.main.from;
+        const skipSmart = isInSyntaxNode(view, pos, CODE_OR_INLINE_NODES) || isInFrontmatterRange(view.state.doc, pos);
 
-        const urlOnSel = pasteUrlOnSelection(state, text);
-        if (urlOnSel) { event.preventDefault(); applyResultToView(view, urlOnSel); return true; }
-        const autolink = pasteUrlAutolink(state, text);
-        if (autolink) { event.preventDefault(); applyResultToView(view, autolink); return true; }
-        // TSV→table runs BEFORE the HTML branch when the text flavor looks
-        // like multi-cell spreadsheet data: Excel/Sheets put BOTH a <table>
-        // and TSV on the clipboard, and turndown (no table rules) flattens
-        // the HTML table into run-together text — the TSV table never stood a
-        // chance. PASTE-02.
-        const tsv = pasteTsvAsTable(state, text);
-        if (tsv) { event.preventDefault(); applyResultToView(view, tsv); return true; }
-        // Plain-text escape hatch: Ctrl+Shift+V set forcePlainTextRef on the
-        // keydown preceding this paste — skip the HTML conversion entirely.
-        // PASTE-03.
-        if (html && /<\w+/.test(html) && !forcePlainTextRef.current) {
+        if (!skipSmart) {
+            const urlOnSel = pasteUrlOnSelection(state, text);
+            if (urlOnSel) { event.preventDefault(); applyResultToView(view, urlOnSel); return true; }
+            const autolink = pasteUrlAutolink(state, text);
+            if (autolink) { event.preventDefault(); applyResultToView(view, autolink); return true; }
+            // TSV→table runs BEFORE HTML for Excel/Sheets clipboards. PASTE-02.
+            const tsv = pasteTsvAsTable(state, text);
+            if (tsv) { event.preventDefault(); applyResultToView(view, tsv); return true; }
+        }
+        if (!skipSmart && html && /<\w+/.test(html)) {
             event.preventDefault();
-            // Capture the target range BEFORE any await: htmlToMarkdown lazily
-            // imports turndown on first use, and reading the selection after
-            // that await let a keystroke during the window make the paste
-            // replace freshly typed text (PASTE-01).
+            const originDocKey = docKeyRef.current;
             const sel = view.state.selection.main;
             const from = sel.from;
             const to = sel.to;
             (async () => {
                 let insert = text;
                 try { const md = (await htmlToMarkdown(html)).trim(); if (md) insert = md; } catch {/* fall back to plain text */ }
-                // Only paste if the caret still covers the captured range; a
-                // moved caret means the user kept editing — bailing out beats
-                // deleting their work.
+                if (viewRef.current !== view || docKeyRef.current !== originDocKey) return;
                 const now = view.state.selection.main;
                 if (now.from !== from || now.to !== to) return;
                 view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length } });
             })();
             return true;
         }
-        forcePlainTextRef.current = false;
         return false; // let CodeMirror insert plain text
     }
 
@@ -1440,7 +1480,7 @@ function CodeEditorImpl({
     const findMatchesRef = useRef<UnifiedMatch[]>([]);
     // setActive() gets only an index, so the query that produced the matches is
     // stashed here for the removed-side highlighter to reuse.
-    const findQueryRef = useRef({ query: "", caseSensitive: false });
+    const findQueryRef = useRef({ query: "", caseSensitive: false, regex: false });
         const editorFindController = useMemo<FindController>(() => {
         // During an AI review the document holds only the proposed text; the
         // removed original lines are merge widgets, absent from the document.
@@ -1468,7 +1508,7 @@ function CodeEditorImpl({
             const { regions, original } = removedRegions(v);
             const matches = collectUnifiedMatches(v.state.doc.toString(), original, regions, query, opts);
             findMatchesRef.current = matches;
-            findQueryRef.current = { query, caseSensitive: opts.caseSensitive };
+            findQueryRef.current = { query, caseSensitive: opts.caseSensitive, regex: opts.regex };
             clearRemovedHighlight();
 
             let activeIndex = -1;
@@ -1488,37 +1528,30 @@ function CodeEditorImpl({
             supportsRegex: true,
             isValidPattern: (query, opts) => isValidPattern(query, opts.regex),
             search: doSearch,
-            setActive: (index) => {
+            setActive: (index, reveal = true) => {
                 const v = viewRef.current;
                 const matches = findMatchesRef.current;
                 const m = matches[index];
                 if (!v || !m) return;
                 v.dispatch({
-                    // The active match becomes the selection (VS Code): Esc
-                    // then leaves you ON the found text, ready to type over
-                    // it. It used to stay at the old caret, so the first
-                    // keystroke after Esc yanked the view back there. FIND-08.
-                    ...(m.side === "doc" ? { selection: { anchor: m.from, head: m.to } } : {}),
+                    ...(reveal && m.side === "doc" ? { selection: { anchor: m.from, head: m.to } } : {}),
                     effects: [
-                        // activeDocIndex, not `index`: the bar counts removed
-                        // matches too, so the two numberings differ.
                         setFindMatches.of({ ranges: docRanges(matches), activeIndex: activeDocIndex(matches, index) }),
-                        EditorView.scrollIntoView(m.anchor, { y: "center" }),
+                        ...(reveal ? [EditorView.scrollIntoView(m.anchor, { y: "center" })] : []),
                     ],
                 });
                 if (m.side !== "deleted") {
                     clearRemovedHighlight();
                     return;
                 }
-                // The widget is only in the DOM once its chunk is near the
-                // viewport, so paint after the scroll above has been applied.
-                // Best-effort: if it can't be painted the user is still here.
-                requestAnimationFrame(() => {
+                const paint = () => {
                     const view = viewRef.current;
                     if (!view) return;
-                    const { query, caseSensitive } = findQueryRef.current;
-                    highlightRemovedMatch(deletedChunkElementAt(view, m.anchor), query, caseSensitive, m.ordinalInRegion);
-                });
+                    const { query, caseSensitive, regex } = findQueryRef.current;
+                    highlightRemovedMatch(deletedChunkElementAt(view, m.anchor), query, caseSensitive, m.ordinalInRegion, regex);
+                };
+                if (reveal) requestAnimationFrame(paint);
+                else paint();
             },
             clear: () => {
                 findMatchesRef.current = [];
@@ -1528,19 +1561,11 @@ function CodeEditorImpl({
             replaceActive: (index, replacement, query, opts) => {
                 const v = viewRef.current;
                 const m = findMatchesRef.current[index];
-                // Removed text is the version being replaced: it is not in the
-                // document and its offsets index the original, so splicing at
-                // them would corrupt unrelated text.
                 if (!v || !m || m.side !== "doc") return;
                 const res = replaceOne(v.state.doc.toString(), m.from, query, replacement, opts.caseSensitive, opts.regex);
                 if (!res) return;
                 applyResultToView(v, { text: res.content, selStart: res.cursor, selEnd: res.cursor });
-                // Re-search SYNCHRONOUSLY: the match list is otherwise up to the
-                // FindBar's 400ms debounce stale, so a second Replace inside
-                // that window spliced at shifted offsets and corrupted
-                // neighbouring text (FIND-02). The caret sits just past the
-                // replacement, so search() naturally selects the NEXT match.
-                doSearch(query, opts);
+                return doSearch(query, opts);
             },
             replaceAll: (replacement, query, opts) => {
                 const v = viewRef.current;
@@ -1549,7 +1574,7 @@ function CodeEditorImpl({
                 const res = replaceAllMatches(v.state.doc.toString(), starts, query, replacement, opts.caseSensitive, opts.regex);
                 if (!res) return;
                 applyResultToView(v, { text: res.content, selStart: res.cursor, selEnd: res.cursor });
-                doSearch(query, opts);
+                return doSearch(query, opts);
             },
         };
     }, []);
@@ -1605,12 +1630,17 @@ function CodeEditorImpl({
                     position={slashState?.pos ?? null}
                     query={slashQuery}
                     onSelect={handleSlashSelect}
-                    onClose={() => { setSlashState(null); setSlashQuery(""); }}
+                    onClose={() => {
+                        dismissedSlashFromRef.current = slashStateRef.current?.from ?? null;
+                        setSlashState(null);
+                        setSlashQuery("");
+                    }}
                 />
 
                 {aiConfig && aiBubble && (
                     <AIBubble
-                        anchor={{ x: aiBubble.x, y: aiBubble.y }}
+                        key={`${aiBubble.selStart}:${aiBubble.selEnd}:${aiBubble.text}`}
+                        anchor={aiBubbleAnchor}
                         selectedText={aiBubble.text}
                         config={aiConfig}
                         onReplace={(out) => {
@@ -1639,7 +1669,7 @@ function CodeEditorImpl({
                             setAIBubble(null);
                             v?.focus();
                         }}
-                        onClose={() => { aiRangeRef.current = null; setAIBubble(null); }}
+                        onClose={() => { aiRangeRef.current = null; setAIBubble(null); viewRef.current?.focus(); }}
                     />
                 )}
 

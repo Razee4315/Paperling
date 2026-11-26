@@ -12,7 +12,7 @@ import { subscribeExternalChecks, type ExternalCheckTrigger } from "../utils/ext
 import { decideDiskChange } from "../utils/diskGuard";
 import { IS_MOBILE } from "../utils/platform";
 import { errMessage } from "../utils/errors";
-import { DOWNLOADS_SENTINEL, saveToDownloads } from "../utils/nativePicker";
+import { parseDownloadsSentinel, saveToDownloads } from "../utils/nativePicker";
 import { normalizeMarkdownFileName } from "../utils/mobileFiles";
 import {
   addRecentFile,
@@ -610,10 +610,11 @@ export function useFileSession({
       // A title-based name in the last-used folder, not "Untitled-1.md". SAVE-05.
       const selected = await promptForPath(suggestFileName(data.content, data.fileName), lastUsedDirectory(getRecentFiles()));
       if (!selected) return;
-      if (selected === DOWNLOADS_SENTINEL) {
-        // The prompt can only hand back the sentinel; this hook owns the
-        // content, so the native MediaStore write happens here.
-        const cachePath = await saveViaDownloads(data.fileName, data.content);
+      const dlName = parseDownloadsSentinel(selected);
+      if (dlName !== null) {
+        // The prompt encodes the chosen filename in the sentinel; this hook
+        // owns the content, so the native MediaStore write happens here.
+        const cachePath = await saveViaDownloads(dlName || data.fileName, data.content);
         if (!cachePath) return;
         path = cachePath;
         viaDownloads = true;
@@ -786,8 +787,9 @@ export function useFileSession({
     );
     if (!selected) return;
     let viaDownloads = false;
-    if (selected === DOWNLOADS_SENTINEL) {
-      const cachePath = await saveViaDownloads(fileName ?? "Untitled.md", content);
+    const dlName = parseDownloadsSentinel(selected);
+    if (dlName !== null) {
+      const cachePath = await saveViaDownloads(dlName || fileName || "Untitled.md", content);
       if (!cachePath) return;
       selected = cachePath;
       viaDownloads = true;

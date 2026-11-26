@@ -524,9 +524,10 @@ export async function prepareExportHtml(rawHtml: string): Promise<string> {
                 fr.readAsDataURL(blob);
             });
             img.setAttribute("src", dataUri);
-        } catch {
+        } catch (err) {
             // Blob already revoked or unreadable — leave the src; the alt text
             // still communicates what belonged there.
+            console.warn("Could not inline blob image for export:", err);
         }
     }
 
