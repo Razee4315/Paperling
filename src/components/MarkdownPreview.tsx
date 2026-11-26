@@ -520,6 +520,14 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
         };
     }, [src, baseDir, blocked, refreshTick]);
 
+    // Hold a retain reference on cached blob URLs while this <img> displays them,
+    // so LRU eviction doesn't revoke a URL that is still mounted.
+    useEffect(() => {
+        if (!imageSrc.startsWith("blob:")) return;
+        getCachedLocalImageUrl.retain(imageSrc);
+        return () => getCachedLocalImageUrl.release(imageSrc);
+    }, [imageSrc]);
+
     // IMG-03 (#224): HTTPS is permitted by CSP, with a per-image opt-in when
     // automatic loading is off. Plain HTTP remains blocked in every build.
     if (blocked) return (
@@ -581,13 +589,19 @@ function extractCodeChild(children: React.ReactNode): { className?: string; text
 }
 
 /** Code block with a copy-to-clipboard button — also intercepts mermaid blocks. */
-function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) {
+function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement> & { "data-source-line"?: unknown; "data-source-end-line"?: unknown }) {
     const ref = useRef<HTMLPreElement>(null);
     const [copied, setCopied] = useState(false);
 
     const codeInfo = extractCodeChild(children);
     if (codeInfo && isMermaidLanguage(codeInfo.className)) {
-        return <MermaidBlock code={codeInfo.text} />;
+        return (
+            <MermaidBlock
+                code={codeInfo.text}
+                sourceLine={rest["data-source-line"]}
+                sourceEndLine={rest["data-source-end-line"]}
+            />
+        );
     }
 
     const handleCopy = async () => {
@@ -1110,12 +1124,20 @@ function MarkdownPreviewImpl({
                         onClick={(e) => {
                             e.preventDefault();
                             const id = decodeMarkdownPath(href.slice(1));
-                            let el: HTMLElement | null = document.getElementById(id);
+                            const container = mainRef.current;
+                            const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                                ? CSS.escape(id)
+                                : id.replace(/([^\w-])/g, "\\$1");
+                            let el: HTMLElement | null = id
+                                ? (container
+                                    ? container.querySelector<HTMLElement>(`#${escapedId}`)
+                                    : document.getElementById(id))
+                                : null;
                             if (!el) {
                                 // Fuzzy fallback: find a heading whose textContent
                                 // slugifies to a string containing the requested id.
                                 const needle = id.toLowerCase().replace(/-/g, " ").trim();
-                                const headings = document.querySelectorAll<HTMLElement>(
+                                const headings = (container ?? document).querySelectorAll<HTMLElement>(
                                     ".markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6"
                                 );
                                 for (const h of headings) {
@@ -1298,7 +1320,7 @@ function MarkdownPreviewImpl({
     // "auto": a forced direction is a single `dir` on .markdown-body instead.
     const rehypePlugins = useMemo(() => {
         const base = mathPlugins
-            ? [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], mathPlugins.rehype, [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds]
+            ? [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], [mathPlugins.rehype, { maxSize: 500, maxExpand: 100 }], [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds]
             : [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds];
         // rehypeEmoji stays behind rehypeHeadingIds: see utils/emoji.ts.
         if (emojiNames) base.push([rehypeEmoji, { names: emojiNames }]);
@@ -1374,8 +1396,15 @@ function MarkdownPreviewImpl({
     // refresh it via ResizeObserver + on content change and read the cache in the
     // hot path. PREVIEW-04.
     const scrollMaxRef = useRef(0);
+    const anchorCacheRef = useRef<{
+        blocks: HTMLElement[];
+        lines: number[];
+        tops: number[];
+        scrollHeight: number;
+    } | null>(null);
     const refreshScrollMax = useCallback(() => {
         const el = mainRef.current;
+        anchorCacheRef.current = null;
         if (el) scrollMaxRef.current = el.scrollHeight - el.clientHeight;
     }, []);
 
@@ -1438,7 +1467,7 @@ function MarkdownPreviewImpl({
         ro.observe(el);
         return () => ro.disconnect();
     }, [refreshScrollMax]);
-    useEffect(() => { refreshScrollMax(); }, [renderedBody, refreshScrollMax]);
+    useEffect(() => { refreshScrollMax(); }, [renderedBody, blocks, mathPlugins, readerRevision, refreshScrollMax]);
     // Reset the id on cleanup: StrictMode (dev) remounts effects, and a stale
     // non-zero id left handleScroll bailing out forever (no line reports, no
     // split sync).
@@ -1532,23 +1561,35 @@ function MarkdownPreviewImpl({
     const anchorList = useCallback((): AnchorList | null => {
         const el = mainRef.current;
         if (!el || el.clientHeight === 0) return null; // hidden pane
-        const blocks = el.querySelectorAll<HTMLElement>("[data-source-line]");
-        const base = el.getBoundingClientRect().top - el.scrollTop;
-        const off = fmOffsetRef.current;
-        const tops = new Map<number, number>();
+        const scrollHeight = el.scrollHeight;
+        let cached = anchorCacheRef.current;
+        if (!cached || cached.scrollHeight !== scrollHeight) {
+            const nodes = Array.from(el.querySelectorAll<HTMLElement>("[data-source-line]"));
+            const off = fmOffsetRef.current;
+            cached = {
+                blocks: nodes,
+                lines: nodes.map((node) => sourceLineOf(node) + off),
+                tops: new Array<number>(nodes.length).fill(NaN),
+                scrollHeight,
+            };
+            anchorCacheRef.current = cached;
+        }
+        const entry = cached;
+        let base: number | null = null;
         return {
-            count: blocks.length,
-            lineAt: (i) => sourceLineOf(blocks[i]) + off,
+            count: entry.blocks.length,
+            lineAt: (i) => entry.lines[i],
             topAt: (i) => {
-                let t = tops.get(i);
-                if (t === undefined) {
-                    t = blocks[i].getBoundingClientRect().top - base;
-                    tops.set(i, t);
+                let t = entry.tops[i];
+                if (Number.isNaN(t)) {
+                    if (base === null) base = el.getBoundingClientRect().top - el.scrollTop;
+                    t = entry.blocks[i].getBoundingClientRect().top - base;
+                    entry.tops[i] = t;
                 }
                 return t;
             },
             endLine: lineCountRef.current + 1,
-            endTop: el.scrollHeight,
+            endTop: entry.scrollHeight,
         };
     }, []);
 

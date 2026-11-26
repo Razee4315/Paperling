@@ -1535,8 +1535,21 @@ function AppContent() {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
     if (previewRef.current) {
-      const html = previewRef.current.innerHTML;
-      return textDirection === "auto" ? html : `<div dir="${textDirection}">${html}</div>`;
+      const boxes = Array.from(previewRef.current.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+      const prevAttrs = boxes.map((box) => box.getAttribute("checked"));
+      for (const box of boxes) {
+        if (box.checked) box.setAttribute("checked", "");
+        else box.removeAttribute("checked");
+      }
+      try {
+        const html = previewRef.current.innerHTML;
+        return textDirection === "auto" ? html : `<div dir="${textDirection}">${html}</div>`;
+      } finally {
+        boxes.forEach((box, idx) => {
+          if (prevAttrs[idx] === null) box.removeAttribute("checked");
+          else box.setAttribute("checked", prevAttrs[idx]);
+        });
+      }
     }
     return "";
   }, [flushDeferredPreview, textDirection]);
@@ -1612,25 +1625,11 @@ function AppContent() {
       return;
     }
     try {
-      const { prepareExportHtml, generateHTML } = await import("./utils/exportUtils");
-      const cleaned = await prepareExportHtml(raw);
+      const { prepareExportHtml, generateHTML, printHtmlDocument } = await import("./utils/exportUtils");
+      const cleaned = await prepareExportHtml(raw, { lightDiagrams: true });
       const title = (fileName ?? "Untitled").replace(/\.(md|markdown)$/i, "");
       const html = generateHTML(cleaned, title, "light", font, fontSize, false, customFont);
-      const frame = document.createElement("iframe");
-      frame.setAttribute("aria-hidden", "true");
-      frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
-      document.body.appendChild(frame);
-      const cleanup = () => window.setTimeout(() => frame.remove(), 1000);
-      frame.onload = () => {
-        try {
-          frame.contentWindow?.focus();
-          frame.contentWindow?.print();
-        } catch {
-          showToast(t("toast.printUnavailable"), "error");
-        }
-        cleanup();
-      };
-      frame.srcdoc = html;
+      await printHtmlDocument(html);
     } catch (err) {
       showToast(errMessage(err) || t("toast.couldNotPrint"), "error");
     }

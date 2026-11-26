@@ -7,6 +7,16 @@ import { getRemoteImages } from "../utils/persistence";
 
 // Single shared mermaid module promise — loaded only on first use.
 let mermaidPromise: Promise<typeof import("mermaid")["default"]> | null = null;
+// Mermaid mutates global config via initialize() before render(). Serialize
+// all initialize+render runs so concurrent blocks or light exports never collide.
+let mermaidQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueMermaid<T>(fn: (mermaid: typeof import("mermaid")["default"]) => Promise<T>): Promise<T> {
+    const run = mermaidQueue.then(async () => fn(await loadMermaid()));
+    // Keep the chain alive even when one diagram fails so later diagrams still render.
+    mermaidQueue = run.catch(() => undefined);
+    return run;
+}
 
 const loadMermaid = (): Promise<typeof import("mermaid")["default"]> => {
     if (mermaidPromise) return mermaidPromise;
@@ -75,6 +85,8 @@ function removeRenderLeftovers(id: string) {
 
 interface MermaidBlockProps {
     code: string;
+    sourceLine?: unknown;
+    sourceEndLine?: unknown;
 }
 
 /**
@@ -83,18 +95,24 @@ interface MermaidBlockProps {
  * canvas (no PNG) and which most SVG tools (Inkscape, Office) can't show.
  */
 async function renderPlainSvg(code: string, theme: string): Promise<string> {
-    const mermaid = await loadMermaid();
-    const id = newMermaidId();
-    const base = { startOnLoad: false, securityLevel: "strict" as const, theme: themeToMermaid(theme), fontFamily: "var(--font-body)" };
-    mermaid.initialize({ ...base, htmlLabels: false, flowchart: { htmlLabels: false } });
-    try {
-        // Exporting draws the diagram again, so it needs the same gate. MMV-09.
-        const source = getRemoteImages() ? code : stripRemoteDiagramImages(code);
-        return sanitizeDiagramSvg((await mermaid.render(id, source)).svg);
-    } finally {
-        removeRenderLeftovers(id);
-        mermaid.initialize({ ...base, htmlLabels: true, flowchart: { htmlLabels: true } });
-    }
+    return enqueueMermaid(async (mermaid) => {
+        const id = newMermaidId();
+        const base = { startOnLoad: false, securityLevel: "strict" as const, theme: themeToMermaid(theme), fontFamily: "var(--font-body)" };
+        mermaid.initialize({ ...base, htmlLabels: false, flowchart: { htmlLabels: false } });
+        try {
+            // Exporting draws the diagram again, so it needs the same gate. MMV-09.
+            const source = getRemoteImages() ? code : stripRemoteDiagramImages(code);
+            return sanitizeDiagramSvg((await mermaid.render(id, source)).svg);
+        } finally {
+            removeRenderLeftovers(id);
+            mermaid.initialize({ ...base, htmlLabels: true, flowchart: { htmlLabels: true } });
+        }
+    });
+}
+
+/** Light-theme plain SVG export helper used by PDF/print export paths. */
+export function renderLightMermaidSvg(code: string): Promise<string> {
+    return renderPlainSvg(code, "light");
 }
 
 /* ---------- Viewer: zoom / pan / fit / fullscreen (MMV-01) ---------- */
@@ -131,11 +149,13 @@ function parseNaturalSize(svg: string): { w: number; h: number } {
  */
 function MermaidView({
     svg,
+    source,
     onFullscreen,
     getExportSvg,
     contain = false,
 }: {
     svg: string;
+    source?: string;
     /** Export-ready SVG (plain-text labels); falls back to `svg`. */
     getExportSvg?: () => Promise<string>;
     /** Shows the fullscreen button inside the toolbar (inline view only). */
@@ -312,6 +332,7 @@ function MermaidView({
                     then a DOMPurify pass (MMV-08) before it reaches this DOM */}
                 <div
                     className="mermaid-rendered flex justify-center"
+                    data-mermaid-source={source}
                     dangerouslySetInnerHTML={{ __html: svg }}
                 />
             </div>
@@ -319,7 +340,7 @@ function MermaidView({
     );
 }
 
-function MermaidBlockImpl({ code }: MermaidBlockProps) {
+function MermaidBlockImpl({ code, sourceLine, sourceEndLine }: MermaidBlockProps) {
     // Subscribe to the app theme so diagrams re-render on light/dark switches —
     // previously mermaid.initialize ran once for the app lifetime, so existing
     // diagrams kept their original theme after a switch. PREVIEW-03.
@@ -368,22 +389,20 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
         // is exactly what produces duplicate-id collisions.
         idRef.current = newMermaidId();
         const renderId = idRef.current;
-        loadMermaid()
-            .then((mermaid) => {
-                // Re-apply theme before rendering so diagrams follow the active
-                // theme. initialize() is global, but the app theme is uniform so
-                // concurrent blocks all want the same value.
-                mermaid.initialize({
-                    startOnLoad: false,
-                    securityLevel: "strict",
-                    theme: mermaidTheme,
-                    fontFamily: "var(--font-body)",
-                    // Explicit: renderPlainSvg flips these off for exports.
-                    htmlLabels: true,
-                    flowchart: { htmlLabels: true },
-                });
-                return mermaid.render(renderId, source);
-            })
+        enqueueMermaid((mermaid) => {
+            // Re-apply theme serialized in the queue before rendering so
+            // concurrent blocks or exports cannot race global mermaid.initialize.
+            mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: "strict",
+                theme: mermaidTheme,
+                fontFamily: "var(--font-body)",
+                // Explicit: renderPlainSvg flips these off for exports.
+                htmlLabels: true,
+                flowchart: { htmlLabels: true },
+            });
+            return mermaid.render(renderId, source);
+        })
             .then((result) => {
                 if (cancelled) return;
                 // Second sanitize pass (MMV-08): mermaid's strict mode is the
@@ -445,8 +464,13 @@ function MermaidBlockImpl({ code }: MermaidBlockProps) {
 
     return (
         <>
-            <div className="relative my-4 group" ref={fsTriggerRef}>
-                <MermaidView svg={svg} onFullscreen={() => setFullscreen(true)} getExportSvg={() => renderPlainSvg(code, theme)} />
+            <div
+                className="relative my-4 group"
+                ref={fsTriggerRef}
+                data-source-line={sourceLine != null ? String(sourceLine) : undefined}
+                data-source-end-line={sourceEndLine != null ? String(sourceEndLine) : undefined}
+            >
+                <MermaidView svg={svg} source={code} onFullscreen={() => setFullscreen(true)} getExportSvg={() => renderPlainSvg(code, theme)} />
             </div>
             {fullscreen &&
                 createPortal(

@@ -75,4 +75,15 @@ describe("createLocalImageCache", () => {
         expect(joinImagePath("/docs/", "img/a.svg")).toBe("/docs/img/a.svg");
         expect(joinImagePath("C:\\docs", "a.svg")).toBe("C:\\docs/a.svg");
     });
+
+    it("keeps retained object URLs alive past eviction until released", async () => {
+        const { get, deps } = setup();
+        const urlA = await get("/d", "a.png", "image/png");
+        get.retain(urlA);
+        await get("/d", "b.png", "image/png");
+        await get("/d", "c.png", "image/png"); // evicts a.png from map
+        expect(deps.revokeUrl).not.toHaveBeenCalledWith(urlA);
+        get.release(urlA);
+        expect(deps.revokeUrl).toHaveBeenCalledWith(urlA);
+    });
 });

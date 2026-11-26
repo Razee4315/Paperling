@@ -187,6 +187,26 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
                 max-width: none;
                 color: #171717;
             }
+            h1, h2, h3, h4, h5, h6, strong, b {
+                color: #111111;
+            }
+            a {
+                color: #0969da;
+            }
+            pre, code {
+                background: #f6f8fa;
+                color: #171717;
+                border-color: #d0d7de;
+            }
+            th {
+                background: #f3f4f6;
+                color: #111111;
+            }
+            blockquote {
+                color: #374151;
+                border-left-color: #d1d5db;
+                background: #f9fafb;
+            }
             /* Browsers drop background fills when printing unless asked; keep
                code blocks, table headers and blockquote tints visible. */
             pre, code, th, blockquote, .hljs, mark {
@@ -482,13 +502,36 @@ function generateExportCSS(theme: Theme, font: FontFamily, fontSize: FontSize, c
  *    exported files referencing them show broken images;
  *  - neutralizes wikilink: hrefs (app-internal scheme) into plain text.
  */
-export async function prepareExportHtml(rawHtml: string): Promise<string> {
+export interface PrepareExportOptions {
+    /** Re-render Mermaid diagrams in the light palette for white-paper PDF/print exports. */
+    lightDiagrams?: boolean;
+    /** Optional diagram renderer override (primarily for tests). */
+    renderMermaid?: (code: string) => Promise<string>;
+}
+
+export async function prepareExportHtml(rawHtml: string, opts: PrepareExportOptions = {}): Promise<string> {
     const doc = new DOMParser().parseFromString(`<div id="__export_root">${rawHtml}</div>`, "text/html");
     const root = doc.getElementById("__export_root");
     if (!root) return rawHtml;
 
     root.querySelectorAll("button").forEach((b) => b.remove());
     root.querySelectorAll(".material-symbols-outlined").forEach((s) => s.remove());
+
+    if (opts.lightDiagrams) {
+        const diagrams = Array.from(root.querySelectorAll<HTMLElement>(".mermaid-rendered[data-mermaid-source]"));
+        if (diagrams.length > 0) {
+            try {
+                const render = opts.renderMermaid ?? (await import("../components/MermaidBlock")).renderLightMermaidSvg;
+                for (const diagram of diagrams) {
+                    const source = diagram.getAttribute("data-mermaid-source");
+                    if (!source) continue;
+                    try {
+                        diagram.innerHTML = await render(source);
+                    } catch { /* keep the already-rendered SVG if light re-render fails */ }
+                }
+            } catch { /* degrade gracefully when Mermaid isn't available */ }
+        }
+    }
 
     // The preview renders wikilinks as href="#" + data-wikilink (the old
     // `href^='wikilink:'` selector never matched, so exports shipped dead
@@ -502,8 +545,10 @@ export async function prepareExportHtml(rawHtml: string): Promise<string> {
     // Preview-only plumbing: source-line anchors for scroll sync and any
     // stray react-markdown `node` attribute. Classes stay — KaTeX and
     // highlight.js styling depends on them.
-    root.querySelectorAll("[data-source-line], [node], [data-relative-md], [data-heading-id]").forEach((el) => {
+    root.querySelectorAll("[data-source-line], [data-source-end-line], [data-mermaid-source], [node], [data-relative-md], [data-heading-id]").forEach((el) => {
         el.removeAttribute("data-source-line");
+        el.removeAttribute("data-source-end-line");
+        el.removeAttribute("data-mermaid-source");
         el.removeAttribute("node");
         el.removeAttribute("data-relative-md");
         el.removeAttribute("data-heading-id");
@@ -657,6 +702,30 @@ async function ensureDocxRuntime(): Promise<void> {
     }
 }
 
+/** Flatten KaTeX visuals and task checkboxes into clean semantic markup for DOCX conversion. */
+export function prepareDocxHtml(html: string): string {
+    const doc = new DOMParser().parseFromString(`<div id="__docx_root">${html}</div>`, "text/html");
+    const root = doc.getElementById("__docx_root");
+    if (!root) return html;
+
+    root.querySelectorAll(".katex").forEach((katexEl) => {
+        const tex = katexEl.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim()
+            || katexEl.querySelector(".katex-mathml")?.textContent?.trim()
+            || katexEl.textContent?.trim()
+            || "";
+        const code = doc.createElement("code");
+        code.textContent = tex;
+        katexEl.replaceWith(code);
+    });
+
+    root.querySelectorAll('input[type="checkbox"]').forEach((box) => {
+        const marker = doc.createTextNode(box.hasAttribute("checked") ? "☑ " : "☐ ");
+        box.replaceWith(marker);
+    });
+
+    return root.innerHTML;
+}
+
 export async function exportToDocx(
     htmlContent: string,
     fileName: string,
@@ -671,7 +740,7 @@ export async function exportToDocx(
     }
 
     const title = fileName.replace(/\.(md|markdown)$/i, '');
-    const cleaned = await prepareExportHtml(htmlContent);
+    const cleaned = prepareDocxHtml(await prepareExportHtml(htmlContent));
     // A minimal, unthemed document — the converter maps semantic HTML to Word
     // styles, so we deliberately don't inject the screen theme's colors here.
     const docHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body><article>${cleaned}</article></body></html>`;
@@ -751,7 +820,7 @@ function waitForImages(doc: Document): Promise<void> {
 // when the user cancelled (#111). The caller already treats the hand-off as
 // terminal (EXPORT-01: the system dialog is its own feedback), so frame
 // cleanup happens in the background on afterprint or a long reap timer.
-function printHtmlDocument(html: string): Promise<void> {
+export function printHtmlDocument(html: string): Promise<void> {
     return new Promise((resolve) => {
         // Remove any frame left over from a previous (e.g. cancelled) export.
         document.getElementById(PRINT_FRAME_ID)?.remove();
@@ -879,8 +948,8 @@ export async function exportToPDF(
     const title = fileName.replace(/\.(md|markdown)$/i, '');
 
     // Same cleanup as HTML export — strips UI chrome (copy buttons, heading
-    // anchor icons) and inlines blob: images as data: URIs.
-    const cleaned = await prepareExportHtml(htmlContent);
+    // anchor icons), re-renders diagrams in light palette, and inlines blob: images.
+    const cleaned = await prepareExportHtml(htmlContent, { lightDiagrams: true });
     const fullHTML = generateHTML(cleaned, title, 'light', font, fontSize, true, customFont);
 
     const canSaveSilently =
