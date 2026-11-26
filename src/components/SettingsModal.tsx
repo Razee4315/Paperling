@@ -39,6 +39,7 @@ import {
     LOCALE_NAMES,
     t,
     useI18n,
+    useLocalePreference,
     type LocalePreference,
     type TKey,
 } from "../i18n";
@@ -219,10 +220,10 @@ function DirectionRow({ value, showChordHint, onChange }: { value: TextDirection
 }
 
 /**
- * Interface language (I18N-01). "Follow system" is offered first and is the
- * default, so a fresh install matches the OS; the two concrete languages are
- * listed in their own script, which is what makes the row usable by someone
- * who cannot read the language the app is currently in.
+ * Interface language (I18N-01 / I18N-02). "Follow system" is offered first and
+ * is the default, matching Theme's System option; all concrete languages are
+ * listed in their own script in a wrapped chip grid so someone who cannot read
+ * the active UI language can immediately spot and switch to theirs.
  */
 function LanguageRow({ value, onChange }: { value: LocalePreference; onChange: (v: LocalePreference) => void }) {
     const { t } = useI18n();
@@ -232,20 +233,38 @@ function LanguageRow({ value, onChange }: { value: LocalePreference; onChange: (
         ...LOCALES.map((l) => ({ id: l as LocalePreference, label: LOCALE_NAMES[l] })),
     ];
     return (
-        <SegmentedRow
-            id="setting-language"
-            labelKey="settings.language"
-            hint={t("settings.languageHint")}
-            value={value}
-            options={options}
-            onChange={onChange}
-        />
+        <div className="w-full flex flex-col gap-2.5 px-3.5 py-3">
+            <div className="flex flex-col items-start min-w-0">
+                <span id="setting-language" className="text-sm font-medium text-[var(--text-primary)]">{t("settings.language")}</span>
+                <span className="text-[11px] text-[var(--text-muted)] mt-0.5">{t("settings.languageHint")}</span>
+            </div>
+            <div role="radiogroup" aria-labelledby="setting-language" className="flex flex-wrap gap-1.5">
+                {options.map((o) => {
+                    const active = value === o.id;
+                    return (
+                        <button
+                            key={o.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            onClick={() => onChange(o.id)}
+                            className={`px-2.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border transition-colors ${active
+                                ? "bg-[var(--accent)] text-[var(--accent-text)] border-[var(--accent)]"
+                                : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"}`}
+                        >
+                            {o.label}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
     );
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
-    const { t, preference } = useI18n();
+    const { t } = useI18n();
+    const preference = useLocalePreference();
     const [section, setSection] = useState<Section>("appearance");
     const [filter, setFilter] = useState("");
     const { theme, setTheme, followSystem, setFollowSystem, accent, setAccent, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();

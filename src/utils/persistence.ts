@@ -171,7 +171,7 @@ export const setTourDone = (v: boolean): void => safeSet(KEY_TOUR_DONE, v);
 // not one of the known preferences are discarded rather than trusted, so a
 // hand-edited localStorage entry can't leave the app rendering nothing.
 const KEY_LOCALE = "paperling:locale";
-const LOCALE_PREFERENCES = ["system", "en", "zh-CN"] as const;
+const LOCALE_PREFERENCES = ["system", "en", "zh-CN", "es", "fr", "de", "ja", "ko", "pt-BR"] as const;
 export type StoredLocalePreference = (typeof LOCALE_PREFERENCES)[number];
 export const getLocalePreference = (): StoredLocalePreference => {
     const v = safeGet<string>(KEY_LOCALE, "system");

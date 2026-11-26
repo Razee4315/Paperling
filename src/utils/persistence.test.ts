@@ -9,6 +9,7 @@ import {
     getOpenInReader, setOpenInReader,
     getAutoSave, getToolbarEnabled, getSpellCheck, pinLegacyDefaults,
     getAutoCloseBrackets, setAutoCloseBrackets,
+    getLocalePreference, setLocalePreference,
     getZenMode, setZenMode,
     getAIHistoryTurns, setAIHistoryTurns, AI_HISTORY_TURNS_DEFAULT, AI_HISTORY_TURNS_MAX,
 } from "./persistence";
@@ -239,5 +240,17 @@ describe("auto-close brackets (#313, EDIT-04)", () => {
         expect(getAutoCloseBrackets()).toBe(true);
         localStorage.setItem("paperling:autoCloseBrackets", "{not json");
         expect(getAutoCloseBrackets()).toBe(true);
+    });
+});
+
+describe("locale preference (I18N-02)", () => {
+    it("defaults to system, round-trips every supported locale, and rejects unknown values", () => {
+        expect(getLocalePreference()).toBe("system");
+        for (const loc of ["en", "zh-CN", "es", "fr", "de", "ja", "ko", "pt-BR", "system"] as const) {
+            setLocalePreference(loc);
+            expect(getLocalePreference()).toBe(loc);
+        }
+        localStorage.setItem("paperling:locale", JSON.stringify("it"));
+        expect(getLocalePreference()).toBe("system");
     });
 });

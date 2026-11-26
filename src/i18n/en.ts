@@ -565,7 +565,7 @@ const en = {
         // search lowercases the query. Translated so Chinese users can search
         // in Chinese ("主题", "自动保存", …).
         keywords: {
-            appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small language interface chinese english",
+            appearance: "theme dark light paper dracula graphite nord midnight accent color colour font typeface custom font size text large small language interface system auto english chinese spanish español french français german deutsch japanese 日本語 korean 한국어 portuguese português",
             editor: "file history versions backup recover restore custom css style stylesheet fold folding arrows collapse typewriter toolbar word wrap live preview hide markdown symbols syntax spell check vim auto close auto-close brackets quotes parentheses pairs matching autosave auto save open files in reader mode readable line length preview width column zen mode text direction right to left rtl ltr arabic hebrew persian urdu ctrl shift chord",
             shortcuts: "shortcuts keyboard keybindings key bindings hotkeys rebind disable new file open save close tab palette go to line toggle split zen fullscreen explorer outline search settings bold italic link blockquote find replace select next occurrence text direction rtl ltr right to left ctrl shift",
             ai: "ai assistant endpoint model api key provider chat history openai ollama anthropic",

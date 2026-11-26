@@ -13,7 +13,8 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 ### Added
 
-- **Simplified Chinese interface (简体中文) and language setting (`I18N-01`, #308, contributed by @nordenecke).** Settings → Appearance → **Language** offers *Follow system* (default), English, and 简体中文 with instant switching across menus, tabs, toolbars, panels, dialogs, shortcuts, and notifications, plus decoded CJK/non-ASCII local image paths (`IMG-04`).
+- **Multilingual interface across 8 languages with OS auto-detection (`I18N-01`, `I18N-02`, #308 by @nordenecke).** Settings → Appearance → **Language** defaults to *Follow system* (reacting live to OS language changes like Theme's *System* mode) and offers English, 简体中文, Español, Français, Deutsch, 日本語, 한국어, and Português with instant UI switching, plus decoded CJK/non-ASCII local image paths (`IMG-04`).
+- **Wikilink `![[image]]` embeds (`IMG-EMBED-01`).** Allow `wikilink:` image `src` attributes through the sanitize schema with scheme and traversal checks so embedded local images render instead of staying on a loading skeleton.
 - **Auto-closing brackets and quotes toggle (`EDIT-04`, #313).** Disable automatic insertion of closing pairs in Settings → Editor → Writing.
 
 ### Fixed

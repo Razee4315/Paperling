@@ -529,7 +529,7 @@ const zhCN: Dict = {
         languageAriaLabel: "界面语言",
 
         keywords: {
-            appearance: "主题 外观 深色 浅色 纸张 午夜 强调色 配色 字体 字号 自定义 语言 中文 英文 interface chinese english",
+            appearance: "主题 外观 深色 浅色 纸张 午夜 强调色 配色 字体 字号 自定义 语言 跟随系统 自动 中文 英文 西班牙语 法语 德语 日语 韩语 葡萄牙语 interface system auto chinese english spanish español french français german deutsch japanese 日本語 korean 한국어 portuguese português",
             editor: "文件历史 历史版本 备份 恢复 自定义样式 css 折叠 实时预览 隐藏标记 语法 打字机 工具栏 自动换行 拼写检查 自动补全 括号 引号 配对 闭合 vim 自动保存 阅读模式 可读行宽 分栏 预览 禅模式 文字方向 从右到左 rtl ltr 阿拉伯语 希伯来语 波斯语 乌尔都语 ctrl shift",
             shortcuts: "快捷键 键位 热键 重新绑定 禁用 新建 打开 保存 关闭 标签页 命令面板 跳转到行 切换 分栏 禅模式 全屏 资源管理器 大纲 搜索 设置 加粗 斜体 链接 引用 查找 替换 选择下一个匹配项 文字方向 rtl ltr 从右向左",
             ai: "ai 助手 接口 模型 密钥 服务商 对话历史 openai ollama anthropic 人工智能",

@@ -31,15 +31,54 @@ function openSettings() {
 const languageRow = () => screen.getByRole("radiogroup", { name: /language|语言/i });
 
 describe("Settings → Appearance → Language", () => {
-    it("offers follow-system plus both languages, in their own script", () => {
+    it("offers follow-system plus all 8 languages in their own script", () => {
         openSettings();
         const row = languageRow();
         const buttons = Array.from(row.querySelectorAll("button")).map((b) => b.textContent);
 
         expect(buttons[0]).toMatch(/^Follow system \(/);   // system locale is en-US in jsdom
-        expect(buttons).toContain("English");
-        expect(buttons).toContain("简体中文");
+        for (const endonym of ["English", "简体中文", "Español", "Français", "Deutsch", "日本語", "한국어", "Português"]) {
+            expect(buttons).toContain(endonym);
+        }
+        expect(buttons).toHaveLength(9);
         expect(row.querySelector('[aria-checked="true"]')!.textContent).toBe(buttons[0]);
+    });
+
+    it("updates active state when toggling between Follow system and English", async () => {
+        openSettings();
+        const row = languageRow();
+        const enRadio = screen.getByRole("radio", { name: "English" });
+        const sysRadio = screen.getByRole("radio", { name: /^Follow system \(/ });
+        expect(sysRadio).toHaveAttribute("aria-checked", "true");
+        expect(enRadio).toHaveAttribute("aria-checked", "false");
+
+        fireEvent.click(enRadio);
+        await waitFor(() => expect(enRadio).toHaveAttribute("aria-checked", "true"));
+        expect(sysRadio).toHaveAttribute("aria-checked", "false");
+        expect(getLocalePreference()).toBe("en");
+
+        fireEvent.click(sysRadio);
+        await waitFor(() => expect(row.querySelector('[aria-checked="true"]')).toBe(sysRadio));
+        expect(getLocalePreference()).toBe("system");
+    });
+
+    it("switches live across newly added global languages (Español, 日本語, Deutsch)", async () => {
+        openSettings();
+
+        fireEvent.click(screen.getByRole("radio", { name: "Español" }));
+        await waitFor(() => expect(screen.getByRole("dialog", { name: "Configuración" })).toBeInTheDocument());
+        expect(screen.getByText("Tema")).toBeInTheDocument();
+        expect(getLocalePreference()).toBe("es");
+
+        fireEvent.click(screen.getByRole("radio", { name: "日本語" }));
+        await waitFor(() => expect(screen.getByRole("dialog", { name: "設定" })).toBeInTheDocument());
+        expect(screen.getByText("テーマ")).toBeInTheDocument();
+        expect(getLocalePreference()).toBe("ja");
+
+        fireEvent.click(screen.getByRole("radio", { name: "Deutsch" }));
+        await waitFor(() => expect(screen.getByRole("dialog", { name: "Einstellungen" })).toBeInTheDocument());
+        expect(screen.getByText("Design")).toBeInTheDocument();
+        expect(getLocalePreference()).toBe("de");
     });
 
     it("switches the whole panel to Chinese and persists the choice", async () => {

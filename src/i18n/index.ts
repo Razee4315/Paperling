@@ -15,11 +15,26 @@
  */
 import en, { type Dict } from "./en";
 import zhCN from "./zh-CN";
+import es from "./es";
+import fr from "./fr";
+import de from "./de";
+import ja from "./ja";
+import ko from "./ko";
+import ptBR from "./pt-BR";
 import { getLocale, getLocalePreference, useLocale, type Locale, type LocalePreference } from "./locale";
 
 export * from "./locale";
 
-const DICTS: Record<Locale, Dict> = { en, "zh-CN": zhCN };
+export const DICTS: Record<Locale, Dict> = {
+    en,
+    "zh-CN": zhCN,
+    es,
+    fr,
+    de,
+    ja,
+    ko,
+    "pt-BR": ptBR,
+};
 
 /** Interpolation values: `t("dialog.deleteFile", { name })`. */
 export type TParams = Record<string, string | number>;

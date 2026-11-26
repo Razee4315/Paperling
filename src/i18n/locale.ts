@@ -2,8 +2,8 @@
  * Which language the UI is drawn in (I18N-01).
  *
  * Three moving parts, deliberately separate:
- *  - the stored PREFERENCE (`"system" | "en" | "zh-CN"`), in localStorage;
- *  - the RESOLVED locale ("en" | "zh-CN") the dictionaries are looked up in;
+ *  - the stored PREFERENCE (`"system" | Locale`), in localStorage;
+ *  - the RESOLVED locale (`Locale`) the dictionaries are looked up in;
  *  - the subscribers (React components + non-React callers of `t`).
  *
  * A listener set rather than a React context: `t()` is called from hooks,
@@ -23,17 +23,34 @@ import {
     setLocalePreference as storePreference,
 } from "../utils/persistence";
 
-export type Locale = "en" | "zh-CN";
+export type Locale = "en" | "zh-CN" | "es" | "fr" | "de" | "ja" | "ko" | "pt-BR";
 export type LocalePreference = "system" | Locale;
 
 /** Every language the app can render. Order = the order in the settings list. */
-export const LOCALES: readonly Locale[] = ["en", "zh-CN"];
+export const LOCALES: readonly Locale[] = ["en", "zh-CN", "es", "fr", "de", "ja", "ko", "pt-BR"];
 
 /** Endonyms — a language is always listed in its own language, so someone who
  *  can't read the current UI language can still find theirs. */
 export const LOCALE_NAMES: Record<Locale, string> = {
     en: "English",
     "zh-CN": "简体中文",
+    es: "Español",
+    fr: "Français",
+    de: "Deutsch",
+    ja: "日本語",
+    ko: "한국어",
+    "pt-BR": "Português",
+};
+
+const SUBTAG_TO_LOCALE: Record<string, Locale> = {
+    en: "en",
+    zh: "zh-CN",
+    es: "es",
+    fr: "fr",
+    de: "de",
+    ja: "ja",
+    ko: "ko",
+    pt: "pt-BR",
 };
 
 /**
@@ -46,8 +63,9 @@ export function detectSystemLocale(): Locale {
     const candidates = [navigator.language, ...(navigator.languages ?? [])];
     for (const tag of candidates) {
         if (!tag) continue;
-        if (/^zh\b/i.test(tag) || /^zh[-_]/i.test(tag)) return "zh-CN";
-        if (/^en\b/i.test(tag) || /^en[-_]/i.test(tag)) return "en";
+        const primary = tag.trim().toLowerCase().split(/[-_]/)[0];
+        const match = SUBTAG_TO_LOCALE[primary];
+        if (match) return match;
     }
     return "en";
 }
@@ -102,6 +120,13 @@ export function useLocale(): Locale {
     return useSyncExternalStore(subscribeLocale, getLocale, getLocale);
 }
 
+/** React binding for the stored preference (`"system"` or an explicit locale) so
+ *  the Language picker updates immediately even when switching between `"system"`
+ *  and the locale the OS already resolves to. */
+export function useLocalePreference(): LocalePreference {
+    return useSyncExternalStore(subscribeLocale, getLocalePreference, getLocalePreference);
+}
+
 // Window-event bridge (repo convention for settings): anything can switch the
 // language by dispatching `paperling:locale-change` with `{ preference }`.
 if (typeof window !== "undefined") {
@@ -109,10 +134,12 @@ if (typeof window !== "undefined") {
         const next = (e as CustomEvent<{ preference?: LocalePreference }>).detail?.preference;
         if (next) changeLocale(next);
     });
-    // "Follow the system" has to follow it when it changes mid-session too.
-    window.addEventListener("languagechange", () => {
+    // "Follow the system" has to follow OS locale changes mid-session too (mirrors theme sync).
+    const syncSystem = () => {
         if (preference === "system") changeLocale("system");
-    });
+    };
+    window.addEventListener("languagechange", syncSystem);
+    window.addEventListener("focus", syncSystem);
 }
 
 /** Re-resolve a "system" preference once, after mount: the OS locale is only

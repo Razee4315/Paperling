@@ -9,6 +9,8 @@ import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import en from "./en";
 import zhCN from "./zh-CN";
 import {
+    DICTS,
+    LOCALES,
     changeLocale,
     detectSystemLocale,
     formatNumber,
@@ -40,26 +42,37 @@ function leafKeys(node: unknown, prefix = ""): string[] {
 
 describe("dictionaries", () => {
     it("have exactly the same keys in every language", () => {
-        // TypeScript already enforces this (zh-CN is typed as Dict), but the
+        // TypeScript already enforces this (every dict is typed as Dict), but the
         // check is cheap and catches a dictionary built through a cast.
-        expect(leafKeys(zhCN).sort()).toEqual(leafKeys(en).sort());
+        const expectedKeys = leafKeys(en).sort();
+        for (const loc of LOCALES) {
+            expect(leafKeys(DICTS[loc]).sort(), `key parity for ${loc}`).toEqual(expectedKeys);
+        }
     });
 
-    it("has no empty strings", () => {
-        for (const locale of [en, zhCN]) {
+    it("has no empty strings and produces non-empty output from plural/template functions", () => {
+        for (const loc of LOCALES) {
+            const dict = DICTS[loc];
             const walk = (node: unknown, path: string): void => {
                 if (typeof node === "string") {
-                    expect(node.trim(), `empty translation at ${path}`).not.toBe("");
+                    expect(node.trim(), `empty translation at ${loc}.${path}`).not.toBe("");
                     return;
                 }
-                if (typeof node === "function") return;
+                if (typeof node === "function") {
+                    const fn = node as (p: Record<string, string | number>) => string;
+                    for (const n of [0, 1, 2, 65]) {
+                        const out = fn({ count: n, matches: n, files: n, selected: n, total: n, words: n, chars: n, min: n });
+                        expect(typeof out === "string" && out.trim().length > 0, `empty fn output at ${loc}.${path}(${n})`).toBe(true);
+                    }
+                    return;
+                }
                 if (node && typeof node === "object") {
                     for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
                         walk(v, path ? `${path}.${k}` : k);
                     }
                 }
             };
-            walk(locale, "");
+            walk(dict, "");
         }
     });
 
@@ -67,9 +80,9 @@ describe("dictionaries", () => {
         // A dropped {name}/{count} in one language silently loses information.
         const placeholders = (value: unknown): string[] =>
             typeof value === "string" ? [...value.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort() : [];
-        const compare = (a: unknown, b: unknown, path = ""): void => {
+        const compare = (a: unknown, b: unknown, loc: string, path = ""): void => {
             if (typeof a === "string" && typeof b === "string") {
-                expect(placeholders(b), `placeholder mismatch at ${path}`).toEqual(placeholders(a));
+                expect(placeholders(b), `placeholder mismatch at ${loc}.${path}`).toEqual(placeholders(a));
                 return;
             }
             if (a && b && typeof a === "object" && typeof b === "object") {
@@ -77,12 +90,15 @@ describe("dictionaries", () => {
                     compare(
                         (a as Record<string, unknown>)[key],
                         (b as Record<string, unknown>)[key],
+                        loc,
                         path ? `${path}.${key}` : key,
                     );
                 }
             }
         };
-        compare(en, zhCN);
+        for (const loc of LOCALES) {
+            if (loc !== "en") compare(en, DICTS[loc], loc);
+        }
     });
 });
 
@@ -142,17 +158,40 @@ describe("system locale detection", () => {
         }
     };
 
-    it("maps any Chinese tag to zh-CN and anything else to en", () => {
+    it("maps each supported language tag and respects navigator.languages priority", () => {
         withLanguage("zh-CN", ["zh-CN", "en-US"], () => expect(detectSystemLocale()).toBe("zh-CN"));
         withLanguage("zh-Hans", ["zh-Hans"], () => expect(detectSystemLocale()).toBe("zh-CN"));
+        withLanguage("es-MX", ["es-MX", "en-US"], () => expect(detectSystemLocale()).toBe("es"));
+        withLanguage("fr-CA", ["fr-CA"], () => expect(detectSystemLocale()).toBe("fr"));
+        withLanguage("de-DE", ["de-DE"], () => expect(detectSystemLocale()).toBe("de"));
+        withLanguage("ja-JP", ["ja-JP"], () => expect(detectSystemLocale()).toBe("ja"));
+        withLanguage("ko-KR", ["ko-KR"], () => expect(detectSystemLocale()).toBe("ko"));
+        withLanguage("pt-BR", ["pt-BR"], () => expect(detectSystemLocale()).toBe("pt-BR"));
+        withLanguage("pt-PT", ["pt-PT"], () => expect(detectSystemLocale()).toBe("pt-BR"));
         withLanguage("en-GB", ["en-GB"], () => expect(detectSystemLocale()).toBe("en"));
-        withLanguage("fr-FR", ["fr-FR", "en"], () => expect(detectSystemLocale()).toBe("en"));
+        withLanguage("it-IT", ["it-IT", "ja-JP", "en-US"], () => expect(detectSystemLocale()).toBe("ja"));
+        withLanguage("sv-SE", ["sv-SE"], () => expect(detectSystemLocale()).toBe("en"));
     });
 
-    it("resolves a 'system' preference through the OS language", () => {
+    it("resolves a 'system' preference through the OS language and reacts to languagechange", () => {
         withLanguage("zh-CN", ["zh-CN"], () => {
             changeLocale("system");
             expect(getLocale()).toBe("zh-CN");
+        });
+        // Simulate OS language changing from Japanese (system) while user has Follow system enabled.
+        withLanguage("ja-JP", ["ja-JP"], () => {
+            changeLocale("system");
+            expect(getLocale()).toBe("ja");
+        });
+        withLanguage("fr-FR", ["fr-FR"], () => {
+            window.dispatchEvent(new Event("languagechange"));
+            expect(getLocale()).toBe("fr");
+        });
+        // An explicit choice stays put when the OS language changes.
+        changeLocale("de");
+        withLanguage("es-ES", ["es-ES"], () => {
+            window.dispatchEvent(new Event("languagechange"));
+            expect(getLocale()).toBe("de");
         });
     });
 });
