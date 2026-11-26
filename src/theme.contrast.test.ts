@@ -70,4 +70,12 @@ describe("theme selection contrast", () => {
         // --selection-text, so that pairing has to hold as well.
         expect(contrast(vars["--selection-bg"], vars["--selection-text"])).toBeGreaterThanOrEqual(4.5);
     });
+
+    it.each(THEMES)("%s keeps secondary and muted text at WCAG AA (>= 4.5) on primary and secondary surfaces", (selector) => {
+        const vars = themeVars(selector);
+        expect(contrast(vars["--text-secondary"], vars["--bg-primary"])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(vars["--text-secondary"], vars["--bg-secondary"])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(vars["--text-muted"], vars["--bg-primary"])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(vars["--text-muted"], vars["--bg-secondary"])).toBeGreaterThanOrEqual(4.5);
+    });
 });

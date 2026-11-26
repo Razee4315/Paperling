@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { runAIAction, type AIAction, type AIConfig } from "../utils/aiAssist";
 import { attachFocusTrap } from "../utils/focusTrap";
+import { useI18n, type TKey } from "../i18n";
 
 interface AIBubbleProps {
     /** Anchor pixel position (top-left of selection or caret). Null hides bubble. */
@@ -15,14 +16,15 @@ interface AIBubbleProps {
     onClose: () => void;
 }
 
-const ACTIONS: Array<{ id: AIAction; label: string; icon: string; needsSelection: boolean }> = [
-    { id: "rewrite", label: "Rewrite", icon: "auto_fix_high", needsSelection: true },
-    { id: "shorten", label: "Shorten", icon: "compress", needsSelection: true },
-    { id: "expand", label: "Expand", icon: "expand", needsSelection: true },
-    { id: "translate", label: "Translate → EN", icon: "translate", needsSelection: true },
+const ACTIONS: Array<{ id: AIAction; labelKey: TKey; icon: string; needsSelection: boolean }> = [
+    { id: "rewrite", labelKey: "aiBubble.rewrite", icon: "auto_fix_high", needsSelection: true },
+    { id: "shorten", labelKey: "aiBubble.shorten", icon: "compress", needsSelection: true },
+    { id: "expand", labelKey: "aiBubble.expand", icon: "expand", needsSelection: true },
+    { id: "translate", labelKey: "aiBubble.translate", icon: "translate", needsSelection: true },
 ];
 
 export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, onClose }: AIBubbleProps) {
+    const { t } = useI18n();
     const [busy, setBusy] = useState<AIAction | null>(null);
     const [result, setResult] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -136,7 +138,7 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
         <div
             ref={bubbleRef}
             role="dialog"
-            aria-label="AI assist"
+            aria-label={t("aiBubble.ariaLabel")}
             className="fixed z-[90] bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[var(--radius-md)] shadow-2xl animate-fade-in"
             style={{
                 left: adjusted?.left ?? anchor.x,
@@ -148,31 +150,34 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
             }}
         >
             <div className="flex items-center gap-1 px-1 py-1 border-b border-[var(--border-subtle)]">
-                {ACTIONS.filter((a) => !a.needsSelection || selectedText).map((a) => (
+                {ACTIONS.filter((a) => !a.needsSelection || selectedText).map((a) => {
+                    const label = t(a.labelKey);
+                    return (
                     <button
                         key={a.id}
                         onClick={() => run(a.id)}
                         disabled={busy !== null}
-                        title={a.label}
-                        aria-label={a.label}
+                        title={label}
+                        aria-label={label}
                         className={`flex items-center gap-1 px-2 py-1 text-xs rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 ${busy === a.id ? "bg-[var(--bg-hover)]" : ""}`}
                     >
                         <span className={`material-symbols-outlined text-[14px] ${busy === a.id ? "animate-spin" : ""}`}>
                             {busy === a.id ? "progress_activity" : a.icon}
                         </span>
-                        <span>{a.label}</span>
+                        <span>{label}</span>
                     </button>
-                ))}
+                    );
+                })}
                 <button
                     onClick={onClose}
-                    aria-label="Close AI bubble"
+                    aria-label={t("aiBubble.close")}
                     className="ml-auto w-6 h-6 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center"
                 >
                     <span className="material-symbols-outlined text-[14px]">close</span>
                 </button>
             </div>
 
-            {busy && <button onClick={() => abortRef.current?.abort()} aria-label="Stop generating" className="px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">Stop generating</button>}
+            {busy && <button onClick={() => abortRef.current?.abort()} aria-label={t("aiBubble.stop")} className="px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">{t("aiBubble.stop")}</button>}
             {error && (
                 <div className="px-3 py-2 text-xs text-[var(--danger)] bg-[var(--danger)]/10">
                     {error}
@@ -181,7 +186,7 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
 
             {result !== null && (
                 <div className="p-2 max-w-[380px]">
-                    <div className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] mb-1">Suggestion</div>
+                    <div className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] mb-1">{t("aiBubble.suggestion")}</div>
                     <div className="px-2 py-1.5 text-sm text-[var(--text-primary)] bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-[var(--radius-sm)] max-h-40 overflow-y-auto whitespace-pre-wrap">
                         {result}
                     </div>
@@ -191,14 +196,14 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
                             onClick={() => onInsert(result)}
                             className="px-2 py-1 text-xs rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
                         >
-                            Insert below
+                            {t("aiBubble.insertBelow")}
                         </button>
                         <button
                             disabled={busy !== null}
                             onClick={() => onReplace(result)}
                             className="px-2 py-1 text-xs rounded-[var(--radius-sm)] bg-[var(--accent)] text-[var(--accent-text)] hover:opacity-90"
                         >
-                            Replace
+                            {t("aiBubble.replace")}
                         </button>
                     </div>
                 </div>

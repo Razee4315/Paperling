@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useDropdownKeyboard } from "../hooks/useDropdownKeyboard";
 
 export interface TabMenuAction {
     label: string;
@@ -22,6 +23,7 @@ interface TabContextMenuProps {
  */
 export function TabContextMenu({ x, y, actions, onClose }: TabContextMenuProps) {
     const ref = useRef<HTMLDivElement>(null);
+    const onMenuKeyDown = useDropdownKeyboard(true, ref, onClose);
 
     useEffect(() => {
         const onDown = (e: MouseEvent) => {
@@ -49,6 +51,7 @@ export function TabContextMenu({ x, y, actions, onClose }: TabContextMenuProps) 
         <div
             ref={ref}
             role="menu"
+            onKeyDown={onMenuKeyDown}
             style={{ left, top, width }}
             className="fixed z-[120] py-1 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] shadow-2xl text-sm no-select"
         >

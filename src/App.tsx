@@ -530,7 +530,7 @@ function AppContent() {
 
   // Export HTML content ref - captures from visible preview
   useEffect(() => {
-    const onDeviceError = (e: Event) => showToast((e as CustomEvent).detail?.message || "Could not open the selected file", "error");
+    const onDeviceError = (e: Event) => showToast((e as CustomEvent).detail?.message || t("toast.deviceFileOpenError"), "error");
     window.addEventListener("paperling:device-file-error", onDeviceError);
     return () => window.removeEventListener("paperling:device-file-error", onDeviceError);
   }, [showToast]);
@@ -954,22 +954,22 @@ function AppContent() {
       openWorkspace(directory);
     } else {
       removeRecentFolder(directory);
-      showToast("That folder is no longer there", "error");
+      showToast(t("toast.folderMissing"), "error");
     }
   }, [openWorkspace, showToast]);
   const handleOpenFolder = useCallback(async () => {
     try {
-      const directory = await open({ directory: true, multiple: false, title: "Open folder" });
+      const directory = await open({ directory: true, multiple: false, title: t("moreMenu.openFolderTitle") });
       if (typeof directory === "string") openWorkspace(directory);
-    } catch (error) { showToast(errMessage(error) || "Could not open folder", "error"); }
+    } catch (error) { showToast(errMessage(error) || t("toast.couldNotOpenFolder"), "error"); }
   }, [openWorkspace, showToast]);
   const handleDroppedPath = useCallback(async (path: string) => {
     try {
       const info = await invoke<{ is_dir: boolean }>("get_file_info", { path });
       if (info.is_dir) openWorkspace(path);
       else if (isDocumentPath(path)) await loadFile(path);
-      else showToast("Open a folder or a Markdown/text file", "info");
-    } catch (error) { showToast(errMessage(error) || "Could not open the dropped item", "error"); }
+      else showToast(t("toast.dropHintOpenable"), "info");
+    } catch (error) { showToast(errMessage(error) || t("toast.dropFailed"), "error"); }
   }, [loadFile, openWorkspace, showToast]);
 
   useEffect(() => {
@@ -1493,6 +1493,8 @@ function AppContent() {
     showToast(t(key), "info");
   }, [setTextDirectionState, showToast, textDirection]);
 
+  const openReplaceRef = useRef<() => void>(() => {});
+
   // App-wide keyboard shortcuts (window-level, mounted once). See the hook.
   useGlobalShortcuts({
     handleOpenFile, handleSaveFile, handleSaveAs, handleNewFile,
@@ -1508,6 +1510,7 @@ function AppContent() {
     // Ctrl+F in reader mode opens the preview find bar (the editor keymap
     // handles find in code/split mode, where the editor has focus). FIND-01.
     openPreviewFind: openPreviewFindBar,
+    openReplace: () => openReplaceRef.current(),
     openSearch: () => setShowSearch(true),
     closeActiveTab: () => { if (activeTabId) closeTab(activeTabId); },
     prevTab: () => cycleTab(-1),
@@ -1566,7 +1569,7 @@ function AppContent() {
   const handleExportHtml = useCallback(async () => {
     if (!fileName) return;
     if (isHtmlDoc) {
-      showToast("This file is already HTML", "info");
+      showToast(t("toast.alreadyHtml"), "info");
       return;
     }
     const raw = await getExportHtml();
@@ -1586,7 +1589,7 @@ function AppContent() {
       }
       showToast(t("toast.exportedHtmlToDownloads", { title }), "success");
     } catch (err) {
-      showToast(errMessage(err) || "Could not export HTML", "error");
+      showToast(errMessage(err) || t("toast.couldNotExportHtml"), "error");
     }
   }, [fileName, getExportHtml, isHtmlDoc, showToast, theme, font, fontSize, customFont]);
 
@@ -1595,7 +1598,7 @@ function AppContent() {
   const handleCopyDocument = useCallback(async (kind: "rich" | "html") => {
     const raw = await getExportHtml();
     if (!raw) {
-      showToast("Nothing to copy yet", "error");
+      showToast(t("toast.nothingToCopy"), "error");
       return;
     }
     try {
@@ -1603,9 +1606,9 @@ function AppContent() {
       const cleaned = await prepareExportHtml(raw);
       if (kind === "rich") await writeRichClipboard(cleaned, liveContentRef.current);
       else await navigator.clipboard.writeText(cleaned);
-      showToast(kind === "rich" ? "Copied as rich text" : "Copied as HTML", "success");
+      showToast(t(kind === "rich" ? "toast.copiedRich" : "toast.copiedHtml"), "success");
     } catch (err) {
-      showToast(errMessage(err) || "Could not copy", "error");
+      showToast(errMessage(err) || t("toast.couldNotCopy"), "error");
     }
   }, [getExportHtml, showToast]);
 
@@ -1616,7 +1619,7 @@ function AppContent() {
   // PRINT-01.
   const handlePrint = useCallback(async () => {
     if (isHtmlDoc) {
-      showToast("Printing isn't available for HTML files yet", "info");
+      showToast(t("toast.printingHtmlUnavailable"), "info");
       return;
     }
     const raw = await getExportHtml();
@@ -1641,7 +1644,7 @@ function AppContent() {
   useEffect(() => {
     if (shownZoomRef.current === zoom) return;
     shownZoomRef.current = zoom;
-    showToast(`Zoom ${formatZoom(zoom)}`, "info");
+    showToast(t("toast.zoomLevel", { zoom: formatZoom(zoom) }), "info");
   }, [zoom, showToast]);
 
   // Stable identities for the memoised TitleBar: inline arrows here made it
@@ -1670,6 +1673,7 @@ function AppContent() {
       window.dispatchEvent(new CustomEvent("paperling:open-replace"));
     }
   }, [mode, setMode]);
+  openReplaceRef.current = openReplace;
 
   // File history (HIST-01). A restore is an ordinary edit: it lands in the
   // buffer, undoable and unsaved. The text it replaces is kept first, so even
@@ -1677,11 +1681,11 @@ function AppContent() {
   const [historyTarget, setHistoryTarget] = useState<{ path: string; fileName: string } | null>(null);
   const openFileHistory = useCallback(() => {
     if (!filePath) {
-      showToast("Save the file first: history starts once it's on disk", "info");
+      showToast(t("toast.historyNeedsSave"), "info");
       return;
     }
     if (proposedDoc != null) {
-      showToast("Finish reviewing the AI changes first", "info");
+      showToast(t("toast.reviewAiFirst"), "info");
       return;
     }
     setHistoryTarget({ path: filePath, fileName: fileName ?? "Untitled.md" });
@@ -1690,7 +1694,7 @@ function AppContent() {
     if (filePath) void fileHistory.record(filePath, liveContentRef.current, "before-restore");
     handleContentChange(text);
     setHistoryTarget(null);
-    showToast("Version restored. Save to keep it, or undo to go back", "success");
+    showToast(t("toast.versionRestored"), "success");
   }, [filePath, handleContentChange, showToast]);
 
   // Run an editor command from the palette. The caret lives in the editor, so

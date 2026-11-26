@@ -168,4 +168,24 @@ describe("useGlobalShortcuts gating", () => {
         press({ key: "s", ctrlKey: true });
         expect(h.handleSaveFile).not.toHaveBeenCalled();
     });
+
+    it("routes global replace and ignores ? inside editors or contenteditable elements (SHC-13)", () => {
+        const openReplace = vi.fn();
+        const h = makeHandlers({ openReplace });
+        render(
+            <div>
+                <Harness handlers={h} />
+                <div className="cm-editor"><div className="cm-content">code</div></div>
+                <p contentEditable suppressContentEditableWarning data-testid="ce">reader</p>
+            </div>,
+        );
+        press({ key: "h", ctrlKey: true });
+        expect(openReplace).toHaveBeenCalledTimes(1);
+
+        const cm = document.querySelector(".cm-content")!;
+        cm.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true, cancelable: true }));
+        const ce = document.querySelector("[data-testid='ce']")!;
+        ce.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true, cancelable: true }));
+        expect(h.openCheatsheet).not.toHaveBeenCalled();
+    });
 });

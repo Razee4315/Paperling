@@ -6,6 +6,8 @@ import { IS_MOBILE } from "../utils/platform";
 import { isDocumentPath } from "../utils/documentPaths";
 import { MascotIdle } from "./MascotIdle";
 import { TabContextMenu } from "./TabContextMenu";
+import { formatShortcut } from "../config/keybindings";
+import { useI18n } from "../i18n";
 
 interface WelcomeScreenProps {
     onOpenFile: () => void;
@@ -18,14 +20,14 @@ interface WelcomeScreenProps {
     onOpenRecentFolder?: (path: string) => void;
 }
 
-const formatRelative = (ts: number): string => {
+const formatRelative = (ts: number, t: ReturnType<typeof useI18n>["t"], locale: string): string => {
     const diff = Date.now() - ts;
     const min = 60_000, hr = 60 * min, day = 24 * hr;
-    if (diff < min) return "just now";
-    if (diff < hr) return `${Math.floor(diff / min)}m ago`;
-    if (diff < day) return `${Math.floor(diff / hr)}h ago`;
-    if (diff < 7 * day) return `${Math.floor(diff / day)}d ago`;
-    return new Date(ts).toLocaleDateString();
+    if (diff < min) return t("welcome.justNow");
+    if (diff < hr) return t("welcome.minutesAgo", { n: Math.floor(diff / min) });
+    if (diff < day) return t("welcome.hoursAgo", { n: Math.floor(diff / hr) });
+    if (diff < 7 * day) return t("welcome.daysAgo", { n: Math.floor(diff / day) });
+    return new Date(ts).toLocaleDateString(locale);
 };
 
 const parentFolderOf = (path: string): string => {
@@ -35,6 +37,7 @@ const parentFolderOf = (path: string): string => {
 };
 
 export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSettings, onFileDrop, onOpenRecent, onOpenRecentFolder }: WelcomeScreenProps) {
+    const { t, locale } = useI18n();
     const [recents, setRecents] = useState<RecentFile[]>([]);
     const [recentFolders] = useState(getRecentFolders);
     const [missing, setMissing] = useState<Set<string>>(new Set());
@@ -199,7 +202,7 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                             Paperling
                         </h1>
                         <p className="text-sm text-[var(--text-secondary)]">
-                            A no-setup Markdown reader and editor
+                            {t("welcome.tagline")}
                         </p>
                     </div>
     
@@ -209,7 +212,7 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                             className="btn-press whitespace-nowrap flex items-center gap-2 bg-[var(--accent)] hover:opacity-90 text-[var(--accent-text)] font-medium text-sm px-5 py-2.5 rounded-[var(--radius-md)] transition-all duration-200"
                         >
                             <span className="material-symbols-outlined text-[20px]">folder_open</span>
-                            <span>{IS_MOBILE ? "Open" : "Open File"}</span>
+                            <span>{IS_MOBILE ? t("welcome.openMobile") : t("welcome.openDesktop")}</span>
                         </button>
                         {onNewFile && (
                             <button
@@ -217,15 +220,15 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                                 className="btn-press whitespace-nowrap flex items-center gap-2 bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border)] font-medium text-sm px-5 py-2.5 rounded-[var(--radius-md)] transition-all duration-200"
                             >
                                 <span className="material-symbols-outlined text-[20px]">edit_note</span>
-                                <span>{IS_MOBILE ? "New" : "New File"}</span>
+                                <span>{IS_MOBILE ? t("welcome.newMobile") : t("welcome.newDesktop")}</span>
                             </button>
                         )}
-                        {onOpenFolder && !IS_MOBILE && <button onClick={onOpenFolder} className="btn-press whitespace-nowrap px-3 py-2.5 rounded-[var(--radius-md)] bg-[var(--bg-secondary)] border border-[var(--border)] text-sm">Open folder…</button>}
+                        {onOpenFolder && !IS_MOBILE && <button onClick={onOpenFolder} className="btn-press whitespace-nowrap px-3 py-2.5 rounded-[var(--radius-md)] bg-[var(--bg-secondary)] border border-[var(--border)] text-sm">{t("welcome.openFolder")}</button>}
                         {onOpenSettings && (
                             <button
                                 onClick={onOpenSettings}
-                                aria-label="Settings"
-                                title="Settings (Ctrl+,)"
+                                aria-label={t("welcome.settings")}
+                                title={t("welcome.settingsTitle", { shortcut: formatShortcut("settings") })}
                                 className="btn-press flex items-center justify-center w-10 h-10 rounded-[var(--radius-md)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border)] transition-all duration-200"
                             >
                                 <span className="material-symbols-outlined text-[20px]">settings</span>
@@ -236,17 +239,17 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                     <p className="text-xs text-[var(--text-muted)]">
                         {IS_MOBILE ? (
                             <>
-                                Notes are stored <strong>on this device</strong>. Tap a recent file below, or use <span className="font-medium">Open</span> to browse.
+                                {t("welcome.mobileHintBefore")}<strong>{t("welcome.mobileHintBold")}</strong>{t("welcome.mobileHintMid")}<span className="font-medium">{t("welcome.openMobile")}</span>{t("welcome.mobileHintAfter")}
                             </>
                         ) : (
                             <>
-                                drag a <code className="bg-[var(--bg-secondary)] px-1.5 py-0.5 rounded text-[var(--text-secondary)] border border-[var(--border)]">.md</code> file · press <kbd className="px-1 py-0.5 font-mono rounded border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">Ctrl+P</kbd> for commands · <kbd className="px-1 py-0.5 font-mono rounded border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">?</kbd> for shortcuts
+                                {t("welcome.dragA")}<code className="bg-[var(--bg-secondary)] px-1.5 py-0.5 rounded text-[var(--text-secondary)] border border-[var(--border)]">.md</code>{t("welcome.dragMid1")}<kbd className="px-1 py-0.5 font-mono rounded border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">{formatShortcut("palette")}</kbd>{t("welcome.dragMid2")}<kbd className="px-1 py-0.5 font-mono rounded border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">{formatShortcut("cheatsheet")}</kbd>{t("welcome.dragAfter")}
                             </>
                         )}
                     </p>
     
                     {recentFolders.length > 0 && onOpenRecentFolder && (
-                        <div className="w-full flex flex-wrap items-center justify-center gap-1.5 mt-4" aria-label="Recent folders" role="group">
+                        <div className="w-full flex flex-wrap items-center justify-center gap-1.5 mt-4" aria-label={t("welcome.recentFoldersAria")} role="group">
                             {recentFolders.slice(0, 4).map((path) => (
                                 <button
                                     key={path}
@@ -265,15 +268,15 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                         <div className="w-full mt-4 text-left">
                             <div className="flex items-center justify-between mb-2 px-1">
                                 <div className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
-                                    Recent
+                                    {t("welcome.recent")}
                                 </div>
                                 <button
                                     onClick={handleClearAll}
-                                    aria-label="Clear all recent files"
-                                    title="Clear all recents"
+                                    aria-label={t("welcome.clearAllAria")}
+                                    title={t("welcome.clearAllTitle")}
                                     className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--danger)] transition-colors px-1.5 py-0.5 rounded"
                                 >
-                                    Clear all
+                                    {t("welcome.clearAll")}
                                 </button>
                             </div>
                             <ul className="flex flex-col">
@@ -311,7 +314,7 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                                             }}
                                             disabled={isMissing}
                                             className={`btn-press w-full flex items-center gap-3 px-3 pr-9 py-2 rounded-[var(--radius-md)] transition-colors text-left ${isMissing ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--bg-hover)] group-hover:bg-[var(--bg-hover)]"}`}
-                                            title={isMissing ? `${f.path} (missing)` : f.path}
+                                            title={isMissing ? t("welcome.missingTitle", { path: f.path }) : f.path}
                                         >
                                             <span className={`material-symbols-outlined text-[18px] shrink-0 ${f.pinned ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"}`}>
                                                 {isMissing ? "broken_image" : f.pinned ? "push_pin" : "description"}
@@ -320,12 +323,12 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                                                 <div className={`text-sm truncate ${isMissing ? "line-through text-[var(--text-muted)]" : "text-[var(--text-primary)]"}`}>{f.name}</div>
                                                 <div className="text-[11px] text-[var(--text-muted)] truncate">{parentFolderOf(f.path)}</div>
                                             </div>
-                                            <span className="text-[11px] text-[var(--text-muted)] tabular-nums shrink-0">{isMissing ? "missing" : formatRelative(f.openedAt)}</span>
+                                            <span className="text-[11px] text-[var(--text-muted)] tabular-nums shrink-0">{isMissing ? t("welcome.missing") : formatRelative(f.openedAt, t, locale)}</span>
                                         </button>
                                         <button
                                             type="button"
-                                            aria-label={`Remove ${f.name} from recents`}
-                                            title="Remove from recents"
+                                            aria-label={t("welcome.removeRecentAria", { name: f.name })}
+                                            title={t("welcome.removeRecentTitle")}
                                             onClick={(e) => {
                                                 // Swallow the tap that follows a fired long-press.
                                                 if (suppressClickRef.current) {
@@ -362,7 +365,7 @@ export function WelcomeScreen({ onOpenFile, onOpenFolder, onNewFile, onOpenSetti
                         onClose={() => setRecentMenu(null)}
                         actions={[
                             {
-                                label: isPinned ? "Unpin" : "Pin",
+                                label: isPinned ? t("welcome.unpin") : t("welcome.pin"),
                                 icon: "push_pin",
                                 onClick: () => {
                                     const list = isPinned ? unpinRecentFile(f.path) : pinRecentFile(f.path);

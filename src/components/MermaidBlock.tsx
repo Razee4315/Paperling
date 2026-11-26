@@ -4,6 +4,7 @@ import { useTheme } from "../context/ThemeContext";
 import { copyDiagramAsPng, saveDiagramSvg } from "../utils/diagramExport";
 import { sanitizeDiagramSvg, stripRemoteDiagramImages } from "../utils/diagramSanitize";
 import { getRemoteImages } from "../utils/persistence";
+import { useI18n } from "../i18n";
 
 // Single shared mermaid module promise — loaded only on first use.
 let mermaidPromise: Promise<typeof import("mermaid")["default"]> | null = null;
@@ -164,6 +165,7 @@ function MermaidView({
      *  fills the screen and a tall one fits without scrolling. */
     contain?: boolean;
 }) {
+    const { t } = useI18n();
     const viewportRef = useRef<HTMLDivElement>(null);
     const [containerW, setContainerW] = useState(0);
     const [containerH, setContainerH] = useState(0);
@@ -233,11 +235,11 @@ function MermaidView({
         <div
             className="absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/95 shadow-lg p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
             role="toolbar"
-            aria-label="Diagram controls"
+            aria-label={t("mermaid.toolbarAria")}
         >
             <button
                 type="button"
-                aria-label="Zoom out"
+                aria-label={t("mermaid.zoomOut")}
                 className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 onClick={() => setZoom((z) => clampZoom(z / 1.25))}
             >
@@ -245,8 +247,8 @@ function MermaidView({
             </button>
             <button
                 type="button"
-                aria-label="Reset zoom"
-                title="Reset zoom (100%)"
+                aria-label={t("mermaid.resetZoomAria")}
+                title={t("mermaid.resetZoomTitle")}
                 className="h-7 px-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[11px] font-mono text-[var(--text-secondary)] hover:text-[var(--text-primary)] min-w-[44px]"
                 onClick={() => setZoom(1)}
             >
@@ -254,7 +256,7 @@ function MermaidView({
             </button>
             <button
                 type="button"
-                aria-label="Zoom in"
+                aria-label={t("mermaid.zoomIn")}
                 className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 onClick={() => setZoom((z) => clampZoom(z * 1.25))}
             >
@@ -263,8 +265,8 @@ function MermaidView({
             <span className="w-px h-4 bg-[var(--border)] mx-0.5" aria-hidden="true" />
             <button
                 type="button"
-                aria-label="Copy diagram as PNG"
-                title="Copy as PNG"
+                aria-label={t("mermaid.copyPngAria")}
+                title={t("mermaid.copyPngTitle")}
                 className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 onClick={async () => void copyDiagramAsPng(getExportSvg ? await getExportSvg().catch(() => svg) : svg)}
             >
@@ -272,8 +274,8 @@ function MermaidView({
             </button>
             <button
                 type="button"
-                aria-label="Save diagram as SVG"
-                title="Save as SVG"
+                aria-label={t("mermaid.saveSvgAria")}
+                title={t("mermaid.saveSvgTitle")}
                 className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 onClick={async () => void saveDiagramSvg(getExportSvg ? await getExportSvg().catch(() => svg) : svg, "diagram")}
             >
@@ -285,8 +287,8 @@ function MermaidView({
             {onFullscreen && (
                 <button
                     type="button"
-                    aria-label="View diagram fullscreen"
-                    title="Fullscreen diagram"
+                    aria-label={t("mermaid.fullscreenAria")}
+                    title={t("mermaid.fullscreenTitle")}
                     className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                     onClick={(e) => {
                         e.stopPropagation();
@@ -305,7 +307,7 @@ function MermaidView({
             // Focusable so the diagram can be zoomed from the keyboard:
             // + / - step, 0 resets (the toolbar is also reachable by Tab).
             tabIndex={0}
-            aria-label="Diagram — press + or - to zoom, 0 to reset"
+            aria-label={t("mermaid.viewportAria")}
             onKeyDown={(e) => {
                 if (e.ctrlKey || e.metaKey || e.altKey) return;
                 if (e.key === "+" || e.key === "=") { e.preventDefault(); setZoom((z) => clampZoom(z * 1.25)); }
@@ -341,6 +343,7 @@ function MermaidView({
 }
 
 function MermaidBlockImpl({ code, sourceLine, sourceEndLine }: MermaidBlockProps) {
+    const { t } = useI18n();
     // Subscribe to the app theme so diagrams re-render on light/dark switches —
     // previously mermaid.initialize ran once for the app lifetime, so existing
     // diagrams kept their original theme after a switch. PREVIEW-03.
@@ -447,7 +450,7 @@ function MermaidBlockImpl({ code, sourceLine, sourceEndLine }: MermaidBlockProps
     if (error) {
         return (
             <div className="my-4 p-4 border border-[var(--danger)] rounded-lg bg-[var(--bg-secondary)]">
-                <div className="text-sm font-semibold text-[var(--danger)] mb-1">Mermaid error</div>
+                <div className="text-sm font-semibold text-[var(--danger)] mb-1">{t("mermaid.errorTitle")}</div>
                 <div className="text-xs font-mono text-[var(--text-secondary)] whitespace-pre-wrap">{error}</div>
                 <pre className="mt-2 text-xs opacity-70 overflow-x-auto">{code}</pre>
             </div>
@@ -457,7 +460,7 @@ function MermaidBlockImpl({ code, sourceLine, sourceEndLine }: MermaidBlockProps
     if (!svg) {
         return (
             <div className="my-4 p-4 border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-secondary)] animate-pulse text-xs text-[var(--text-muted)] text-center">
-                Rendering diagram…
+                {t("mermaid.rendering")}
             </div>
         );
     }
@@ -477,7 +480,7 @@ function MermaidBlockImpl({ code, sourceLine, sourceEndLine }: MermaidBlockProps
                     <div
                         role="dialog"
                         aria-modal="true"
-                        aria-label="Diagram fullscreen view"
+                        aria-label={t("mermaid.fullscreenDialogAria")}
                         className="fixed inset-0 z-[220] bg-black/80 flex items-center justify-center p-4 md:p-10"
                         onClick={(e) => {
                             if (e.target === e.currentTarget) setFullscreen(false);
@@ -488,7 +491,7 @@ function MermaidBlockImpl({ code, sourceLine, sourceEndLine }: MermaidBlockProps
                                 <button
                                     ref={fsCloseRef}
                                     type="button"
-                                    aria-label="Close fullscreen diagram"
+                                    aria-label={t("mermaid.closeFullscreenAria")}
                                     className="w-8 h-8 flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                                     onClick={() => setFullscreen(false)}
                                 >

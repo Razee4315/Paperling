@@ -231,4 +231,21 @@ describe("user binding overrides (SHC-10)", () => {
         expect(kb.bindingFromEvent(press("F7", { code: "F7" }))).toEqual({ key: "F7" });
         expect(kb.bindingFromEvent(press("Control", ctrl))).toBeNull();
     });
+
+    it("avoids macOS reserved combos for replace/inlineCode, detects alias conflicts, and supports non-Latin layouts (SHC-13)", async () => {
+        setPlatform("MacIntel");
+        const macKb = await loadFresh();
+        expect(macKb.formatShortcut("replace")).toBe("⌥⌘F");
+        expect(macKb.formatShortcut("inlineCode")).toBe("⌃`");
+
+        setPlatform("Win32");
+        const winKb = await loadFresh();
+        // Alias collision: binding a command to F1 conflicts with `palette`.
+        expect(winKb.findConflict("save", { key: "F1" })).toBe("palette");
+        // Non-Latin (Cyrillic) layout reports e.key="ы" on physical KeyS -> falls back to e.code.
+        expect(winKb.matchesBinding(new KeyboardEvent("keydown", { key: "ы", code: "KeyS", ctrlKey: true }), "save")).toBe(true);
+        // Logical Latin layout (Dvorak) reports ASCII "o" on physical KeyS -> stays logical.
+        expect(winKb.matchesBinding(new KeyboardEvent("keydown", { key: "o", code: "KeyS", ctrlKey: true }), "save")).toBe(false);
+        expect(winKb.matchesBinding(new KeyboardEvent("keydown", { key: "o", code: "KeyS", ctrlKey: true }), "openFile")).toBe(true);
+    });
 });

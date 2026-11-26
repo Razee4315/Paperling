@@ -35,7 +35,11 @@ export function attachFocusTrap(
         const last = focusable[focusable.length - 1];
         const active = document.activeElement;
 
-        if (e.shiftKey && active === first) {
+        const inside = container.contains(active);
+        if (!inside) {
+            e.preventDefault();
+            (e.shiftKey ? last : first).focus();
+        } else if (e.shiftKey && active === first) {
             e.preventDefault();
             last.focus();
         } else if (!e.shiftKey && active === last) {

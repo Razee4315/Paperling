@@ -75,11 +75,11 @@ export const BINDINGS = {
     bold: { key: "b", mod: true },
     italic: { key: "i", mod: true },
     strikethrough: { key: "x", mod: true, shift: true },
-    inlineCode: { key: "`", mod: true },
+    inlineCode: isMac ? { key: "`", ctrl: true } : { key: "`", mod: true },
     link: { key: "k", mod: true },
     blockquote: { key: "/", mod: true },
     find: { key: "f", mod: true },
-    replace: { key: "h", mod: true },
+    replace: isMac ? { key: "f", mod: true, alt: true } : { key: "h", mod: true },
     selectNextOccurrence: { key: "d", mod: true },
     toggleTask: { key: "Enter", mod: true },
     // Unbound by default; the Windows/Linux Ctrl+Right/Left Shift chord lives
@@ -215,12 +215,15 @@ const sameCombo = (a: Binding, b: Binding) =>
     !!a.alt === !!b.alt &&
     !!a.shift === !!b.shift;
 
-/** Another command already using this combo (effective bindings), if any. */
+/** Another command already using this combo (effective bindings + active aliases), if any. */
 export function findConflict(id: BindingId, binding: Binding): BindingId | null {
     for (const other of Object.keys(BINDINGS) as BindingId[]) {
         if (other === id) continue;
         const otherBinding = getBinding(other);
         if (otherBinding && sameCombo(otherBinding, binding)) return other;
+        if (!isOverridden(other) && (ALIASES[other] ?? []).some((alias) => sameCombo(alias, binding))) {
+            return other;
+        }
     }
     return null;
 }
@@ -267,10 +270,23 @@ export function matchesBinding(e: KeyboardEvent, id: BindingId): boolean {
 
 /** Match a single combo. `matchesBinding` layers the aliases on top of this. */
 function matchesOne(e: KeyboardEvent, b: Binding): boolean {
+    const expectedCode = /^[a-z]$/i.test(b.key)
+        ? `Key${b.key.toUpperCase()}`
+        : /^[0-9]$/.test(b.key)
+            ? `Digit${b.key}`
+            : null;
     // ⌥ on macOS turns a letter into a symbol (⌥Z reports "Ω"), so an Alt combo
     // there matches on the physical key instead.
     const macAltLetter = isMac && !!b.alt && /^[a-z]$/i.test(b.key) && e.code === `Key${b.key.toUpperCase()}`;
-    if (e.key.toLowerCase() !== b.key.toLowerCase() && !macAltLetter) return false;
+    // Non-Latin / IME layouts report non-ASCII `e.key` ("ы", "س", "Process") for
+    // modified shortcuts; match physical `e.code` without breaking logical Latin
+    // layouts like Dvorak/Colemak where `e.key` is another ASCII letter/digit. SHC-13.
+    const nonLatinFallback =
+        !!(b.mod || b.ctrl || b.alt) &&
+        expectedCode !== null &&
+        e.code === expectedCode &&
+        !/^[a-z0-9]$/i.test(e.key);
+    if (e.key.toLowerCase() !== b.key.toLowerCase() && !macAltLetter && !nonLatinFallback) return false;
 
     // Primary/secondary modifier resolution.
     const secondaryDown = isMac ? e.ctrlKey : e.metaKey;

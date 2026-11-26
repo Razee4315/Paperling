@@ -10,17 +10,18 @@ interface StatsDialogProps {
     onClose: () => void;
 }
 
-const formatReadingTime = (min: number): string => {
-    if (min < 1) return "< 1 min";
-    if (min < 60) return `${Math.round(min)} min`;
+const formatReadingTime = (min: number, t: ReturnType<typeof useI18n>["t"]): string => {
+    if (min < 1) return t("stats.readingTimeLessThanMin");
+    if (min < 60) return t("stats.readingTimeMin", { min: Math.round(min) });
     const hours = Math.floor(min / 60);
     const rem = Math.round(min % 60);
-    return rem === 0 ? `${hours}h` : `${hours}h ${rem}m`;
+    return rem === 0 ? t("stats.readingTimeHours", { hours }) : t("stats.readingTimeHoursMin", { hours, min: rem });
 };
 
 export function StatsDialog({ isOpen, content, onClose }: StatsDialogProps) {
     const { t } = useI18n();
     const dialogRef = useRef<HTMLDivElement>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
 
     const stats = useMemo(() => (isOpen ? computeStats(content) : null), [isOpen, content]);
 
@@ -34,6 +35,7 @@ export function StatsDialog({ isOpen, content, onClose }: StatsDialogProps) {
         };
         document.addEventListener("keydown", onKey);
         const detach = attachFocusTrap(dialogRef.current);
+        closeButtonRef.current?.focus();
         return () => {
             document.removeEventListener("keydown", onKey);
             detach();
@@ -53,7 +55,7 @@ export function StatsDialog({ isOpen, content, onClose }: StatsDialogProps) {
         [t("stats.links"), stats.links.toLocaleString()],
         [t("stats.images"), stats.images.toLocaleString()],
         [t("stats.codeBlocks"), stats.codeBlocks.toLocaleString()],
-        [t("stats.readingTime"), formatReadingTime(stats.readingTimeMin)],
+        [t("stats.readingTime"), formatReadingTime(stats.readingTimeMin, t)],
     ];
 
     return (
@@ -69,6 +71,7 @@ export function StatsDialog({ isOpen, content, onClose }: StatsDialogProps) {
                         <h2 className="text-base font-semibold text-[var(--text-primary)]">{t("stats.title")}</h2>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         type="button"
                         onClick={onClose}
                         aria-label={t("stats.close")}

@@ -30,6 +30,8 @@ export interface ShortcutHandlers {
     openSettings: () => void;
     /** Open the reader-mode find bar. Only invoked when mode === "preview". */
     openPreviewFind?: () => void;
+    /** Open find-and-replace from outside the editor (Reader / chrome). SHC-13. */
+    openReplace?: () => void;
     /** Open cross-file search (mod+Shift+F). */
     openSearch?: () => void;
     /** Close the active tab (mod+W). */
@@ -210,6 +212,13 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
                 }
                 return;
             }
+            if (matchesBinding(e, "replace")) {
+                if (s.hasFile && s.openReplace) {
+                    e.preventDefault();
+                    s.openReplace();
+                }
+                return;
+            }
             // Alt+Left / Alt+Right - switch to the previous/next tab (Windows
             // and Linux only). Alt (not Ctrl) keeps Ctrl+Arrow free for
             // word-wise caret movement in the editor. On macOS Option+Arrows
@@ -267,15 +276,23 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
                 return;
             }
             // mod+1..9 - jump to tab N (9 = last tab, like browsers). TABS-16.
-            if (isPlainModCombo(e) && e.key >= "1" && e.key <= "9") {
+            const digitFallback = !/^[0-9]$/.test(e.key) ? /^Digit([1-9])$/.exec(e.code)?.[1] : undefined;
+            const tabDigit = e.key >= "1" && e.key <= "9" ? e.key : digitFallback;
+            if (isPlainModCombo(e) && tabDigit) {
                 e.preventDefault();
-                if (s.hasFile) s.gotoTab?.(e.key === "9" ? -1 : Number(e.key) - 1);
+                if (s.hasFile) s.gotoTab?.(tabDigit === "9" ? -1 : Number(tabDigit) - 1);
                 return;
             }
-            // ? - Show cheatsheet (only when no input is focused)
+            // ? - Show cheatsheet (only when no text input or editor is focused)
             if (matchesBinding(e, "cheatsheet")) {
                 const target = e.target as HTMLElement | null;
-                const isTyping = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+                const isTyping = target && (
+                    target.tagName === "INPUT" ||
+                    target.tagName === "TEXTAREA" ||
+                    target.tagName === "SELECT" ||
+                    target.isContentEditable ||
+                    !!target.closest(".cm-editor, [contenteditable='true']")
+                );
                 if (!isTyping) {
                     e.preventDefault();
                     s.openCheatsheet();
