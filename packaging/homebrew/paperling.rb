@@ -3,8 +3,8 @@
 # and the macOS build is not yet signed + notarized, so publish this from a
 # tap repo (Razee4315/homebrew-tap) until it is.
 cask "paperling" do
-  version "1.2.0"
-  sha256 "25509ecf669e4da86416593c4a12a5cfa52ece7e6c964ce92347255ea4c242f7"
+  version "1.3.0"
+  sha256 "7cfe47f5764aafda0c38ca6f6f04aa62330941960cf8de03246e0e2ea0c9aedf"
 
   url "https://github.com/Razee4315/Paperling/releases/download/v#{version}/Paperling_#{version}_universal.dmg"
   name "Paperling"
