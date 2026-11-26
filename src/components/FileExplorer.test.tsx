@@ -86,10 +86,21 @@ it("offers Duplicate, Copy path, and Reveal in folder and duplicates files clean
         return null;
     });
     const onNotify = vi.fn();
-    render(<FileExplorer isOpen currentFilePath="C:/notes/a.md" onClose={vi.fn()} onFileSelect={vi.fn()} onNotify={onNotify} />);
+    const onClose = vi.fn();
+    const { container } = render(<FileExplorer isOpen currentFilePath="C:/notes/a.md" onClose={onClose} onFileSelect={vi.fn()} onNotify={onNotify} />);
     fireEvent.click(await screen.findByRole("button", { name: "More actions for a.md" }));
+    const menu = screen.getByRole("menu");
+    // Rendered via portal onto document.body so sidebar transform + overflow-hidden cannot clip it.
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.body.contains(menu)).toBe(true);
     expect(screen.getByRole("menuitem", { name: "Copy path" })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: "Reveal in folder" })).toBeDefined();
+    // Escape dismisses the menu without closing the explorer panel.
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for a.md" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Duplicate" }));
     await waitFor(() =>
         expect(vi.mocked(invoke)).toHaveBeenCalledWith(

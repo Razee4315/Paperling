@@ -149,7 +149,7 @@ import {
 import { getAutoSave, getOpenInReader } from "./utils/persistence";
 import { formatZoom } from "./utils/zoom";
 import { clearBufferBackups } from "./utils/bufferBackup";
-import { findAnchorLine, splitWikilinkTarget } from "./utils/wikilinkAnchor";
+import { findAnchorLine, matchOpenTabForWikilink, splitWikilinkTarget } from "./utils/wikilinkAnchor";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
 import { dirOf, joinPath, lastUsedDirectory, suggestFileName } from "./utils/saveName";
 import { extractHeadings } from "./utils/outline";
@@ -1138,6 +1138,12 @@ function AppContent() {
         // Ignore recursive lookup errors and fall back cleanly below.
       }
     }
+    const openTabPath = matchOpenTabForWikilink(tabs, cleanedSlash);
+    if (openTabPath) {
+      await loadFile(openTabPath);
+      jumpTo(getOpenBuffer(openTabPath));
+      return;
+    }
     if (cleanedSlash.includes("/")) {
       showToast(t("toast.couldNotOpenFile", { name: `${cleaned}.md` }), "info");
       return;
@@ -1145,7 +1151,7 @@ function AppContent() {
     // Nothing matched — offer to create the note next to the current file, the
     // way Obsidian turns a dangling [[link]] into a new file. NAV-07.
     offerCreateNote(`${dir}${sep}${cleaned}.md`, `${cleaned}.md`);
-  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote, recordNav, workspaceDirectory]);
+  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote, recordNav, workspaceDirectory, tabs]);
 
   // Standard relative markdown links — `[text](note.md)`, `[x](sub/note.md)`,
   // `[y](../other.md)` — open in-app like wikilinks (the preview only routes

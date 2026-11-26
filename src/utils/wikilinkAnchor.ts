@@ -57,3 +57,33 @@ export function findAnchorLine(content: string, anchor: string): number | null {
     }
     return null;
 }
+
+/**
+ * Resolve a wikilink target (`[[Welcome]]` or `[[Projects/Roadmap]]`) against
+ * already-open tabs when no workspace folder is open or the active note lives
+ * in a deeper subfolder than the linked tab. WIKI-02.
+ */
+export function matchOpenTabForWikilink(
+    tabs: ReadonlyArray<{ filePath: string | null }>,
+    targetSlash: string,
+): string | null {
+    const want = targetSlash.replace(/\\/g, "/").trim().toLowerCase();
+    if (!want) return null;
+    const stripExt = (p: string) => p.replace(/\.(md|markdown)$/i, "");
+    const hasSlash = want.includes("/");
+
+    const matches = tabs
+        .map((t) => t.filePath)
+        .filter((fp): fp is string => Boolean(fp))
+        .filter((fp) => {
+            const norm = fp.replace(/\\/g, "/").toLowerCase();
+            if (hasSlash) {
+                return norm === want || norm.endsWith(`/${want}`) || stripExt(norm).endsWith(`/${want}`);
+            }
+            const base = norm.split("/").pop() ?? norm;
+            return base === want || stripExt(base) === want;
+        })
+        .sort((a, b) => a.length - b.length);
+
+    return matches[0] ?? null;
+}
