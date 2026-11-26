@@ -7,11 +7,13 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { changeLocale } from "../i18n";
+import { disableBinding, resetAllBindings, setBindingOverride } from "../config/keybindings";
 import { ShortcutCheatsheet } from "./ShortcutCheatsheet";
 
 afterEach(() => {
     cleanup();
     changeLocale("system");
+    resetAllBindings();
     try { localStorage.clear(); } catch { /* no storage */ }
 });
 
@@ -63,5 +65,15 @@ describe("Keyboard shortcut cheatsheet translations", () => {
         fireEvent.change(screen.getByPlaceholderText("筛选快捷键…"), { target: { value: "zzz" } });
 
         await waitFor(() => expect(screen.getByText("没有匹配“zzz”的快捷键")).toBeInTheDocument());
+    });
+
+    it("reflects disabled and newly bound shortcuts dynamically (#293)", async () => {
+        setBindingOverride("toggleTextDirection", { key: "r", mod: true, alt: true });
+        disableBinding("zenMode");
+        openCheatsheet();
+
+        expect(screen.getByText("Switch text direction (Auto / RTL / LTR)")).toBeInTheDocument();
+        expect(screen.getByText("Ctrl+Alt+R")).toBeInTheDocument();
+        expect(screen.queryByText("Toggle Zen mode (reading canvas only)")).not.toBeInTheDocument();
     });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { attachFocusTrap } from "../utils/focusTrap";
 import { formatShortcut, formatAliases, withMod, aiShortcutLabel, isMac } from "../config/keybindings";
+import { getDirectionChordEnabled } from "../utils/persistence";
 import { useI18n, type TKey } from "../i18n";
 import iconKeyboard from "../assets/mascot/icon-keyboard.png";
 
@@ -26,10 +27,12 @@ interface ShortcutGroup {
 
 // Every displayed shortcut is derived from the central platform config
 // (src/config/keybindings.ts) so the cheatsheet can never drift from what the
-// handler actually listens for. formatShortcut renders ⌘/⇧/⌥ glyphs on macOS
-// and "Ctrl+Shift+…" on Windows/Linux. Labels read the same `shortcuts` entries
-// as Settings → Shortcuts; see en.ts/zh-CN.ts for the wording.
-const groups: ShortcutGroup[] = [
+// handler actually listens for. Built dynamically so rebinds and disabled
+// shortcuts reflect immediately. Labels read the same `shortcuts` entries as
+// Settings → Shortcuts; see en.ts/zh-CN.ts for the wording.
+function buildGroups(directionChordEnabled: boolean): ShortcutGroup[] {
+    const zoomKeys = [formatShortcut("zoomIn"), formatShortcut("zoomOut")].filter(Boolean).join(" / ");
+    const raw: ShortcutGroup[] = [
     {
         titleKey: "shortcuts.group.file",
         items: [
@@ -67,7 +70,7 @@ const groups: ShortcutGroup[] = [
             { keys: formatShortcut("fullscreen"), descKey: "shortcuts.desc.fullscreenLong" },
             // Zoom landed upstream in 1.1.1; keep the labels in the dictionary
             // so the cheatsheet and Settings → Shortcuts agree (I18N-01).
-            { keys: `${formatShortcut("zoomIn")} / ${formatShortcut("zoomOut")}`, descKey: "shortcuts.desc.zoomText" },
+            { keys: zoomKeys, descKey: "shortcuts.desc.zoomText" },
             { keys: formatShortcut("zoomReset"), descKey: "shortcuts.item.zoomReset" },
             { keys: formatShortcut("toggleFileExplorer"), descKey: "shortcuts.desc.toggleExplorerLong" },
             { keys: formatShortcut("searchInFolder"), descKey: "shortcuts.desc.searchAcrossLong" },
@@ -107,6 +110,10 @@ const groups: ShortcutGroup[] = [
             { keys: formatShortcut("strikethrough"), descKey: "shortcuts.item.strikethrough" },
             { keys: formatShortcut("inlineCode"), descKey: "shortcuts.item.inlineCode" },
             { keys: formatShortcut("toggleWordWrap"), descKey: "shortcuts.item.toggleWordWrap" },
+            { keys: formatShortcut("toggleTextDirection"), descKey: "shortcuts.item.toggleTextDirection" },
+            ...(!isMac && directionChordEnabled
+                ? [{ keys: "Ctrl+R-Shift/L-Shift", descKey: "shortcuts.desc.directionChord" as TKey }]
+                : []),
             { keys: isMac ? "⌘⌥[ / ⌘⌥]" : "Ctrl+Shift+[ / ]", descKey: "shortcuts.desc.foldSection" },
             { keys: isMac ? "⌥↑ / ⌥↓" : "Alt+↑ / Alt+↓", descKey: "shortcuts.desc.moveLine" },
             { keys: isMac ? "⇧⌥↓" : "Shift+Alt+↓", descKey: "shortcuts.desc.duplicateLine" },
@@ -131,7 +138,11 @@ const groups: ShortcutGroup[] = [
             { keys: "Paste tab-separated", descKey: "shortcuts.desc.pasteTable" },
         ],
     },
-];
+    ];
+    return raw
+        .map((g) => ({ ...g, items: g.items.filter((it) => Boolean(it.keys)) }))
+        .filter((g) => g.items.length > 0);
+}
 
 const renderKey = (k: string): React.ReactNode => {
     return k.split(/\s+/).map((part, i) => (
@@ -148,6 +159,23 @@ export function ShortcutCheatsheet({ isOpen, onClose }: ShortcutCheatsheetProps)
     const { t } = useI18n();
     const dialogRef = useRef<HTMLDivElement>(null);
     const [filter, setFilter] = useState("");
+    const [, setBindingsVersion] = useState(0);
+    const [directionChordEnabled, setDirectionChordEnabled] = useState(getDirectionChordEnabled);
+
+    useEffect(() => {
+        const bump = () => setBindingsVersion((v) => v + 1);
+        const onChord = (e: Event) => setDirectionChordEnabled(!!(e as CustomEvent).detail?.enabled);
+        window.addEventListener("paperling:keybindings-changed", bump);
+        window.addEventListener("paperling:direction-chord-toggle", onChord);
+        return () => {
+            window.removeEventListener("paperling:keybindings-changed", bump);
+            window.removeEventListener("paperling:direction-chord-toggle", onChord);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (isOpen) setDirectionChordEnabled(getDirectionChordEnabled());
+    }, [isOpen]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -171,6 +199,7 @@ export function ShortcutCheatsheet({ isOpen, onClose }: ShortcutCheatsheetProps)
 
     if (!isOpen) return null;
 
+    const groups = buildGroups(directionChordEnabled);
     const q = filter.trim().toLowerCase();
     const filtered = q
         ? groups

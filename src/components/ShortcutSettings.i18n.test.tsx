@@ -10,7 +10,8 @@
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { changeLocale } from "../i18n";
-import { resetAllBindings } from "../config/keybindings";
+import { getBinding, resetAllBindings } from "../config/keybindings";
+import { getDirectionChordEnabled } from "../utils/persistence";
 import { ShortcutSettings } from "./ShortcutSettings";
 
 afterEach(() => {
@@ -100,5 +101,40 @@ describe("Settings → Shortcuts translations", () => {
         fireEvent.keyDown(window, { key: "a", code: "KeyA" });
 
         expect(await screen.findByRole("alert")).toHaveTextContent("请使用修饰键");
+    });
+
+    it("lets users bind, disable, and restore toggleTextDirection and toggle the Ctrl+Shift chord (#293)", async () => {
+        const events: boolean[] = [];
+        const onChord = (e: Event) => events.push(!!(e as CustomEvent).detail?.enabled);
+        window.addEventListener("paperling:direction-chord-toggle", onChord);
+        try {
+            renderPanel();
+
+            const dirBtn = screen.getByRole("button", { name: "Change shortcut for Switch text direction (Auto / RTL / LTR)" });
+            expect(dirBtn).toHaveTextContent("Disabled");
+
+            fireEvent.click(dirBtn);
+            fireEvent.keyDown(window, { key: "r", code: "KeyR", ctrlKey: true, altKey: true });
+            expect(dirBtn).toHaveTextContent("Ctrl+Alt+R");
+            expect(getBinding("toggleTextDirection")).toEqual({ key: "r", mod: true, alt: true });
+
+            fireEvent.click(screen.getByRole("button", { name: "Disable shortcut for Switch text direction (Auto / RTL / LTR)" }));
+            expect(dirBtn).toHaveTextContent("Disabled");
+            expect(getBinding("toggleTextDirection")).toBeNull();
+
+            const chordSwitch = screen.getByRole("switch", { name: /Ctrl\+Right\/Left Shift/i });
+            expect(chordSwitch).toHaveAttribute("aria-checked", "true");
+            fireEvent.click(chordSwitch);
+            expect(chordSwitch).toHaveAttribute("aria-checked", "false");
+            expect(getDirectionChordEnabled()).toBe(false);
+            expect(events).toEqual([false]);
+
+            changeLocale("zh-CN");
+            await waitFor(() =>
+                expect(screen.getByRole("switch", { name: /Ctrl\+右\/左 Shift/ })).toHaveAttribute("aria-checked", "false"),
+            );
+        } finally {
+            window.removeEventListener("paperling:direction-chord-toggle", onChord);
+        }
     });
 });

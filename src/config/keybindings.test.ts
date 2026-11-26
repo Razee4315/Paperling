@@ -182,6 +182,47 @@ describe("user binding overrides (SHC-10)", () => {
         expect(kb.matchesBinding(press("F1"), "palette")).toBe(true);
     });
 
+    it("supports disabling shortcuts (including aliases) and binding toggleTextDirection (#293)", async () => {
+        const kb = await import("./keybindings");
+        const ctrl = kb.isMac ? { metaKey: true } : { ctrlKey: true };
+        kb.resetAllBindings();
+
+        // toggleTextDirection starts unbound (null) by default.
+        expect(kb.getBinding("toggleTextDirection")).toBeNull();
+        expect(kb.isDisabled("toggleTextDirection")).toBe(true);
+        expect(kb.formatShortcut("toggleTextDirection")).toBe("");
+
+        // Binding it persists across reload and participates in conflict detection.
+        kb.setBindingOverride("toggleTextDirection", { key: "r", mod: true, alt: true });
+        expect(kb.formatShortcut("toggleTextDirection")).toBe(kb.isMac ? "⌥⌘R" : "Ctrl+Alt+R");
+        expect(kb.matchesBinding(press("r", { ...ctrl, altKey: true }), "toggleTextDirection")).toBe(true);
+        expect(kb.findConflict("save", { key: "r", mod: true, alt: true })).toBe("toggleTextDirection");
+        kb.__reloadBindingOverrides();
+        expect(kb.isDisabled("toggleTextDirection")).toBe(false);
+
+        // Disabling a built-in binding (even one with aliases like palette/F1) stops both primary and aliases,
+        // clears formatShortcut/toCmKey, and removes it from conflict detection.
+        kb.disableBinding("palette");
+        expect(kb.getBinding("palette")).toBeNull();
+        expect(kb.isDisabled("palette")).toBe(true);
+        expect(kb.formatShortcut("palette")).toBe("");
+        expect(kb.toCmKey("palette")).toBe("");
+        expect(kb.matchesBinding(press("p", ctrl), "palette")).toBe(false);
+        expect(kb.matchesBinding(press("F1"), "palette")).toBe(false);
+        expect(kb.findConflict("save", { key: "p", mod: true })).toBeNull();
+
+        kb.__reloadBindingOverrides();
+        expect(kb.isDisabled("palette")).toBe(true);
+
+        // Restoring default brings back primary + alias; disabling toggleTextDirection unbinds it.
+        kb.setBindingOverride("palette", null);
+        expect(kb.isDisabled("palette")).toBe(false);
+        expect(kb.matchesBinding(press("F1"), "palette")).toBe(true);
+        kb.disableBinding("toggleTextDirection");
+        expect(kb.isDisabled("toggleTextDirection")).toBe(true);
+        kb.resetAllBindings();
+    });
+
     it("records physical keys and refuses unmodified combos", async () => {
         const kb = await import("./keybindings");
         const ctrl = kb.isMac ? { metaKey: true } : { ctrlKey: true };

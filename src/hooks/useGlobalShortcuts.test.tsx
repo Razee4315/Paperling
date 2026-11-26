@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { useGlobalShortcuts, type ShortcutHandlers } from "./useGlobalShortcuts";
+import { disableBinding, resetAllBindings, setBindingOverride } from "../config/keybindings";
 
 // Unmount between tests so each harness's window keydown listener is removed
 // (auto-cleanup isn't configured globally); otherwise listeners stack up.
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    resetAllBindings();
+});
 
 function makeHandlers(over: Partial<ShortcutHandlers> = {}): ShortcutHandlers {
     return {
@@ -149,5 +153,19 @@ describe("useGlobalShortcuts gating", () => {
         window.removeEventListener("paperling:open-find", opened);
         expect(opened).toHaveBeenCalledTimes(1);
         expect(h.openPreviewFind).not.toHaveBeenCalled();
+    });
+
+    it("triggers cycleTextDirection when bound and ignores disabled shortcuts (#293)", () => {
+        const cycleTextDirection = vi.fn();
+        const h = makeHandlers({ cycleTextDirection });
+        render(<Harness handlers={h} />);
+
+        setBindingOverride("toggleTextDirection", { key: "r", mod: true, alt: true });
+        press({ key: "r", ctrlKey: true, altKey: true });
+        expect(cycleTextDirection).toHaveBeenCalledTimes(1);
+
+        disableBinding("save");
+        press({ key: "s", ctrlKey: true });
+        expect(h.handleSaveFile).not.toHaveBeenCalled();
     });
 });

@@ -157,7 +157,7 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                         <button
                             onClick={onNewFile}
                             aria-label={t("titleBar.newFile")}
-                            title={t("titleBar.newFileTitle", { shortcut: formatShortcut("newFile") })}
+                            title={formatShortcut("newFile") ? t("titleBar.newFileTitle", { shortcut: formatShortcut("newFile") }) : t("titleBar.newFile")}
                             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[18px]">edit_note</span>
@@ -167,7 +167,7 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                         <button
                             onClick={onOpenFile}
                             aria-label={t("titleBar.openFile")}
-                            title={t("titleBar.openFileTitle", { shortcut: formatShortcut("openFile") })}
+                            title={formatShortcut("openFile") ? t("titleBar.openFileTitle", { shortcut: formatShortcut("openFile") }) : t("titleBar.openFile")}
                             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[18px]">folder_open</span>
@@ -187,7 +187,7 @@ function ZenTopBarImpl({ isFullscreen, onToggleFullscreen, onExitZen, outlineOpe
                         <button
                             onClick={handleMaximize}
                             aria-label={isFullscreen ? t("titleBar.exitFullscreen") : t("titleBar.maximize")}
-                            title={isFullscreen ? t("titleBar.exitFullscreenTitle", { shortcut: formatShortcut("fullscreen") }) : t("titleBar.maximize")}
+                            title={isFullscreen ? (formatShortcut("fullscreen") ? t("titleBar.exitFullscreenTitle", { shortcut: formatShortcut("fullscreen") }) : t("titleBar.exitFullscreen")) : t("titleBar.maximize")}
                             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[16px]">{isFullscreen ? "fullscreen_exit" : "crop_square"}</span>

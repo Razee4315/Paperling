@@ -17,6 +17,8 @@ export interface ShortcutHandlers {
     resetZoom: () => void;
     /** Toggle word wrap (Alt+Z). EDIT-02. */
     toggleWordWrap?: () => void;
+    /** Cycle document text direction (Auto -> RTL -> LTR -> Auto). BIDI-04 (#293). */
+    cycleTextDirection?: () => void;
     /** Toggle OS fullscreen (F11). Cross-platform via the Tauri window API. */
     toggleFullscreen: () => void;
     handleToggleFileExplorer: () => void;
@@ -112,6 +114,12 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
             if (matchesBinding(e, "toggleWordWrap")) {
                 e.preventDefault();
                 s.toggleWordWrap?.();
+                return;
+            }
+            // Configurable RTL/LTR/Auto reading-order hotkey (#293).
+            if (matchesBinding(e, "toggleTextDirection")) {
+                e.preventDefault();
+                s.cycleTextDirection?.();
                 return;
             }
             // mod+Shift+E - Toggle file explorer

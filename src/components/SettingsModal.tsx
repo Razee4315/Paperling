@@ -25,6 +25,7 @@ import {
     getReaderEditing, setReaderEditing,
     getReadableLineLength, setReadableLineLength,
     getTextDirection, setTextDirection,
+    getDirectionChordEnabled, setDirectionChordEnabled,
     getZenMode, setZenMode,
     getAIHistoryTurns, setAIHistoryTurns, AI_HISTORY_TURNS_MAX,
     getAIIconAnimation, setAIIconAnimation,
@@ -203,13 +204,13 @@ function SegmentedRow<T extends string>({ id, labelKey, hint, value, options, on
 
 // Three-way choice in the same row shape as ToggleRow; a radiogroup so screen
 // readers announce it as one setting with the current value. BIDI-02.
-function DirectionRow({ value, onChange }: { value: TextDirection; onChange: (v: TextDirection) => void }) {
+function DirectionRow({ value, showChordHint, onChange }: { value: TextDirection; showChordHint: boolean; onChange: (v: TextDirection) => void }) {
     const { t } = useI18n();
     return (
         <SegmentedRow
             id="setting-text-direction"
             labelKey="settings.textDirection"
-            hint={<>{t("settings.textDirectionHint")}{!isMac && !IS_MOBILE && t("settings.textDirectionShortcutHint")}</>}
+            hint={<>{t("settings.textDirectionHint")}{showChordHint && t("settings.textDirectionShortcutHint")}</>}
             value={value}
             options={DIRECTION_OPTIONS.map((o) => ({ id: o.id, label: t(o.labelKey) }))}
             onChange={onChange}
@@ -267,6 +268,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [readerEditing, setReaderEditingLocal] = useState(getReaderEditing);
     const [readableLength, setReadableLengthLocal] = useState(getReadableLineLength);
     const [textDirection, setTextDirectionLocal] = useState(getTextDirection);
+    const [directionChord, setDirectionChordLocal] = useState(getDirectionChordEnabled);
+    useEffect(() => {
+        const onChord = (e: Event) => setDirectionChordLocal(!!(e as CustomEvent).detail?.enabled);
+        window.addEventListener("paperling:direction-chord-toggle", onChord);
+        return () => window.removeEventListener("paperling:direction-chord-toggle", onChord);
+    }, []);
     // Installed-font suggestions for the custom-font input. Computed lazily on
     // first focus (never at startup), cached per session; the <datalist> does
     // the type-to-filter natively. SET-03.
@@ -736,12 +743,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             onChange={(v) => { setRemoteImagesLocal(v); setRemoteImages(v); fire("paperling:remote-images-toggle", v); }} />
                                     )}
                                     {matches("text direction right to left rtl ltr arabic hebrew persian urdu", t("settings.textDirection")) && (
-                                        <DirectionRow value={textDirection}
+                                        <DirectionRow value={textDirection} showChordHint={!isMac && !IS_MOBILE && directionChord}
                                             onChange={(v) => {
                                                 setTextDirectionLocal(v);
                                                 setTextDirection(v);
                                                 window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: v } }));
                                             }} />
+                                    )}
+                                    {!isMac && !IS_MOBILE && matches("text direction right to left rtl ltr ctrl shift chord", t("settings.directionChord")) && (
+                                        <ToggleRow label={t("settings.directionChord")} description={t("settings.directionChordHint")} checked={directionChord}
+                                            onChange={(v) => { setDirectionChordLocal(v); setDirectionChordEnabled(v); fire("paperling:direction-chord-toggle", v); }} />
                                     )}
                                     {matches("zen mode", t("settings.zenMode")) && (
                                         <ToggleRow label={t("settings.zenMode")} description={t("settings.zenModeHint")} checked={zenMode}

@@ -142,3 +142,38 @@ describe("auto-close brackets (#313, EDIT-04)", () => {
         expect(view.state.doc.toString()).toBe("tab a\"");
     });
 });
+
+describe("direction chord toggle (#293, BIDI-04)", () => {
+    function fireChord(target: Element, shiftLocation: 1 | 2) {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Control", location: 1, ctrlKey: true, shiftKey: false, bubbles: true }));
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", location: shiftLocation, ctrlKey: true, shiftKey: true, bubbles: true }));
+        target.dispatchEvent(new KeyboardEvent("keyup", { key: "Shift", location: shiftLocation, ctrlKey: true, shiftKey: false, bubbles: true }));
+    }
+
+    it("switches direction on Ctrl+Right/Left Shift only when directionChordEnabled is true", async () => {
+        const events: string[] = [];
+        const onDir = (e: Event) => events.push((e as CustomEvent).detail?.direction);
+        window.addEventListener("paperling:text-direction-change", onDir);
+        try {
+            const { container, rerender } = render(
+                <CodeEditor content="hello" textDirection="auto" directionChordEnabled={false} onChange={() => {}} />,
+            );
+            await waitFor(() => expect(container.querySelector(".cm-content")).toBeTruthy());
+            const contentEl = container.querySelector(".cm-content")!;
+
+            fireChord(contentEl, 2);
+            expect(events).toEqual([]);
+
+            rerender(<CodeEditor content="hello" textDirection="auto" directionChordEnabled={true} onChange={() => {}} />);
+            fireChord(contentEl, 2);
+            expect(events).toEqual(["rtl"]);
+
+            rerender(<CodeEditor content="hello" textDirection="rtl" directionChordEnabled={true} onChange={() => {}} />);
+            fireChord(contentEl, 1);
+            expect(events).toEqual(["rtl", "auto"]);
+        } finally {
+            window.removeEventListener("paperling:text-direction-change", onDir);
+            localStorage.clear();
+        }
+    });
+});

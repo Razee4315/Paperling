@@ -1,14 +1,19 @@
 import { useEffect, useState } from "react";
 import {
     bindingFromEvent,
+    disableBinding,
     findConflict,
     formatBinding,
     formatShortcut,
+    isDisabled,
+    isMac,
     isOverridden,
     resetAllBindings,
     setBindingOverride,
     type BindingId,
 } from "../config/keybindings";
+import { getDirectionChordEnabled, setDirectionChordEnabled } from "../utils/persistence";
+import { IS_MOBILE } from "../utils/platform";
 import { tEn, useI18n, type TKey } from "../i18n";
 
 /**
@@ -43,6 +48,7 @@ const GROUPS: Array<{ titleKey: TKey; ids: BindingId[] }> = [
             "bold", "italic", "strikethrough", "inlineCode",
             "link", "blockquote", "find", "replace",
             "selectNextOccurrence", "toggleTask", "toggleWordWrap",
+            "toggleTextDirection",
             "navBack", "navForward",
         ],
     },
@@ -62,13 +68,19 @@ export function ShortcutSettings({ filter }: { filter: string }) {
     const { t } = useI18n();
     const [recording, setRecording] = useState<BindingId | null>(null);
     const [error, setError] = useState<RecordingError | null>(null);
+    const [directionChord, setDirectionChordLocal] = useState(getDirectionChordEnabled);
     // Re-render after any change (overrides live in the config module).
     const [, setVersion] = useState(0);
 
     useEffect(() => {
         const bump = () => setVersion((v) => v + 1);
+        const onChord = (e: Event) => setDirectionChordLocal(!!(e as CustomEvent).detail?.enabled);
         window.addEventListener("paperling:keybindings-changed", bump);
-        return () => window.removeEventListener("paperling:keybindings-changed", bump);
+        window.addEventListener("paperling:direction-chord-toggle", onChord);
+        return () => {
+            window.removeEventListener("paperling:keybindings-changed", bump);
+            window.removeEventListener("paperling:direction-chord-toggle", onChord);
+        };
     }, []);
 
     // Capture phase + stopPropagation: while recording, the pressed combo must
@@ -110,6 +122,8 @@ export function ShortcutSettings({ filter }: { filter: string }) {
         t(itemKey(id)).toLowerCase().includes(q) ||
         tEn(itemKey(id)).toLowerCase().includes(q) ||
         formatShortcut(id).toLowerCase().includes(q);
+    const chordKeywords = `${t("shortcuts.directionChordLabel")} ${tEn("shortcuts.directionChordLabel")} ${t("shortcuts.directionChordDesc")} rtl ltr ctrl+shift`.toLowerCase();
+    const showChordToggle = !isMac && !IS_MOBILE && (!q || chordKeywords.includes(q));
 
     const anyOverride = GROUPS.some((g) => g.ids.some((id) => isOverridden(id)));
 
@@ -135,6 +149,7 @@ export function ShortcutSettings({ filter }: { filter: string }) {
                             {ids.map((id) => {
                                 const label = t(itemKey(id));
                                 const isRecording = recording === id;
+                                const disabled = isDisabled(id);
                                 const rowError = error?.id === id ? error : null;
                                 return (
                                     <li key={id} className="px-3 py-2">
@@ -142,14 +157,27 @@ export function ShortcutSettings({ filter }: { filter: string }) {
                                             <span className="flex-1 text-sm text-[var(--text-primary)]">{label}</span>
                                             {isOverridden(id) && !isRecording && (
                                                 <button
-                                                    onClick={() => setBindingOverride(id, null)}
+                                                    type="button"
+                                                    onClick={() => { setBindingOverride(id, null); setError(null); }}
                                                     title={t("shortcuts.restoreDefault")}
                                                     className="text-[11px] text-[var(--text-secondary)] hover:text-[var(--accent)]"
                                                 >
                                                     {t("shortcuts.reset")}
                                                 </button>
                                             )}
+                                            {!disabled && !isRecording && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { disableBinding(id); setError(null); }}
+                                                    aria-label={t("shortcuts.disableFor", { name: label })}
+                                                    title={t("shortcuts.disableTitle")}
+                                                    className="text-[11px] text-[var(--text-secondary)] hover:text-[var(--danger)]"
+                                                >
+                                                    {t("shortcuts.disable")}
+                                                </button>
+                                            )}
                                             <button
+                                                type="button"
                                                 onClick={() => {
                                                     setError(null);
                                                     setRecording(isRecording ? null : id);
@@ -159,10 +187,12 @@ export function ShortcutSettings({ filter }: { filter: string }) {
                                                 className={`min-w-[110px] px-2 py-1 rounded-[var(--radius-sm)] border text-xs font-mono text-center transition-colors ${
                                                     isRecording
                                                         ? "border-[var(--accent)] text-[var(--accent)] animate-pulse"
-                                                        : "border-[var(--border)] text-[var(--text-primary)] hover:border-[var(--accent)]"
+                                                        : disabled
+                                                            ? "border-dashed border-[var(--border)] text-[var(--text-muted)] italic hover:border-[var(--accent)]"
+                                                            : "border-[var(--border)] text-[var(--text-primary)] hover:border-[var(--accent)]"
                                                 }`}
                                             >
-                                                {isRecording ? t("shortcuts.pressKeys") : formatShortcut(id)}
+                                                {isRecording ? t("shortcuts.pressKeys") : disabled ? t("shortcuts.disabled") : formatShortcut(id)}
                                             </button>
                                         </div>
                                         {rowError && (
@@ -182,6 +212,36 @@ export function ShortcutSettings({ filter }: { filter: string }) {
                     </section>
                 );
             })}
+            {showChordToggle && (
+                <section>
+                    <div className="rounded-[var(--radius-md)] border border-[var(--border)] overflow-hidden">
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={directionChord}
+                            onClick={() => {
+                                const next = !directionChord;
+                                setDirectionChordLocal(next);
+                                setDirectionChordEnabled(next);
+                                window.dispatchEvent(new CustomEvent("paperling:direction-chord-toggle", { detail: { enabled: next } }));
+                            }}
+                            className="group w-full flex items-center justify-between gap-4 px-3 py-2.5 hover:bg-[var(--bg-hover)] transition-colors text-left"
+                        >
+                            <div className="flex flex-col items-start min-w-0">
+                                <span className="text-sm text-[var(--text-primary)]">{t("shortcuts.directionChordLabel")}</span>
+                                <span className="text-[11px] text-[var(--text-muted)] mt-0.5">{t("shortcuts.directionChordDesc")}</span>
+                            </div>
+                            <span
+                                className={`relative inline-block w-[42px] h-[24px] rounded-full shrink-0 transition-colors duration-200 ${directionChord ? "bg-[var(--accent)]" : "bg-[var(--text-muted)]/45 group-hover:bg-[var(--text-muted)]/60"}`}
+                            >
+                                <span
+                                    className={`absolute top-[3px] left-[3px] w-[18px] h-[18px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.3)] transition-transform duration-200 ease-out ${directionChord ? "translate-x-[18px]" : "translate-x-0"}`}
+                                />
+                            </span>
+                        </button>
+                    </div>
+                </section>
+            )}
         </div>
     );
 }

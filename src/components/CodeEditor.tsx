@@ -8,6 +8,7 @@ import {
     highlightActiveLineGutter,
     drawSelection,
     dropCursor,
+    type KeyBinding,
     type ViewUpdate,
 } from "@codemirror/view";
 import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
@@ -50,6 +51,7 @@ import { TableToolbar } from "./TableToolbar";
 import { pasteUrlOnSelection, pasteUrlAutolink, pasteTsvAsTable, htmlToMarkdown } from "../utils/smartPaste";
 import { livePreview as livePreviewExtension } from "../utils/livePreview";
 import { getAIEnabled, setTextDirection } from "../utils/persistence";
+import { t as tr } from "../i18n";
 import { createDirectionChord, type TextDirection } from "../utils/textDirection";
 import { textDirectionExtension } from "../utils/editorDirection";
 import { IS_MOBILE } from "../utils/platform";
@@ -94,6 +96,8 @@ interface CodeEditorProps {
     /** Reading order (issue #216): "auto" gives each line the direction of
      *  its first strong character; "rtl"/"ltr" force one for every line. */
     textDirection?: TextDirection;
+    /** Enable Windows/Linux Ctrl+Right/Left Shift reading-order chord (issue #293). */
+    directionChordEnabled?: boolean;
     aiConfig?: { endpoint: string; model: string; apiKey: string };
     /** When non-null, show this proposed document as an inline diff (CodeMirror
      *  merge view) for the user to accept/reject. Null = no review in progress. */
@@ -326,6 +330,7 @@ function CodeEditorImpl({
     vimMode = false,
     readableLineLength = false,
     textDirection = "auto",
+    directionChordEnabled = true,
     aiConfig,
     reviewDoc,
     onReviewResolve,
@@ -414,6 +419,9 @@ function CodeEditorImpl({
     // Live setting values for rebuilding extensions on a restored state.
     const liveSettingsRef = useRef({ wordWrap, folding, spellCheck, autoCloseBrackets, vimMode, textDirection, livePreview });
     liveSettingsRef.current = { wordWrap, folding, spellCheck, autoCloseBrackets, vimMode, textDirection, livePreview };
+    const directionChordEnabledRef = useRef(directionChordEnabled);
+    directionChordEnabledRef.current = directionChordEnabled;
+    const dirChordRef = useRef(createDirectionChord());
     const buildEditingKeymapRef = useRef<() => Extension>(() => []);
 
     // Reconfigurable extensions.
@@ -534,40 +542,43 @@ function CodeEditorImpl({
 
         // Built from the (user-overridable) binding config and kept in a
         // compartment, so a rebind in Settings → Shortcuts applies to the
-        // open editor immediately. SHC-10.
-        const buildEditingKeymap = () => Prec.highest(keymap.of([
-            { key: "Tab", run: (v) => runAction(v, (st) => handleTab(st, false)), shift: (v) => runAction(v, (st) => handleTab(st, true)) },
-            { key: "Enter", run: (v) => runAction(v, handleEnter) },
-            { key: toCmKey("bold"), run: (v) => wrapEachRange(v, "**") || (applyResultToView(v, wrapSelection(toEdState(v), "**", "**", "bold")), true) },
-            { key: toCmKey("italic"), run: (v) => wrapEachRange(v, "*") || (applyResultToView(v, wrapSelection(toEdState(v), "*", "*", "italic")), true) },
-            { key: toCmKey("strikethrough"), run: (v) => wrapEachRange(v, "~~") || (applyResultToView(v, wrapSelection(toEdState(v), "~~", "~~", "text")), true) },
-            { key: toCmKey("inlineCode"), run: (v) => wrapEachRange(v, "`") || (applyResultToView(v, wrapSelection(toEdState(v), "`", "`", "code")), true) },
-            // Ctrl+D: add the next occurrence of the selection/word as another
-            // cursor (VS Code). @codemirror/search was bundled but unused.
-            { key: toCmKey("selectNextOccurrence"), run: selectNextOccurrence, preventDefault: true },
-            { key: toCmKey("link"), run: (v) => { applyResultToView(v, insertLink(toEdState(v))); return true; } },
-            // Ctrl/Cmd+Enter ticks the task on the caret line(s). TASK-01.
-            { key: toCmKey("toggleTask"), run: (v) => runAction(v, toggleTask) },
-            {
-                key: toCmKey("blockquote"), run: (v) => {
-                    const st = toEdState(v);
-                    const ls = st.text.lastIndexOf("\n", st.selStart - 1) + 1;
-                    const lineEnd = st.text.indexOf("\n", st.selStart);
-                    const end = lineEnd === -1 ? st.text.length : lineEnd;
-                    const line = st.text.slice(ls, end);
-                    const quoted = line.startsWith("> ");
-                    const newLine = quoted ? line.slice(2) : "> " + line;
-                    const delta = newLine.length - line.length;
-                    applyResultToView(v, { text: st.text.slice(0, ls) + newLine + st.text.slice(end), selStart: st.selStart + delta, selEnd: st.selEnd + delta });
-                    return true;
-                }
-            },
-            { key: toCmKey("find"), run: () => { requestFindRef.current("find"); return true; } },
-            { key: toCmKey("replace"), run: () => { requestFindRef.current("replace"); return true; } },
-            // NB: the AI shortcut (Alt+J / ⌘J) is handled at the App window level
-            // so it fires regardless of editor focus — see App.tsx. The editor
-            // opens the bubble via the paperling:ai-assist event listener below.
-        ]));
+        // open editor immediately. SHC-10 / SHC-12 (omit disabled bindings).
+        const buildEditingKeymap = () => {
+            const bindings: KeyBinding[] = [
+                { key: "Tab", run: (v) => runAction(v, (st) => handleTab(st, false)), shift: (v) => runAction(v, (st) => handleTab(st, true)) },
+                { key: "Enter", run: (v) => runAction(v, handleEnter) },
+                { key: toCmKey("bold"), run: (v) => wrapEachRange(v, "**") || (applyResultToView(v, wrapSelection(toEdState(v), "**", "**", "bold")), true) },
+                { key: toCmKey("italic"), run: (v) => wrapEachRange(v, "*") || (applyResultToView(v, wrapSelection(toEdState(v), "*", "*", "italic")), true) },
+                { key: toCmKey("strikethrough"), run: (v) => wrapEachRange(v, "~~") || (applyResultToView(v, wrapSelection(toEdState(v), "~~", "~~", "text")), true) },
+                { key: toCmKey("inlineCode"), run: (v) => wrapEachRange(v, "`") || (applyResultToView(v, wrapSelection(toEdState(v), "`", "`", "code")), true) },
+                // Ctrl+D: add the next occurrence of the selection/word as another
+                // cursor (VS Code). @codemirror/search was bundled but unused.
+                { key: toCmKey("selectNextOccurrence"), run: selectNextOccurrence, preventDefault: true },
+                { key: toCmKey("link"), run: (v) => { applyResultToView(v, insertLink(toEdState(v))); return true; } },
+                // Ctrl/Cmd+Enter ticks the task on the caret line(s). TASK-01.
+                { key: toCmKey("toggleTask"), run: (v) => runAction(v, toggleTask) },
+                {
+                    key: toCmKey("blockquote"), run: (v) => {
+                        const st = toEdState(v);
+                        const ls = st.text.lastIndexOf("\n", st.selStart - 1) + 1;
+                        const lineEnd = st.text.indexOf("\n", st.selStart);
+                        const end = lineEnd === -1 ? st.text.length : lineEnd;
+                        const line = st.text.slice(ls, end);
+                        const quoted = line.startsWith("> ");
+                        const newLine = quoted ? line.slice(2) : "> " + line;
+                        const delta = newLine.length - line.length;
+                        applyResultToView(v, { text: st.text.slice(0, ls) + newLine + st.text.slice(end), selStart: st.selStart + delta, selEnd: st.selEnd + delta });
+                        return true;
+                    }
+                },
+                { key: toCmKey("find"), run: () => { requestFindRef.current("find"); return true; } },
+                { key: toCmKey("replace"), run: () => { requestFindRef.current("replace"); return true; } },
+                // NB: the AI shortcut (Alt+J / ⌘J) is handled at the App window level
+                // so it fires regardless of editor focus — see App.tsx. The editor
+                // opens the bubble via the paperling:ai-assist event listener below.
+            ];
+            return Prec.highest(keymap.of(bindings.filter((entry) => Boolean(entry.key))));
+        };
 
         buildEditingKeymapRef.current = buildEditingKeymap;
 
@@ -657,24 +668,24 @@ function CodeEditorImpl({
         // Ctrl+Right Shift / Ctrl+Left Shift switch the reading order, the
         // Win32 edit-control convention RTL writers expect (issue #216).
         // Scoped to the focused editor, like Notepad, and to Windows/Linux:
-        // macOS has no such convention. BIDI-02.
-        const dirChord = createDirectionChord();
+        // macOS has no such convention. BIDI-02 / BIDI-04 (#293).
+        const dirChord = dirChordRef.current;
         const onDirectionChord = (next: "rtl" | "auto") => {
             if (next === liveSettingsRef.current.textDirection) return;
             setTextDirection(next);
             window.dispatchEvent(new CustomEvent("paperling:text-direction-change", { detail: { direction: next } }));
             onNoticeRef.current?.(next === "rtl"
-                ? "Text direction: right-to-left. Ctrl+Left Shift switches back to automatic."
-                : "Text direction: automatic (each line follows its language).");
+                ? tr("toast.directionChordRtl")
+                : tr("toast.directionChordAuto"));
         };
         const pasteHandler = EditorView.domEventHandlers({
             paste: (event, view) => handlePaste(event, view),
             keydown: (event) => {
-                if (!isMac && !IS_MOBILE) dirChord.keydown(event);
+                if (!isMac && !IS_MOBILE && directionChordEnabledRef.current) dirChord.keydown(event);
                 return false;
             },
             keyup: (event) => {
-                if (isMac || IS_MOBILE) return false;
+                if (isMac || IS_MOBILE || !directionChordEnabledRef.current) return false;
                 const next = dirChord.keyup(event);
                 if (next) onDirectionChord(next);
                 return false;
@@ -1088,6 +1099,9 @@ function CodeEditorImpl({
     useEffect(() => {
         viewRef.current?.dispatch({ effects: dirCompRef.current.reconfigure(textDirectionExtension(textDirection)) });
     }, [textDirection]);
+    useEffect(() => {
+        if (!directionChordEnabled) dirChordRef.current.reset();
+    }, [directionChordEnabled]);
 
     // Enter / refresh / exit the AI review (CodeMirror unified merge view). The
     // original side is the document as it was BEFORE the proposal; the editor doc

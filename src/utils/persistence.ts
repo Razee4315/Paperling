@@ -294,6 +294,13 @@ export const getTextDirection = (): TextDirection => {
 };
 export const setTextDirection = (v: TextDirection): void => safeSet(KEY_TEXT_DIRECTION, v);
 
+// Windows/Linux Ctrl+Right/Left Shift reading-order chord (issue #293, BIDI-04).
+// On by default to keep existing behavior; users whose keyboard-layout switch
+// uses Ctrl+Shift or who want it off can disable it from Settings.
+const KEY_DIRECTION_CHORD = "paperling:directionChord";
+export const getDirectionChordEnabled = (): boolean => safeGet<boolean>(KEY_DIRECTION_CHORD, true);
+export const setDirectionChordEnabled = (v: boolean): void => safeSet(KEY_DIRECTION_CHORD, v);
+
 // Zen mode: distraction-free reading canvas. Hides the title bar, tab bar,
 // mode toggle, status bar, and all side panels, leaving only the rendered
 // markdown. Toggled via F9, the command palette, or Settings → Editor; the

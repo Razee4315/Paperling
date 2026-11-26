@@ -138,6 +138,8 @@ import {
   setReadableLineLength,
   getTextDirection,
   setTextDirection,
+  getDirectionChordEnabled,
+  setDirectionChordEnabled,
 } from "./utils/persistence";
 import { getAutoSave, getOpenInReader } from "./utils/persistence";
 import { formatZoom } from "./utils/zoom";
@@ -238,6 +240,10 @@ function AppContent() {
   const [readableLineLength, setReadableLineLengthState] = usePersistedState<boolean>(getReadableLineLength, setReadableLineLength);
   // Reading order for editor + preview (issue #216). BIDI-01.
   const [textDirection, setTextDirectionState] = usePersistedState<TextDirection>(getTextDirection, setTextDirection);
+  // Windows/Linux Ctrl+Right/Left Shift reading-order chord (#293, BIDI-04).
+  const [directionChordEnabled, setDirectionChordEnabledState] = usePersistedState<boolean>(getDirectionChordEnabled, setDirectionChordEnabled);
+  // Rebuilds command-palette shortcut hints after a rebind/disable (SHC-10/12).
+  const [keybindingsVersion, setKeybindingsVersion] = useState(0);
   // Optional vim modal editing (issue #119). Toggled in Settings → Editor.
   const [vimModeEnabled, setVimModeEnabled] = usePersistedState<boolean>(getVimMode, setVimMode);
   const [cursorPosition, setCursorPosition] = useState({ line: 1, col: 1 });
@@ -702,6 +708,8 @@ function AppContent() {
         const d = (e as CustomEvent).detail?.direction;
         if (isTextDirection(d)) setTextDirectionState(d);
       }],
+      ["paperling:direction-chord-toggle", (e) => setDirectionChordEnabledState(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:keybindings-changed", () => setKeybindingsVersion((v) => v + 1)],
       // Toasts from components without toast access (diagram export).
       ["paperling:notify", (e) => {
         const d = (e as CustomEvent).detail;
@@ -1438,6 +1446,15 @@ function AppContent() {
     [showToast]
   );
 
+  // Cycle document reading order: Auto → RTL → LTR → Auto (#293, BIDI-04).
+  const cycleTextDirection = useCallback(() => {
+    const order: TextDirection[] = ["auto", "rtl", "ltr"];
+    const next = order[(order.indexOf(textDirection) + 1) % order.length];
+    setTextDirectionState(next);
+    const key = next === "rtl" ? "toast.textDirectionRtl" : next === "ltr" ? "toast.textDirectionLtr" : "toast.textDirectionAuto";
+    showToast(t(key), "info");
+  }, [setTextDirectionState, showToast, textDirection]);
+
   // App-wide keyboard shortcuts (window-level, mounted once). See the hook.
   useGlobalShortcuts({
     handleOpenFile, handleSaveFile, handleSaveAs, handleNewFile,
@@ -1445,6 +1462,7 @@ function AppContent() {
     toggleFullscreen, toggleZen: handleToggleZen,
     zoomBy, resetZoom,
     toggleWordWrap: () => setWordWrapEnabled(!wordWrapEnabled),
+    cycleTextDirection,
     openCheatsheet: () => setShowCheatsheet(true),
     openPalette: () => { setPaletteSeed(undefined); setShowPalette(true); },
     openGotoLine: () => { setPaletteSeed(":"); setShowPalette(true); },
@@ -1662,7 +1680,7 @@ function AppContent() {
     items.push({
       id: "file.new",
       label: "New file",
-      hint: formatShortcut("newFile"),
+      hint: formatShortcut("newFile") || undefined,
       section: "File",
       icon: "edit_note",
       run: handleNewFile,
@@ -1670,7 +1688,7 @@ function AppContent() {
     items.push({
       id: "file.open",
       label: IS_MOBILE ? "Browse notes…" : "Open file…",
-      hint: formatShortcut("openFile"),
+      hint: formatShortcut("openFile") || undefined,
       section: "File",
       icon: "folder_open",
       run: handleOpenFileAction,
@@ -1681,7 +1699,7 @@ function AppContent() {
       items.push({
         id: "file.save",
         label: "Save",
-        hint: formatShortcut("save"),
+        hint: formatShortcut("save") || undefined,
         section: "File",
         icon: "save",
         run: handleSaveFile,
@@ -1689,7 +1707,7 @@ function AppContent() {
       items.push({
         id: "file.saveas",
         label: "Save As…",
-        hint: formatShortcut("saveAs"),
+        hint: formatShortcut("saveAs") || undefined,
         section: "File",
         icon: "save_as",
         run: handleSaveAs,
@@ -1748,7 +1766,7 @@ function AppContent() {
       items.push({
         id: "tab.close",
         label: "Close tab",
-        hint: formatShortcut("closeTab"),
+        hint: formatShortcut("closeTab") || undefined,
         section: "File",
         icon: "tab_close",
         keywords: "close current tab",
@@ -1761,7 +1779,7 @@ function AppContent() {
       items.push({
         id: "view.preview",
         label: "Switch to Reader mode",
-        hint: formatShortcut("toggleMode"),
+        hint: formatShortcut("toggleMode") || undefined,
         section: "View",
         icon: "visibility",
         run: () => setMode("preview"),
@@ -1774,9 +1792,9 @@ function AppContent() {
         run: () => setMode("code"),
       });
       items.push(
-        { id: "view.zoomIn", label: "Zoom in", hint: formatShortcut("zoomIn"), section: "View", icon: "zoom_in", keywords: "bigger larger text size", run: () => zoomBy(1) },
-        { id: "view.zoomOut", label: "Zoom out", hint: formatShortcut("zoomOut"), section: "View", icon: "zoom_out", keywords: "smaller text size", run: () => zoomBy(-1) },
-        { id: "view.zoomReset", label: "Reset zoom", hint: formatShortcut("zoomReset"), section: "View", icon: "search", keywords: "100% actual size text", run: resetZoom },
+        { id: "view.zoomIn", label: "Zoom in", hint: formatShortcut("zoomIn") || undefined, section: "View", icon: "zoom_in", keywords: "bigger larger text size", run: () => zoomBy(1) },
+        { id: "view.zoomOut", label: "Zoom out", hint: formatShortcut("zoomOut") || undefined, section: "View", icon: "zoom_out", keywords: "smaller text size", run: () => zoomBy(-1) },
+        { id: "view.zoomReset", label: "Reset zoom", hint: formatShortcut("zoomReset") || undefined, section: "View", icon: "search", keywords: "100% actual size text", run: resetZoom },
       );
       if (!isHtmlDoc) items.push({
         id: "edit.reader",
@@ -1811,7 +1829,7 @@ function AppContent() {
       items.push({
         id: "view.split",
         label: "Toggle Split view",
-        hint: formatShortcut("toggleSplit"),
+        hint: formatShortcut("toggleSplit") || undefined,
         section: "View",
         icon: "vertical_split",
         run: handleToggleSplit,
@@ -1819,16 +1837,25 @@ function AppContent() {
       items.push({
         id: "view.zen",
         label: zenMode ? "Exit Zen mode" : "Enter Zen mode",
-        hint: formatShortcut("zenMode"),
+        hint: formatShortcut("zenMode") || undefined,
         section: "View",
         icon: "self_improvement",
         keywords: "zen distraction free focus minimal reading",
         run: handleToggleZen,
       });
       items.push({
+        id: "view.textDirection",
+        label: `Switch text direction (${textDirection})`,
+        hint: formatShortcut("toggleTextDirection") || undefined,
+        section: "View",
+        icon: "format_textdirection_r_to_l",
+        keywords: "rtl ltr bidi text direction reading order right to left arabic hebrew persian urdu",
+        run: cycleTextDirection,
+      });
+      items.push({
         id: "view.explorer",
         label: "Toggle file explorer",
-        hint: formatShortcut("toggleFileExplorer"),
+        hint: formatShortcut("toggleFileExplorer") || undefined,
         section: "View",
         icon: "folder",
         run: handleToggleFileExplorer,
@@ -1836,7 +1863,7 @@ function AppContent() {
       items.push({
         id: "edit.find",
         label: "Find",
-        hint: formatShortcut("find"),
+        hint: formatShortcut("find") || undefined,
         section: "View",
         icon: "search",
         keywords: "find search in document text current file",
@@ -1845,7 +1872,7 @@ function AppContent() {
       items.push({
         id: "edit.replace",
         label: "Find and Replace",
-        hint: formatShortcut("replace"),
+        hint: formatShortcut("replace") || undefined,
         section: "View",
         icon: "find_replace",
         keywords: "replace substitute find and swap text",
@@ -1854,7 +1881,7 @@ function AppContent() {
       items.push({
         id: "search.files",
         label: "Search in files…",
-        hint: formatShortcut("searchInFolder"),
+        hint: formatShortcut("searchInFolder") || undefined,
         section: "View",
         icon: "search",
         keywords: "find across folder grep global content",
@@ -1863,7 +1890,7 @@ function AppContent() {
       items.push({
         id: "view.toc",
         label: "Toggle outline",
-        hint: formatShortcut("toggleTOC"),
+        hint: formatShortcut("toggleTOC") || undefined,
         section: "View",
         icon: "format_list_bulleted",
         run: handleToggleTOC,
@@ -1956,7 +1983,7 @@ function AppContent() {
     items.push({
       id: "settings.open",
       label: "Open Settings…",
-      hint: formatShortcut("settings"),
+      hint: formatShortcut("settings") || undefined,
       section: "Toggles",
       icon: "settings",
       run: () => setShowSettings(true),
@@ -2038,7 +2065,7 @@ function AppContent() {
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
     loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand, handleCopyDocument, openFileHistory, openRecentFolder,
     typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
-    theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
+    theme, setTheme, openFind, openReplace, zenMode, handleToggleZen, textDirection, cycleTextDirection, keybindingsVersion,
   ]);
 
   // Heading items are recomputed only while the palette is actually open.
@@ -2387,6 +2414,7 @@ function AppContent() {
                 vimMode={vimModeEnabled}
                 readableLineLength={readableLineLength}
                 textDirection={textDirection}
+                directionChordEnabled={directionChordEnabled}
                 aiConfig={aiConfig}
                 reviewDoc={proposedDoc}
                 onReviewResolve={handleReviewResolve}
