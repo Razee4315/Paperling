@@ -456,17 +456,16 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
 
         // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
         // resolve them as plain paths next to the document, like a text
-        // wikilink would be. IMG-EMBED-01. decodeMarkdownPath (not a bare
-        // decodeURIComponent) so a literal `%` in the name can't throw.
-        const effective = src.startsWith("wikilink:")
-            ? decodeMarkdownPath(src.slice("wikilink:".length))
+        // wikilink would be. IMG-EMBED-01.
+        const rawPath = src.startsWith("wikilink:")
+            ? src.slice("wikilink:".length)
             : src;
 
         // External URLs and data: URIs go straight to the <img>. They don't
         // need the document's directory, so they must load even when no file
         // is on disk (browser mode / untitled buffer) — the old `!baseDir`
         // early-return left them as an eternal loading skeleton.
-        if (/^https:\/\//i.test(effective) || /^data:image\//i.test(effective)) {
+        if (/^https:\/\//i.test(rawPath) || /^data:image\//i.test(rawPath)) {
             setImageSrc(src);
             setError(false);
             return;
@@ -478,12 +477,12 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             return;
         }
 
-        // Strip a leading `./`, percent-decode (a parsed markdown destination
-        // arrives URI-normalized — see decodeMarkdownPath) and only THEN
-        // validate. Anything with a `..` segment, an absolute prefix, or a
-        // drive letter is rejected — see isUnsafeRelativePath above.
+        // Strip a leading `./`, percent-decode ONCE (both parsed markdown
+        // destinations and `wikilink:` embeds arrive percent-encoded — see
+        // decodeMarkdownPath) and only THEN validate. Anything with a `..`
+        // segment, an absolute prefix, or a drive letter is rejected.
         const cleanPath = decodeMarkdownPath(
-            effective.startsWith('./') ? effective.slice(2) : effective,
+            rawPath.startsWith('./') ? rawPath.slice(2) : rawPath,
         );
         if (isUnsafeRelativePath(cleanPath)) {
             setError(true);

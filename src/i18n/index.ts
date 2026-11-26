@@ -37,7 +37,7 @@ type Entry = string | ((params: TParams) => string);
 function lookup(dict: Dict, path: string): Entry | undefined {
     let node: unknown = dict;
     for (const part of path.split(".")) {
-        if (node == null || typeof node !== "object") return undefined;
+        if (node == null || typeof node !== "object" || !Object.prototype.hasOwnProperty.call(node, part)) return undefined;
         node = (node as Record<string, unknown>)[part];
     }
     return typeof node === "string" || typeof node === "function" ? (node as Entry) : undefined;

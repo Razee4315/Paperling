@@ -231,4 +231,9 @@ describe("key typing", () => {
         const key: TKey = "settings.sectionEditor";
         expect(t(key)).toBe("Editor");
     });
+
+    it("ignores Object.prototype properties during dictionary lookup", () => {
+        expect(t("toString" as TKey)).toBe("toString");
+        expect(t("constructor" as TKey)).toBe("constructor");
+    });
 });

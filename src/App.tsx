@@ -885,7 +885,7 @@ function AppContent() {
       await saveTextFile(selected, content);
       showToast(t("toast.copySavedConflict"), "success");
     } catch (err) {
-      showToast(errMessage(err) || "Could not save the copy", "error");
+      showToast(errMessage(err) || t("toast.couldNotSaveCopy"), "error");
     }
   }, [content, fileName, promptForSavePath, showToast]);
 
