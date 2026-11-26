@@ -519,6 +519,37 @@ describe("local images (IMG-04)", () => {
         const srcs = Array.from(container.querySelectorAll("img")).map((i) => i.getAttribute("src"));
         expect(srcs).toEqual(["https://example.com/a.png", "data:image/png;base64,iVBORw0KGgo="]);
     });
+
+    it("loads ![[wikilink]] image embeds (including CJK and spaces) through sanitize without leaving a skeleton (IMG-EMBED-01)", async () => {
+        const { container } = renderPreview("![[测试 图片.png]]", {
+            filePath: "D:\\notes\\chem\\chapter1.md",
+        });
+        await renderAndSettle(container);
+
+        expect(imageRequests()).toEqual([
+            {
+                baseDir: "D:\\notes\\chem",
+                relPath: "测试 图片.png",
+            },
+        ]);
+        const img = container.querySelector("img")!;
+        expect(img.getAttribute("src")).toBe("blob:test");
+        expect(img.hasAttribute("node")).toBe(false);
+        expect(container.querySelector(".animate-pulse")).toBeNull();
+    });
+
+    it("rejects traversal and nested schemes inside ![[wikilink]] image embeds", async () => {
+        const { container } = renderPreview(
+            "![[../secret.png]]\n\n![[https://evil.example/track.png]]\n\n![[file:///etc/passwd]]",
+            { filePath: "D:\\notes\\chem\\chapter1.md" },
+        );
+        await waitFor(() =>
+            expect(container.querySelectorAll("span").length).toBeGreaterThanOrEqual(3),
+        );
+        expect(container.textContent).toContain("Failed to load image");
+        expect(container.querySelector("img")).toBeNull();
+        expect(imageRequests()).toEqual([]);
+    });
 });
 
 // PERF-02: the preview renders block by block. Whatever the splitter does, the

@@ -114,9 +114,11 @@ const SANITIZE_SCHEMA = {
     protocols: {
         ...defaultSchema.protocols,
         href: [...(defaultSchema.protocols?.href ?? []), "wikilink"],
-        // `data` for image sources only (LocalImage guards to data:image/*) so
-        // base64-embedded images render instead of skeletonizing forever.
-        src: [...(defaultSchema.protocols?.src ?? []), "data"],
+        // `data` for base64-embedded images and `wikilink` for `![[image]]`
+        // embeds (IMG-EMBED-01). LocalImage restricts `data:` to `data:image/*`
+        // and enforces safe relative paths inside `baseDir` before calling
+        // `read_image_file`.
+        src: [...(defaultSchema.protocols?.src ?? []), "data", "wikilink"],
     },
 } as typeof defaultSchema;
 
@@ -457,15 +459,15 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
         // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
         // resolve them as plain paths next to the document, like a text
         // wikilink would be. IMG-EMBED-01.
-        const rawPath = src.startsWith("wikilink:")
-            ? src.slice("wikilink:".length)
-            : src;
+        const isWikilink = src.startsWith("wikilink:");
+        const rawPath = isWikilink ? src.slice("wikilink:".length) : src;
 
         // External URLs and data: URIs go straight to the <img>. They don't
         // need the document's directory, so they must load even when no file
         // is on disk (browser mode / untitled buffer) — the old `!baseDir`
-        // early-return left them as an eternal loading skeleton.
-        if (/^https:\/\//i.test(rawPath) || /^data:image\//i.test(rawPath)) {
+        // early-return left them as an eternal loading skeleton. Keep `wikilink:`
+        // out of this passthrough so `![[https://...]]` cannot smuggle a remote URL.
+        if (!isWikilink && (/^https:\/\//i.test(rawPath) || /^data:image\//i.test(rawPath))) {
             setImageSrc(src);
             setError(false);
             return;
@@ -479,12 +481,13 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
 
         // Strip a leading `./`, percent-decode ONCE (both parsed markdown
         // destinations and `wikilink:` embeds arrive percent-encoded — see
-        // decodeMarkdownPath) and only THEN validate. Anything with a `..`
-        // segment, an absolute prefix, or a drive letter is rejected.
+        // decodeMarkdownPath) and only THEN validate. Reject any nested URI
+        // scheme (e.g. `wikilink:https://...`, `wikilink:javascript:...`),
+        // `..` segment, absolute prefix, or drive letter.
         const cleanPath = decodeMarkdownPath(
             rawPath.startsWith('./') ? rawPath.slice(2) : rawPath,
         );
-        if (isUnsafeRelativePath(cleanPath)) {
+        if (/^[a-z][a-z0-9+.-]*:/i.test(cleanPath) || isUnsafeRelativePath(cleanPath)) {
             setError(true);
             return;
         }
@@ -1034,7 +1037,7 @@ function MarkdownPreviewImpl({
     }, [onContentChange]);
 
     const components = useMemo(() => ({
-        img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
+        img: ({ src, alt, node: _node, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) => (
             <LocalImage src={src || ''} alt={alt || 'image'} baseDir={baseDir} {...props} />
         ),
         a: ({ href, children, node, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) => {
