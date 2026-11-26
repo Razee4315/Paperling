@@ -64,7 +64,7 @@ export function TabContextMenu({ x, y, actions, onClose }: TabContextMenuProps) 
                         onClick={() => { a.onClick(); onClose(); }}
                         className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[var(--text-secondary)] enabled:hover:bg-[var(--bg-hover)] enabled:hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-default transition-colors"
                     >
-                        <span className="material-symbols-outlined text-[16px] shrink-0">{a.icon}</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[16px] shrink-0">{a.icon}</span>
                         <span className="truncate">{a.label}</span>
                     </button>
                 </div>

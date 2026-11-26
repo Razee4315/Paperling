@@ -1484,7 +1484,23 @@ function CodeEditorImpl({
             v.focus();
         };
         window.addEventListener("paperling:reveal-text", reveal);
+        // External insertion (e.g. image drag-and-drop into the active editor).
+        const insertText = (e: Event) => {
+            const v = viewRef.current;
+            const detail = (e as CustomEvent<{ text?: string; handled?: boolean }>).detail;
+            if (!v || !detail?.text || v.scrollDOM.clientHeight === 0) return;
+            const sel = v.state.selection.main;
+            v.dispatch({
+                changes: { from: sel.from, to: sel.to, insert: detail.text },
+                selection: { anchor: sel.from + detail.text.length },
+                scrollIntoView: true,
+            });
+            detail.handled = true;
+            v.focus();
+        };
+        window.addEventListener("paperling:insert-text", insertText);
         return () => {
+            window.removeEventListener("paperling:insert-text", insertText);
             window.removeEventListener("paperling:reveal-text", reveal);
             window.removeEventListener("paperling:scroll-top", toTop);
             window.removeEventListener("paperling:focus-document", focusDoc);

@@ -61,4 +61,20 @@ describe("AIBubble", () => {
         fireEvent.keyDown(document, { key: "Escape" });
         expect(onClose).toHaveBeenCalledTimes(1);
     });
+
+    it("supports Explain action and selectable Translate target language", async () => {
+        vi.mocked(runAIAction).mockResolvedValue("ok");
+        render(
+            <AIBubble anchor={{ x: 0, y: 0 }} selectedText="hello" config={cfg} onReplace={noop} onInsert={noop} onClose={noop} />
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Explain" }));
+        await waitFor(() =>
+            expect(runAIAction).toHaveBeenCalledWith("explain", "hello", cfg, expect.any(AbortSignal), expect.any(Function), undefined),
+        );
+        fireEvent.change(screen.getByLabelText("Translate target language"), { target: { value: "Français" } });
+        fireEvent.click(screen.getByRole("button", { name: "Translate" }));
+        await waitFor(() =>
+            expect(runAIAction).toHaveBeenCalledWith("translate", "hello", cfg, expect.any(AbortSignal), expect.any(Function), "Français"),
+        );
+    });
 });

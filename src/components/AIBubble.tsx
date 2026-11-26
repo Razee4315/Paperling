@@ -21,13 +21,26 @@ const ACTIONS: Array<{ id: AIAction; labelKey: TKey; icon: string; needsSelectio
     { id: "shorten", labelKey: "aiBubble.shorten", icon: "compress", needsSelection: true },
     { id: "expand", labelKey: "aiBubble.expand", icon: "expand", needsSelection: true },
     { id: "translate", labelKey: "aiBubble.translate", icon: "translate", needsSelection: true },
+    { id: "explain", labelKey: "aiBubble.explain", icon: "help", needsSelection: true },
 ];
+
+const TRANSLATE_LANGUAGES = [
+    "English",
+    "简体中文",
+    "Español",
+    "Français",
+    "Deutsch",
+    "日本語",
+    "한국어",
+    "Português",
+] as const;
 
 export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, onClose }: AIBubbleProps) {
     const { t } = useI18n();
     const [busy, setBusy] = useState<AIAction | null>(null);
     const [result, setResult] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [targetLang, setTargetLang] = useState<string>("English");
     const abortRef = useRef<AbortController | null>(null);
     const bubbleRef = useRef<HTMLDivElement>(null);
     const [adjusted, setAdjusted] = useState<{ left: number; top: number } | null>(null);
@@ -122,9 +135,16 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
         setError(null);
         setResult(null);
         try {
-            const out = await runAIAction(action, selectedText, config, ctrl.signal, (delta) => {
-                if (!ctrl.signal.aborted) setResult((previous) => ((previous ?? "") + delta).slice(0, 200_000));
-            });
+            const out = await runAIAction(
+                action,
+                selectedText,
+                config,
+                ctrl.signal,
+                (delta) => {
+                    if (!ctrl.signal.aborted) setResult((previous) => ((previous ?? "") + delta).slice(0, 200_000));
+                },
+                action === "translate" ? targetLang : undefined,
+            );
             if (!ctrl.signal.aborted) setResult(out);
         } catch (e) {
             if ((e as Error).name === "AbortError") return;
@@ -143,13 +163,13 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
             style={{
                 left: adjusted?.left ?? anchor.x,
                 top: adjusted?.top ?? anchor.y,
-                maxWidth: 380,
+                maxWidth: 440,
                 // Hide flicker on first measure: if we haven't adjusted yet,
                 // render off-screen-but-painted so the layout pass can size us.
                 visibility: adjusted ? "visible" : "hidden",
             }}
         >
-            <div className="flex items-center gap-1 px-1 py-1 border-b border-[var(--border-subtle)]">
+            <div className="flex flex-wrap items-center gap-1 px-1 py-1 border-b border-[var(--border-subtle)]">
                 {ACTIONS.filter((a) => !a.needsSelection || selectedText).map((a) => {
                     const label = t(a.labelKey);
                     return (
@@ -168,6 +188,21 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
                     </button>
                     );
                 })}
+                {selectedText && (
+                    <select
+                        value={targetLang}
+                        onChange={(e) => setTargetLang(e.target.value)}
+                        disabled={busy !== null}
+                        aria-label={t("aiBubble.translateTarget")}
+                        className="px-1.5 py-0.5 text-xs rounded-[var(--radius-sm)] bg-[var(--bg-input)] border border-[var(--border-subtle)] text-[var(--text-secondary)] outline-none focus:border-[var(--accent)] disabled:opacity-50"
+                    >
+                        {TRANSLATE_LANGUAGES.map((lang) => (
+                            <option key={lang} value={lang}>
+                                {lang}
+                            </option>
+                        ))}
+                    </select>
+                )}
                 <button
                     onClick={onClose}
                     aria-label={t("aiBubble.close")}
@@ -185,7 +220,7 @@ export function AIBubble({ anchor, selectedText, config, onReplace, onInsert, on
             )}
 
             {result !== null && (
-                <div className="p-2 max-w-[380px]">
+                <div className="p-2 max-w-[440px]">
                     <div className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] mb-1">{t("aiBubble.suggestion")}</div>
                     <div className="px-2 py-1.5 text-sm text-[var(--text-primary)] bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-[var(--radius-sm)] max-h-40 overflow-y-auto whitespace-pre-wrap">
                         {result}

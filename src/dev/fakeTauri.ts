@@ -239,6 +239,21 @@ async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
             for (const p of Object.keys(disk)) if (dirName(p) === d && isNote(p)) entries.push({ name: baseName(p), path: p, is_dir: false });
             return entries.sort((x, y) => Number(y.is_dir) - Number(x.is_dir) || x.name.toLowerCase().localeCompare(y.name.toLowerCase()));
         }
+        case "list_workspace_notes": {
+            const d = norm(a.root).replace(/\\+$/, "");
+            if (!dirs().has(d)) err(`File not found: ${d}`);
+            const prefix = `${d}\\`.toLowerCase();
+            const entries: { name: string; path: string; is_dir: boolean }[] = [];
+            for (const p of Object.keys(disk)) {
+                if (!isNote(p)) continue;
+                const np = norm(p);
+                if (!np.toLowerCase().startsWith(prefix)) continue;
+                const rel = np.slice(prefix.length).replace(/\\/g, "/");
+                if (rel.split("/").some((seg) => seg.startsWith(".") || seg === "node_modules" || seg === "target")) continue;
+                entries.push({ name: rel, path: p, is_dir: false });
+            }
+            return entries.sort((x, y) => x.name.toLowerCase().localeCompare(y.name.toLowerCase()));
+        }
         case "create_folder": {
             const p = `${norm(a.parent)}\\${a.name}`;
             extraDirs.add(p);

@@ -153,6 +153,8 @@ const en = {
         historyNeedsSave: "Save the file first: history starts once it's on disk",
         reviewAiFirst: "Finish reviewing the AI changes first",
         versionRestored: "Version restored. Save to keep it, or undo to go back",
+        imageImported: "Image added to ./images/",
+        imageDropSaveFirst: "Save this note first before dropping images into it",
     },
 
     // The file panel (explorer) in the left sidebar.
@@ -176,6 +178,12 @@ const en = {
         moveToTrash: "Move to trash",
         filterPlaceholder: "Filter this folder",
         filterAria: "Filter files in this folder",
+        expandFolder: "Expand {name}",
+        collapseFolder: "Collapse {name}",
+        duplicate: "Duplicate",
+        duplicated: "Created \"{name}\"",
+        copyPath: "Copy path",
+        revealInFolder: "Reveal in folder",
     },
 
     // The outline (table of contents) overlay.
@@ -859,7 +867,9 @@ const en = {
         rewrite: "Rewrite",
         shorten: "Shorten",
         expand: "Expand",
-        translate: "Translate → EN",
+        translate: "Translate",
+        explain: "Explain",
+        translateTarget: "Translate target language",
         close: "Close AI bubble",
         stop: "Stop generating",
         suggestion: "Suggestion",

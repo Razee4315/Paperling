@@ -297,14 +297,40 @@ interface MarkdownPreviewProps {
 
 /* ---------- Wikilink pre-processing (NAV-08) ---------- */
 
-const WIKILINK_RE = /\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
+const WIKILINK_RE = /(!?)\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
 // One capture group → String.split keeps protected spans at odd indices:
 // code spans, single-line $$…$$ and inline $…$ are literal text, never links.
 const INLINE_PROTECTED_RE = /(`+[^`]*`+|\$\$[^$]*\$\$|\$[^$\n]+\$)/;
 
+function parseEmbedSize(raw: string): { width: number; height?: number } | null {
+    const match = /^(\d{1,4})(?:x(\d{1,4}))?$/i.exec(raw.trim());
+    if (!match) return null;
+    const width = Number(match[1]);
+    const height = match[2] != null ? Number(match[2]) : undefined;
+    if (width < 1 || width > 4096) return null;
+    if (height != null && (height < 1 || height > 4096)) return null;
+    return { width, height };
+}
+
 const rewriteWikilinks = (text: string): string =>
-    text.replace(WIKILINK_RE, (_m, target: string, alias?: string) => {
+    text.replace(WIKILINK_RE, (_m, bang: string, target: string, alias?: string) => {
         const t = target.trim();
+        if (bang === "!") {
+            let sizeHash = "";
+            let a = wikilinkLabel(t);
+            if (alias != null) {
+                const parts = alias.split("|");
+                const size = parseEmbedSize(parts[parts.length - 1] ?? "");
+                if (size) {
+                    parts.pop();
+                    sizeHash = size.height != null ? `#w=${size.width}&h=${size.height}` : `#w=${size.width}`;
+                    a = parts.join("|").trim() || wikilinkLabel(t);
+                } else {
+                    a = alias.trim();
+                }
+            }
+            return `![${a}](wikilink:${encodeURIComponent(t)}${sizeHash})`;
+        }
         // No alias: show Obsidian's label (`Note › Heading`, `Heading` for a
         // same-note link) instead of the raw `Note#Heading`. NAV-09.
         const a = alias != null ? alias.trim() : wikilinkLabel(t);
@@ -450,8 +476,21 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
     // focus doesn't flash every image back to its loading skeleton.
     const shownKeyRef = useRef<string | null>(null);
 
+    // Strip optional `#w=...(&h=...)` embed sizing fragment from `wikilink:`
+    // images (`![[img.png|300]]` / `![[img.png|300x200]]`) before loading.
+    const isWikilink = src.startsWith("wikilink:");
+    const wikilinkSizeMatch = isWikilink ? /#w=(\d{1,4})(?:&h=(\d{1,4}))?$/.exec(src) : null;
+    const rawEmbedW = wikilinkSizeMatch ? Number(wikilinkSizeMatch[1]) : undefined;
+    const rawEmbedH = wikilinkSizeMatch?.[2] ? Number(wikilinkSizeMatch[2]) : undefined;
+    const validEmbedWidth = rawEmbedW != null && rawEmbedW >= 1 && rawEmbedW <= 4096 ? rawEmbedW : undefined;
+    const validEmbedHeight = rawEmbedH != null && rawEmbedH >= 1 && rawEmbedH <= 4096 ? rawEmbedH : undefined;
+    const rawPath = isWikilink
+        ? (wikilinkSizeMatch ? src.slice("wikilink:".length, wikilinkSizeMatch.index) : src.slice("wikilink:".length))
+        : src;
+    const cacheSrc = isWikilink ? `wikilink:${rawPath}` : src;
+
     useEffect(() => {
-        const shownKey = `${baseDir}\u0000${src}\u0000${blocked}`;
+        const shownKey = `${baseDir}\u0000${cacheSrc}\u0000${blocked}`;
         if (shownKeyRef.current !== shownKey) {
             shownKeyRef.current = shownKey;
             setImageSrc("");
@@ -462,8 +501,6 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
         // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
         // resolve them as plain paths next to the document, like a text
         // wikilink would be. IMG-EMBED-01.
-        const isWikilink = src.startsWith("wikilink:");
-        const rawPath = isWikilink ? src.slice("wikilink:".length) : src;
 
         // External URLs and data: URIs go straight to the <img>. They don't
         // need the document's directory, so they must load even when no file
@@ -518,7 +555,7 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             // Don't revoke the URL — the cache owns it. Cache eviction handles
             // revocation when the entry is pushed out by LRU pressure.
         };
-    }, [src, baseDir, blocked, refreshTick]);
+    }, [src, cacheSrc, rawPath, isWikilink, baseDir, blocked, refreshTick]);
 
     // Hold a retain reference on cached blob URLs while this <img> displays them,
     // so LRU eviction doesn't revoke a URL that is still mounted.
@@ -560,9 +597,14 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             src={imageSrc}
             alt={alt || 'image'}
             {...props}
+            style={{
+                ...(props.style ?? {}),
+                ...(validEmbedWidth ? { width: `${validEmbedWidth}px` } : {}),
+                ...(validEmbedHeight ? { height: `${validEmbedHeight}px` } : {}),
+            }}
             loading="lazy"
             onError={() => setError(true)}
-            className="max-w-full h-auto rounded-lg my-4 cursor-zoom-in transition-transform hover:scale-[1.01]"
+            className={`max-w-full ${validEmbedHeight ? "" : "h-auto "}rounded-lg my-4 cursor-zoom-in transition-transform hover:scale-[1.01]`}
             onClick={() => {
                 const evt = new CustomEvent("paperling:zoom", { detail: { src: imageSrc, alt } });
                 window.dispatchEvent(evt);

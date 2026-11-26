@@ -146,6 +146,8 @@ const zhCN: Dict = {
         historyNeedsSave: "请先保存文件：历史记录在保存到磁盘后开始记录",
         reviewAiFirst: "请先完成对 AI 更改的审阅",
         versionRestored: "已恢复版本。保存以保留，或撤销以退回",
+        imageImported: "已将图片添加到 ./images/",
+        imageDropSaveFirst: "请先保存此笔记，再拖入图片",
     },
 
     explorer: {
@@ -168,6 +170,12 @@ const zhCN: Dict = {
         moveToTrash: "移到回收站",
         filterPlaceholder: "筛选此文件夹",
         filterAria: "筛选此文件夹中的文件",
+        expandFolder: "展开 {name}",
+        collapseFolder: "折叠 {name}",
+        duplicate: "创建副本",
+        duplicated: "已创建“{name}”",
+        copyPath: "复制路径",
+        revealInFolder: "在文件夹中显示",
     },
 
     toc: {
@@ -822,7 +830,9 @@ const zhCN: Dict = {
         rewrite: "改写",
         shorten: "精简",
         expand: "扩展",
-        translate: "翻译 → EN",
+        translate: "翻译",
+        explain: "解释",
+        translateTarget: "翻译目标语言",
         close: "关闭 AI 浮窗",
         stop: "停止生成",
         suggestion: "建议",

@@ -1,10 +1,11 @@
 import { memo, useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useSidePanel } from "../hooks/useSidePanel";
 import { IS_MOBILE } from "../utils/platform";
 import { openSystemFilePicker } from "../utils/nativePicker";
 import { errMessage } from "../utils/errors";
-import { saveTextFile } from "../utils/fileIO";
+import { readTextFile, saveTextFile } from "../utils/fileIO";
 import { TabContextMenu } from "./TabContextMenu";
 import { samePath } from "../utils/tabsModel";
 import { isDocumentPath, isPathWithin, parentDirectory } from "../utils/documentPaths";
@@ -71,9 +72,11 @@ function FileExplorerImpl({
     const panelRef = useRef<HTMLElement>(null);
     const [nameEdit, setNameEdit] = useState<NameEdit | null>(null);
     const [menu, setMenu] = useState<{ entry: FileEntry; x: number; y: number } | null>(null);
+    const [expandedDirs, setExpandedDirs] = useState<Record<string, FileEntry[]>>({});
     const [filter, setFilter] = useState("");
     // A filter belongs to the folder it was typed in.
     useEffect(() => setFilter(""), [currentViewDir]);
+    useEffect(() => setExpandedDirs({}), [currentViewDir, isOpen]);
     const visibleFiles = filterEntries(files, filter);
 
     // Get directory from current file path
@@ -165,6 +168,88 @@ function FileExplorerImpl({
         return dir.endsWith(sep) ? `${dir}${name}` : `${dir}${sep}${name}`;
     };
 
+    const refreshExpanded = async (dirPath: string) => {
+        try {
+            const entries = await invoke<FileEntry[]>("list_directory_files", { directory: dirPath });
+            setExpandedDirs((prev) => (dirPath in prev ? { ...prev, [dirPath]: entries } : prev));
+        } catch {
+            setExpandedDirs((prev) => {
+                if (!(dirPath in prev)) return prev;
+                const next = { ...prev };
+                delete next[dirPath];
+                return next;
+            });
+        }
+    };
+
+    const refreshViewAndExpanded = async (viewDir: string) => {
+        await loadFiles(viewDir);
+        const openDirs = Object.keys(expandedDirs);
+        if (openDirs.length > 0) {
+            await Promise.all(openDirs.map((d) => refreshExpanded(d)));
+        }
+    };
+
+    const toggleExpand = async (entry: FileEntry) => {
+        if (entry.path in expandedDirs) {
+            setExpandedDirs((prev) => {
+                const next = { ...prev };
+                delete next[entry.path];
+                return next;
+            });
+            return;
+        }
+        try {
+            const entries = await invoke<FileEntry[]>("list_directory_files", { directory: entry.path });
+            setExpandedDirs((prev) => ({ ...prev, [entry.path]: entries }));
+        } catch (err) {
+            console.error("Failed to expand directory:", err);
+            onNotify?.(t("explorer.loadFailed"), "error");
+        }
+    };
+
+    const duplicateEntry = async (entry: FileEntry) => {
+        if (!currentViewDir || entry.is_dir) return;
+        const parent = getDirectory(entry.path) ?? currentViewDir;
+        const dot = entry.name.lastIndexOf(".");
+        const stem = dot > 0 ? entry.name.slice(0, dot) : entry.name;
+        const ext = dot > 0 ? entry.name.slice(dot) : "";
+        try {
+            const data = await readTextFile<{ content: string }>(entry.path, { recordHistory: false });
+            let candidateName = "";
+            let candidatePath = "";
+            for (let n = 1; n <= 99; n++) {
+                candidateName = n === 1 ? `${stem} (copy)${ext}` : `${stem} (copy ${n})${ext}`;
+                const nextPath = joinPath(parent, candidateName);
+                const exists = await invoke("get_file_info", { path: nextPath }).then(() => true, () => false);
+                if (!exists) {
+                    candidatePath = nextPath;
+                    break;
+                }
+            }
+            if (!candidatePath) {
+                onNotify?.(t("explorer.actionFailed"), "error");
+                return;
+            }
+            await saveTextFile(candidatePath, data.content);
+            await refreshViewAndExpanded(currentViewDir);
+            onNotify?.(t("explorer.duplicated", { name: candidateName }), "success");
+        } catch (err) {
+            onNotify?.(errMessage(err) || t("explorer.actionFailed"), "error");
+        }
+    };
+
+    const copyEntryPath = (entry: FileEntry) => {
+        navigator.clipboard
+            .writeText(entry.path)
+            .then(() => onNotify?.(t("toast.pathCopied"), "success"))
+            .catch(() => onNotify?.(t("toast.couldNotCopyPath"), "error"));
+    };
+
+    const revealEntry = (entry: FileEntry) => {
+        revealItemInDir(entry.path).catch(() => onNotify?.(t("toast.couldNotReveal"), "error"));
+    };
+
     // Commit the inline name editor: create a note / folder, or rename.
     // Enter commits, and so does the blur that follows when the field
     // unmounts — one commit per edit.
@@ -213,7 +298,7 @@ function FileExplorerImpl({
             const newPath = await invoke<string>("rename_path", { path: entry.path, newName });
             setNameEdit(null);
             onPathChanged?.(entry.path, newPath);
-            await loadFiles(currentViewDir);
+            await refreshViewAndExpanded(currentViewDir);
         } catch (err) {
             onNotify?.(errMessage(err) || t("explorer.actionFailed"), "error");
         }
@@ -232,7 +317,7 @@ function FileExplorerImpl({
             await invoke<string>("trash_path", { path: entry.path });
             onPathChanged?.(entry.path, null);
             onNotify?.(`Moved "${entry.name}" to .trash`, "success");
-            await loadFiles(currentViewDir);
+            await refreshViewAndExpanded(currentViewDir);
         } catch (err) {
             onNotify?.(errMessage(err) || t("explorer.deleteFailed"), "error");
         }
@@ -323,7 +408,7 @@ function FileExplorerImpl({
                         <span className="material-symbols-outlined text-[18px]">create_new_folder</span>
                     </button>
                     <button
-                        onClick={() => currentViewDir && loadFiles(currentViewDir)}
+                        onClick={() => currentViewDir && void refreshViewAndExpanded(currentViewDir)}
                         aria-label={t("explorer.refresh")}
                         title="Refresh"
                         className="btn-press flex items-center justify-center w-7 h-7 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
@@ -415,66 +500,101 @@ function FileExplorerImpl({
                     <div className="py-8 text-center text-sm text-[var(--text-secondary)]">Nothing here matches "{filter.trim()}"</div>
                 ) : (
                     <ul className="py-2" role="listbox" aria-label="Files and folders">
-                        {visibleFiles.map((file, index) => {
-                            const isActive = !file.is_dir && samePath(file.path, currentFilePath);
-                            if (nameEdit?.mode === "rename" && nameEdit.entry.path === file.path) {
-                                return (
-                                    <li key={file.path}>
-                                        <NameInput
-                                            icon={file.is_dir ? "folder" : "description"}
-                                            value={nameEdit.value}
-                                            placeholder={t("explorer.newName")}
-                                            onChange={(value) => setNameEdit({ ...nameEdit, value })}
-                                            onCommit={commitNameEdit}
-                                            onCancel={() => setNameEdit(null)}
-                                        />
-                                    </li>
-                                );
-                            }
-                            return (
-                                <li
-                                    key={file.path}
-                                    className={`group/entry relative ${animateList ? "stagger-item" : ""}`}
-                                    style={animateList ? { animationDelay: `${Math.min(index, 15) * 0.03}s` } : undefined}
-                                >
-                                    <button
-                                        onClick={() => handleEntryClick(file)}
-                                        onContextMenu={(e) => {
-                                            e.preventDefault();
-                                            setMenu({ entry: file, x: e.clientX, y: e.clientY });
-                                        }}
-                                        onKeyDown={(e) => {
-                                            // F2 renames, Delete trashes — the usual file-manager keys.
-                                            if (e.key === "F2") { e.preventDefault(); setNameEdit({ mode: "rename", entry: file, value: file.name }); }
-                                            else if (e.key === "Delete") { e.preventDefault(); void trashEntry(file); }
-                                        }}
-                                        role="option"
-                                        aria-selected={isActive}
-                                        className={`btn-press w-full pl-4 pr-9 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
-                                            isActive
-                                                ? "bg-[var(--accent)] text-[var(--accent-text)]"
-                                                : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                        }`}
-                                    >
-                                        <span className="material-symbols-outlined text-[16px]">
-                                            {file.is_dir ? "folder" : "description"}
-                                        </span>
-                                        <span className="truncate">{file.name}</span>
-                                    </button>
-                                    <button
-                                        aria-label={`More actions for ${file.name}`}
-                                        title="More"
-                                        onClick={(e) => {
-                                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                            setMenu({ entry: file, x: r.left, y: r.bottom });
-                                        }}
-                                        className={`absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded ${IS_MOBILE ? "opacity-100" : "opacity-0 group-hover/entry:opacity-100 focus:opacity-100"} ${isActive ? "text-[var(--accent-text)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"}`}
-                                    >
-                                        <span className="material-symbols-outlined text-[16px]">more_horiz</span>
-                                    </button>
-                                </li>
-                            );
-                        })}
+                        {(() => {
+                            const renderEntries = (entries: FileEntry[], depth: number): React.ReactNode =>
+                                entries.map((file, index) => {
+                                    const isActive = !file.is_dir && samePath(file.path, currentFilePath);
+                                    const isExpanded = file.is_dir && expandedDirs[file.path] !== undefined;
+                                    if (nameEdit?.mode === "rename" && nameEdit.entry.path === file.path) {
+                                        return (
+                                            <li key={file.path} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
+                                                <NameInput
+                                                    icon={file.is_dir ? "folder" : "description"}
+                                                    value={nameEdit.value}
+                                                    placeholder={t("explorer.newName")}
+                                                    onChange={(value) => setNameEdit({ ...nameEdit, value })}
+                                                    onCommit={commitNameEdit}
+                                                    onCancel={() => setNameEdit(null)}
+                                                />
+                                            </li>
+                                        );
+                                    }
+                                    return (
+                                        <li
+                                            key={file.path}
+                                            className={animateList && depth === 0 ? "stagger-item" : undefined}
+                                            style={animateList && depth === 0 ? { animationDelay: `${Math.min(index, 15) * 0.03}s` } : undefined}
+                                        >
+                                            <div
+                                                className="group/entry relative flex items-center"
+                                                style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}
+                                            >
+                                                {file.is_dir && depth < 4 && (
+                                                    <button
+                                                        type="button"
+                                                        aria-expanded={isExpanded}
+                                                        aria-label={
+                                                            isExpanded
+                                                                ? t("explorer.collapseFolder", { name: file.name })
+                                                                : t("explorer.expandFolder", { name: file.name })
+                                                        }
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            void toggleExpand(file);
+                                                        }}
+                                                        className="ml-1 w-5 h-6 shrink-0 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px]">
+                                                            {isExpanded ? "expand_more" : "chevron_right"}
+                                                        </span>
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => handleEntryClick(file)}
+                                                    onContextMenu={(e) => {
+                                                        e.preventDefault();
+                                                        setMenu({ entry: file, x: e.clientX, y: e.clientY });
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        // F2 renames, Delete trashes — the usual file-manager keys.
+                                                        if (e.key === "F2") { e.preventDefault(); setNameEdit({ mode: "rename", entry: file, value: file.name }); }
+                                                        else if (e.key === "Delete") { e.preventDefault(); void trashEntry(file); }
+                                                    }}
+                                                    role="option"
+                                                    aria-selected={isActive}
+                                                    className={`btn-press flex-1 min-w-0 ${file.is_dir && depth < 4 ? "pl-1" : "pl-4"} pr-9 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
+                                                        isActive
+                                                            ? "bg-[var(--accent)] text-[var(--accent-text)]"
+                                                            : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                                                    }`}
+                                                >
+                                                    <span className="material-symbols-outlined text-[16px]">
+                                                        {file.is_dir ? "folder" : "description"}
+                                                    </span>
+                                                    <span className="truncate">{file.name}</span>
+                                                </button>
+                                                <button
+                                                    aria-label={`More actions for ${file.name}`}
+                                                    title="More"
+                                                    onClick={(e) => {
+                                                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                                        setMenu({ entry: file, x: r.left, y: r.bottom });
+                                                    }}
+                                                    className={`absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded ${IS_MOBILE ? "opacity-100" : "opacity-0 group-hover/entry:opacity-100 focus:opacity-100"} ${isActive ? "text-[var(--accent-text)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"}`}
+                                                >
+                                                    <span className="material-symbols-outlined text-[16px]">more_horiz</span>
+                                                </button>
+                                            </div>
+                                            {isExpanded && !filter.trim() && (
+                                                <ul role="group" aria-label={file.name}>
+                                                    {renderEntries(expandedDirs[file.path], depth + 1)}
+                                                </ul>
+                                            )}
+                                        </li>
+                                    );
+                                });
+                            return renderEntries(visibleFiles, 0);
+                        })()}
                     </ul>
                 )}
             </div>
@@ -485,13 +605,30 @@ function FileExplorerImpl({
                     onClose={() => setMenu(null)}
                     actions={[
                         ...(!menu.entry.is_dir
-                            ? [{ label: t("titleBar.openLabel"), icon: "open_in_new", onClick: () => handleEntryClick(menu.entry) }]
+                            ? [
+                                { label: t("titleBar.openLabel"), icon: "open_in_new", onClick: () => handleEntryClick(menu.entry) },
+                                { label: t("explorer.duplicate"), icon: "content_copy", onClick: () => void duplicateEntry(menu.entry) },
+                            ]
                             : []),
                         {
                             label: t("common.rename"),
                             icon: "edit",
                             onClick: () => setNameEdit({ mode: "rename", entry: menu.entry, value: menu.entry.name }),
                         },
+                        {
+                            label: t("explorer.copyPath"),
+                            icon: "link",
+                            onClick: () => copyEntryPath(menu.entry),
+                        },
+                        ...(!IS_MOBILE
+                            ? [
+                                {
+                                    label: t("explorer.revealInFolder"),
+                                    icon: "folder_open",
+                                    onClick: () => revealEntry(menu.entry),
+                                },
+                            ]
+                            : []),
                         {
                             label: t("explorer.moveToTrash"),
                             icon: "delete",

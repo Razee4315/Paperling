@@ -605,6 +605,90 @@ pub async fn list_directory_files(
     Ok(entries)
 }
 
+/// Walk a workspace folder recursively for openable notes so Quick Switcher and
+/// workspace wikilinks work across subfolders (NAV-05 / WIKI-02). Hidden dirs,
+/// dependency caches, and symlinks are skipped, and depth/count are bounded.
+fn list_workspace_notes_inner(root: &std::path::Path) -> Result<Vec<FileEntry>, CommandError> {
+    const MAX_DEPTH: usize = 8;
+    const MAX_NOTES: usize = 2000;
+
+    if !root.exists() {
+        return Err(CommandError::FileNotFound(
+            root.to_string_lossy().into_owned(),
+        ));
+    }
+    if !root.is_dir() {
+        return Err(CommandError::ReadError(
+            "Path is not a directory".to_string(),
+        ));
+    }
+
+    let mut entries: Vec<FileEntry> = Vec::new();
+    let mut stack: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
+
+    while let Some((dir, depth)) = stack.pop() {
+        if entries.len() >= MAX_NOTES {
+            break;
+        }
+        let Ok(read_dir) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in read_dir.flatten() {
+            if entries.len() >= MAX_NOTES {
+                break;
+            }
+            let Ok(ft) = entry.file_type() else {
+                continue;
+            };
+            if ft.is_symlink() {
+                continue;
+            }
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if name.starts_with('.') || name == "node_modules" || name == "target" {
+                continue;
+            }
+            if ft.is_dir() {
+                if depth < MAX_DEPTH {
+                    stack.push((path, depth + 1));
+                }
+                continue;
+            }
+            if ft.is_file() && is_note_file(&path) {
+                let Ok(rel) = path.strip_prefix(root) else {
+                    continue;
+                };
+                entries.push(FileEntry {
+                    name: rel.to_string_lossy().replace('\\', "/"),
+                    path: path.to_string_lossy().into_owned(),
+                    is_dir: false,
+                });
+            }
+        }
+    }
+
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(entries)
+}
+
+/// Recursive note listing for Quick Switcher and workspace wikilink lookup.
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
+#[tauri::command]
+pub async fn list_workspace_notes(
+    app: tauri::AppHandle,
+    root: String,
+) -> Result<Vec<FileEntry>, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&root))
+        .map_err(CommandError::ReadError)?;
+
+    tokio::task::spawn_blocking(move || list_workspace_notes_inner(std::path::Path::new(&root)))
+        .await
+        .map_err(|e| CommandError::ReadError(e.to_string()))?
+}
+
 // ===== Explorer file management (FILES-01) =====
 //
 // Create folder / rename / delete for the file explorer. Names are validated
@@ -1345,6 +1429,115 @@ async fn write_image_atomically(
     Ok(())
 }
 
+async fn import_dropped_image_inner(
+    md_file_path: &str,
+    source_path: &str,
+) -> Result<String, CommandError> {
+    let src_path = std::path::Path::new(source_path);
+    validate_image_extension(src_path)?;
+
+    let meta = tokio::fs::metadata(src_path)
+        .await
+        .map_err(|e| CommandError::ReadError(e.to_string()))?;
+    if !meta.is_file() {
+        return Err(CommandError::WriteError(
+            "Dropped item is not a file".to_string(),
+        ));
+    }
+    if meta.len() > MAX_IMAGE_BYTES as u64 {
+        return Err(CommandError::TooLarge(format!(
+            "Image is {} MB; maximum is {} MB",
+            meta.len() / (1024 * 1024),
+            MAX_IMAGE_BYTES / (1024 * 1024),
+        )));
+    }
+
+    let image_data = tokio::fs::read(src_path)
+        .await
+        .map_err(|e| CommandError::ReadError(e.to_string()))?;
+    if image_data.len() > MAX_IMAGE_BYTES {
+        return Err(CommandError::TooLarge(format!(
+            "Image is {} MB; maximum is {} MB",
+            image_data.len() / (1024 * 1024),
+            MAX_IMAGE_BYTES / (1024 * 1024),
+        )));
+    }
+
+    let ext = src_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_else(|| "png".to_string());
+    let raw_stem = src_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let mut stem = String::with_capacity(raw_stem.len());
+    let mut prev_dash = false;
+    for ch in raw_stem.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+            stem.push(ch);
+            prev_dash = false;
+        } else if !prev_dash {
+            stem.push('-');
+            prev_dash = true;
+        }
+    }
+    let truncated: String = stem.trim_matches(['-', '.']).chars().take(80).collect();
+    let trimmed = truncated.trim_matches(['-', '.']);
+    let clean_stem = if trimmed.is_empty() { "image" } else { trimmed };
+
+    let md_path = PathBuf::from(md_file_path);
+    let parent_dir = md_path
+        .parent()
+        .ok_or_else(|| CommandError::WriteError("Cannot determine parent directory".to_string()))?;
+    let images_dir = parent_dir.join("images");
+    if !images_dir.exists() {
+        tokio::fs::create_dir_all(&images_dir).await.map_err(|e| {
+            CommandError::WriteError(format!("Failed to create images directory: {e}"))
+        })?;
+    }
+
+    let mut chosen = None;
+    for idx in 0..=1000usize {
+        let candidate = if idx == 0 {
+            format!("{clean_stem}.{ext}")
+        } else {
+            format!("{clean_stem}-{idx}.{ext}")
+        };
+        let safe = sanitize_image_name(&candidate)?;
+        if !images_dir.join(&safe).exists() {
+            chosen = Some(safe);
+            break;
+        }
+    }
+    let safe_name = chosen.ok_or_else(|| {
+        CommandError::WriteError("Too many identically named images in ./images".to_string())
+    })?;
+    let image_path = images_dir.join(&safe_name);
+    write_image_atomically(&image_path, &image_data).await?;
+    Ok(format!("./images/{safe_name}"))
+}
+
+/// Copy a dropped external image into `./images/` beside the active note
+/// without overwriting existing images, returning `./images/<name>`. IMG-06.
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
+#[tauri::command]
+pub async fn import_dropped_image(
+    app: tauri::AppHandle,
+    md_file_path: String,
+    source_path: String,
+) -> Result<String, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        ensure_mobile_path_allowed(&app, std::path::Path::new(&md_file_path))
+            .map_err(CommandError::WriteError)?;
+        ensure_mobile_path_allowed(&app, std::path::Path::new(&source_path))
+            .map_err(CommandError::ReadError)?;
+    }
+    import_dropped_image_inner(&md_file_path, &source_path).await
+}
+
 fn validate_image_extension(path: &std::path::Path) -> Result<(), CommandError> {
     let ext = path
         .extension()
@@ -1708,9 +1901,10 @@ pub fn exit_app() {
 mod tests {
     use super::{
         apply_eol, contains_whole_word, create_folder_inner, find_backlinks_in_tree,
-        read_file_inner, read_image_file_inner, rename_path_inner, sanitize_image_name,
-        save_file_inner, search_markdown_tree, trash_path_inner, unique_temp_path,
-        validate_entry_name, validate_rel_path, write_export_file_inner, Eol,
+        import_dropped_image_inner, list_workspace_notes_inner, read_file_inner,
+        read_image_file_inner, rename_path_inner, sanitize_image_name, save_file_inner,
+        search_markdown_tree, trash_path_inner, unique_temp_path, validate_entry_name,
+        validate_rel_path, write_export_file_inner, Eol,
     };
     use crate::text_encoding::TextEncoding;
 
@@ -2328,6 +2522,64 @@ mod tests {
                 read_image_file_inner(&base, "pic.png").await.unwrap(),
                 vec![0x89, b'P', b'N', b'G']
             );
+
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn list_workspace_notes_walks_nested_notes_and_skips_hidden() {
+        let dir = std::env::temp_dir()
+            .join(format!("paperling-ws-notes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Projects/Deep")).unwrap();
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::create_dir_all(dir.join("node_modules/pkg")).unwrap();
+
+        std::fs::write(dir.join("Welcome.md"), "# Welcome").unwrap();
+        std::fs::write(dir.join("Projects/Roadmap.markdown"), "# Roadmap").unwrap();
+        std::fs::write(dir.join("Projects/Deep/notes.txt"), "text note").unwrap();
+        std::fs::write(dir.join("Projects/pic.png"), [1u8, 2, 3]).unwrap();
+        std::fs::write(dir.join(".git/secret.md"), "hidden").unwrap();
+        std::fs::write(dir.join("node_modules/pkg/readme.md"), "ignored").unwrap();
+
+        let entries = list_workspace_notes_inner(&dir).unwrap();
+        let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["Projects/Deep/notes.txt", "Projects/Roadmap.markdown", "Welcome.md"]
+        );
+        assert!(entries.iter().all(|e| !e.is_dir));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn import_dropped_image_copies_without_clobbering_and_rejects_bad_ext() {
+        tauri::async_runtime::block_on(async {
+            let dir = std::env::temp_dir()
+                .join(format!("paperling-drop-img-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("note_dir")).unwrap();
+            let note = dir.join("note_dir/note.md");
+            std::fs::write(&note, "# Note").unwrap();
+
+            let src_clean = dir.join("my photo (1).png");
+            let bytes = vec![0x89u8, b'P', b'N', b'G', 0x0D, 0x0A];
+            std::fs::write(&src_clean, &bytes).unwrap();
+
+            let note_s = note.to_string_lossy().into_owned();
+            let src_s = src_clean.to_string_lossy().into_owned();
+            let first = import_dropped_image_inner(&note_s, &src_s).await.unwrap();
+            let second = import_dropped_image_inner(&note_s, &src_s).await.unwrap();
+            assert_eq!(first, "./images/my-photo-1.png");
+            assert_eq!(second, "./images/my-photo-1-1.png");
+            assert_eq!(std::fs::read(dir.join("note_dir/images/my-photo-1.png")).unwrap(), bytes);
+            assert_eq!(std::fs::read(dir.join("note_dir/images/my-photo-1-1.png")).unwrap(), bytes);
+
+            let exe = dir.join("bad.exe");
+            std::fs::write(&exe, b"MZ").unwrap();
+            assert!(import_dropped_image_inner(&note_s, &exe.to_string_lossy()).await.is_err());
 
             std::fs::remove_dir_all(&dir).ok();
         });

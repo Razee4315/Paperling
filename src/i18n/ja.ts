@@ -131,6 +131,8 @@ const ja: Dict = {
         historyNeedsSave: "先にファイルを保存してください：保存後から履歴が記録されます",
         reviewAiFirst: "先に AI の変更のレビューを完了してください",
         versionRestored: "バージョンを復元しました。保持するには保存、戻すには元に戻すを実行してください",
+        imageImported: "画像を ./images/ に追加しました",
+        imageDropSaveFirst: "画像をドロップする前にこのノートを保存してください",
     },
 
     explorer: {
@@ -153,6 +155,12 @@ const ja: Dict = {
         moveToTrash: "ゴミ箱へ移動",
         filterPlaceholder: "このフォルダーを絞り込む",
         filterAria: "このフォルダー内のファイルを絞り込む",
+        expandFolder: "{name} を展開",
+        collapseFolder: "{name} を折りたたむ",
+        duplicate: "複製",
+        duplicated: "「{name}」を作成しました",
+        copyPath: "パスをコピー",
+        revealInFolder: "フォルダーで表示",
     },
 
     toc: {
@@ -802,7 +810,9 @@ const ja: Dict = {
         rewrite: "書き直し",
         shorten: "要約・短縮",
         expand: "詳しく展開",
-        translate: "翻訳 → EN",
+        translate: "翻訳",
+        explain: "説明",
+        translateTarget: "翻訳先の言語",
         close: "AI バブルを閉じる",
         stop: "生成を停止",
         suggestion: "提案",

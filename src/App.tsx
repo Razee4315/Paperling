@@ -31,7 +31,7 @@ import { useFileSession } from "./hooks/useFileSession";
 import { useEncodingLabel } from "./hooks/useEncodingLabel";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { IS_MOBILE, isTauri } from "./utils/platform";
-import { isDocumentPath, isHtmlPath } from "./utils/documentPaths";
+import { isDocumentPath, isHtmlPath, isUnsafeRelativePath } from "./utils/documentPaths";
 import { EDITOR_COMMAND_EVENT, type FoldCommandId, type TextCommandId } from "./utils/textCommands";
 import { writeRichClipboard } from "./utils/richClipboard";
 import { fileHistory } from "./utils/fileHistory";
@@ -963,14 +963,31 @@ function AppContent() {
       if (typeof directory === "string") openWorkspace(directory);
     } catch (error) { showToast(errMessage(error) || t("toast.couldNotOpenFolder"), "error"); }
   }, [openWorkspace, showToast]);
+  const IMAGE_DROP_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
   const handleDroppedPath = useCallback(async (path: string) => {
     try {
       const info = await invoke<{ is_dir: boolean }>("get_file_info", { path });
       if (info.is_dir) openWorkspace(path);
       else if (isDocumentPath(path)) await loadFile(path);
+      else if (IMAGE_DROP_RE.test(path)) {
+        if (!filePath || isHtmlPath(filePath)) {
+          showToast(t("toast.imageDropSaveFirst"), "info");
+          return;
+        }
+        const relPath = await invoke<string>("import_dropped_image", { mdFilePath: filePath, sourcePath: path });
+        const rawAlt = path.replace(/\\/g, "/").split("/").pop()?.replace(/\.[^.]+$/, "") || "image";
+        const alt = rawAlt.replace(/[[\]]/g, "") || "image";
+        const snippet = `![${alt}](${relPath})`;
+        const detail = { text: snippet, handled: false };
+        window.dispatchEvent(new CustomEvent("paperling:insert-text", { detail }));
+        if (!detail.handled) {
+          setContent((prev) => (prev ? (prev.endsWith("\n") ? `${prev}${snippet}\n` : `${prev}\n\n${snippet}\n`) : `${snippet}\n`));
+        }
+        showToast(t("toast.imageImported"), "success");
+      }
       else showToast(t("toast.dropHintOpenable"), "info");
     } catch (error) { showToast(errMessage(error) || t("toast.dropFailed"), "error"); }
-  }, [loadFile, openWorkspace, showToast]);
+  }, [filePath, loadFile, openWorkspace, setContent, showToast]);
 
   useEffect(() => {
     let mounted = true;
@@ -1060,27 +1077,23 @@ function AppContent() {
       return;
     }
     if (!filePath) return;
-    const cleaned = file;
-    // Block traversal (`..`), path separators, drive letters, and absolute paths.
-    // Wikilinks should only reference siblings in the same folder.
-    if (
-      !cleaned ||
-      cleaned.includes("..") ||
-      cleaned.includes("/") ||
-      cleaned.includes("\\") ||
-      cleaned.includes("\0") ||
-      /^[a-zA-Z]:/.test(cleaned)
-    ) {
+    const cleaned = file.trim();
+    const cleanedSlash = cleaned.replace(/\\/g, "/");
+    // Block traversal (`..`), leading slashes, drive letters, and NUL bytes.
+    // Safe relative subfolder paths (`Projects/Roadmap`) are allowed and
+    // searched both relative to the note and across the open workspace. WIKI-02.
+    if (!cleaned || isUnsafeRelativePath(cleanedSlash)) {
       showToast(t("toast.invalidWikilink", { target }), "error");
       return;
     }
     const lastSep = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
     const dir = lastSep > 0 ? filePath.slice(0, lastSep) : "";
     const sep = filePath.includes("\\") ? "\\" : "/";
+    const relLocal = cleanedSlash.replace(/\//g, sep);
     const candidates = [
-      `${dir}${sep}${cleaned}.md`,
-      `${dir}${sep}${cleaned}.markdown`,
-      `${dir}${sep}${cleaned}`,
+      `${dir}${sep}${relLocal}.md`,
+      `${dir}${sep}${relLocal}.markdown`,
+      `${dir}${sep}${relLocal}`,
     ];
     for (const c of candidates) {
       try {
@@ -1093,10 +1106,46 @@ function AppContent() {
       jumpTo(getOpenBuffer(c));
       return;
     }
+    // Search recursively within the active workspace (or note folder) so links
+    // like `[[Roadmap]]` or `[[Projects/Roadmap]]` resolve anywhere in the vault.
+    const workspaceRoot = workspaceDirectory ?? (dir || null);
+    if (workspaceRoot) {
+      try {
+        const notes = await invoke<{ name: string; path: string; is_dir: boolean }[]>(
+          "list_workspace_notes",
+          { root: workspaceRoot },
+        );
+        const want = cleanedSlash.toLowerCase();
+        const stripExt = (p: string) => p.replace(/\.(md|markdown)$/i, "");
+        const exact = notes.find((n) => {
+          const nl = n.name.toLowerCase();
+          return nl === want || stripExt(nl) === want;
+        });
+        const byBasename = exact ?? (!want.includes("/")
+          ? notes
+              .filter((n) => {
+                const base = (n.name.split("/").pop() ?? n.name).toLowerCase();
+                return base === want || stripExt(base) === want;
+              })
+              .sort((a, b) => a.name.length - b.name.length)[0]
+          : undefined);
+        if (byBasename) {
+          await loadFile(byBasename.path);
+          jumpTo(getOpenBuffer(byBasename.path));
+          return;
+        }
+      } catch {
+        // Ignore recursive lookup errors and fall back cleanly below.
+      }
+    }
+    if (cleanedSlash.includes("/")) {
+      showToast(t("toast.couldNotOpenFile", { name: `${cleaned}.md` }), "info");
+      return;
+    }
     // Nothing matched — offer to create the note next to the current file, the
     // way Obsidian turns a dangling [[link]] into a new file. NAV-07.
     offerCreateNote(`${dir}${sep}${cleaned}.md`, `${cleaned}.md`);
-  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote, recordNav]);
+  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote, recordNav, workspaceDirectory]);
 
   // Standard relative markdown links — `[text](note.md)`, `[x](sub/note.md)`,
   // `[y](../other.md)` — open in-app like wikilinks (the preview only routes
@@ -2132,14 +2181,15 @@ function AppContent() {
     return items;
   }, [showPalette, deferredContent]);
 
-  // Quick switcher: list the open file's folder when the palette opens, so any
-  // sibling note is a few keystrokes away (not just recents and tabs).
+  // Quick switcher: list workspace (or folder) notes recursively when the palette
+  // opens so nested notes across subfolders are a few keystrokes away. NAV-05.
   useEffect(() => {
     if (!showPalette || !currentDirectory) return;
     let cancelled = false;
-    invoke<{ name: string; path: string; is_dir: boolean }[]>("list_directory_files", { directory: currentDirectory })
+    invoke<{ name: string; path: string; is_dir: boolean }[]>("list_workspace_notes", { root: currentDirectory })
+      .catch(() => invoke<{ name: string; path: string; is_dir: boolean }[]>("list_directory_files", { directory: currentDirectory }))
       .then((entries) => {
-        if (!cancelled) setFolderFiles(entries.filter((e) => !e.is_dir));
+        if (!cancelled) setFolderFiles((entries ?? []).filter((e) => !e.is_dir));
       })
       .catch(() => { if (!cancelled) setFolderFiles([]); });
     return () => { cancelled = true; };
@@ -2153,12 +2203,12 @@ function AppContent() {
       .map((f) => ({
         id: `folder.${f.path}`,
         label: f.name,
-        section: "Files in this folder",
+        section: workspaceDirectory ? "Files in workspace" : "Files in this folder",
         icon: "description",
         keywords: "open file switch quick",
         run: () => loadFile(f.path),
       }));
-  }, [showPalette, folderFiles, filePath, loadFile]);
+  }, [showPalette, folderFiles, filePath, loadFile, workspaceDirectory]);
 
   // "Open tabs" palette section — jump to any open tab by name (only worthwhile
   // with more than one open). Uses the same folder disambiguation as the bar. TABS-11.

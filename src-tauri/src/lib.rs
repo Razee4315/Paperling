@@ -5,8 +5,9 @@ mod text_encoding;
 
 use commands::{
     create_folder, exit_app, find_backlinks, get_ai_key, get_file_info, get_incoming_file,
-    get_notes_dir, list_directory_files, read_file, read_image_file, rename_path, save_file,
-    save_image, search_files, set_ai_key, trash_path, write_export_file,
+    get_notes_dir, import_dropped_image, list_directory_files, list_workspace_notes, read_file,
+    read_image_file, rename_path, save_file, save_image, search_files, set_ai_key, trash_path,
+    write_export_file,
 };
 use std::sync::Mutex;
 // Both traits are only exercised by the desktop single-instance closure and
@@ -222,6 +223,8 @@ pub fn run() {
             rename_path,
             trash_path,
             save_image,
+            import_dropped_image,
+            list_workspace_notes,
             read_image_file,
             get_ai_key,
             set_ai_key,

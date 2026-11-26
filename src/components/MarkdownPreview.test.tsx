@@ -673,4 +673,33 @@ describe("block-by-block rendering (PERF-02)", () => {
         boxes[1].click();
         expect(onContentChange).toHaveBeenCalledWith(content.replace("- [ ] second", "- [x] second"));
     });
+
+    it("renders Obsidian ![[image|WxH]] embed dimensions after rehypeSanitize", async () => {
+        vi.mocked(invoke).mockImplementation(async (cmd) => {
+            if (cmd === "read_image_file") return new Uint8Array([137, 80, 78, 71]);
+            return null;
+        });
+        const origCreateObjectURL = URL.createObjectURL;
+        const origRevokeObjectURL = URL.revokeObjectURL;
+        URL.createObjectURL = vi.fn(() => "blob:mock-embed");
+        URL.revokeObjectURL = vi.fn();
+        try {
+            const { container } = renderPreview("![[photo.png|300x200]]", { filePath: "C:/notes/doc.md" });
+            const img = await waitFor(() => {
+                const el = container.querySelector<HTMLImageElement>("img");
+                expect(el).toBeTruthy();
+                expect(el?.getAttribute("src")).toBe("blob:mock-embed");
+                return el!;
+            });
+            expect(img.style.width).toBe("300px");
+            expect(img.style.height).toBe("200px");
+            expect(vi.mocked(invoke)).toHaveBeenCalledWith("read_image_file", {
+                baseDir: "C:/notes",
+                relPath: "photo.png",
+            });
+        } finally {
+            URL.createObjectURL = origCreateObjectURL;
+            URL.revokeObjectURL = origRevokeObjectURL;
+        }
+    });
 });

@@ -131,6 +131,8 @@ const ko: Dict = {
         historyNeedsSave: "먼저 파일을 저장하세요: 디스크에 저장된 후 기록이 시작됩니다",
         reviewAiFirst: "먼저 AI 변경 사항 검토를 마쳐주세요",
         versionRestored: "버전이 복원되었습니다. 유지하려면 저장하고 되돌리려면 실행 취소하세요",
+        imageImported: "이미지를 ./images/에 추가했습니다",
+        imageDropSaveFirst: "이미지를 드롭하기 전에 이 노트를 먼저 저장하세요",
     },
 
     explorer: {
@@ -153,6 +155,12 @@ const ko: Dict = {
         moveToTrash: "휴지통으로 이동",
         filterPlaceholder: "이 폴더 필터링",
         filterAria: "이 폴더의 파일 필터링",
+        expandFolder: "{name} 펼치기",
+        collapseFolder: "{name} 접기",
+        duplicate: "복제",
+        duplicated: "\"{name}\" 생성됨",
+        copyPath: "경로 복사",
+        revealInFolder: "폴더에서 보기",
     },
 
     toc: {
@@ -802,7 +810,9 @@ const ko: Dict = {
         rewrite: "다시 쓰기",
         shorten: "줄이기",
         expand: "늘리기",
-        translate: "번역 → EN",
+        translate: "번역",
+        explain: "설명",
+        translateTarget: "번역 대상 언어",
         close: "AI 창 닫기",
         stop: "생성 중지",
         suggestion: "제안",

@@ -134,6 +134,8 @@ const de: Dict = {
         historyNeedsSave: "Datei zuerst speichern: Der Verlauf beginnt nach dem ersten Speichern",
         reviewAiFirst: "Prüfen Sie zuerst die KI-Änderungen",
         versionRestored: "Version wiederhergestellt. Speichern zum Behalten oder rückgängig machen",
+        imageImported: "Bild zu ./images/ hinzugefügt",
+        imageDropSaveFirst: "Speichern Sie diese Notiz zuerst, bevor Sie Bilder ablegen",
     },
 
     explorer: {
@@ -156,6 +158,12 @@ const de: Dict = {
         moveToTrash: "In den Papierkorb",
         filterPlaceholder: "Diesen Ordner filtern",
         filterAria: "Dateien in diesem Ordner filtern",
+        expandFolder: "{name} ausklappen",
+        collapseFolder: "{name} einklappen",
+        duplicate: "Duplizieren",
+        duplicated: "„{name}“ erstellt",
+        copyPath: "Pfad kopieren",
+        revealInFolder: "Im Ordner anzeigen",
     },
 
     toc: {
@@ -815,7 +823,9 @@ const de: Dict = {
         rewrite: "Umschreiben",
         shorten: "Kürzen",
         expand: "Erweitern",
-        translate: "Übersetzen → EN",
+        translate: "Übersetzen",
+        explain: "Erklären",
+        translateTarget: "Zielsprache für Übersetzung",
         close: "KI-Fenster schließen",
         stop: "Generierung stoppen",
         suggestion: "Vorschlag",

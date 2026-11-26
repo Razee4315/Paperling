@@ -134,6 +134,8 @@ const es: Dict = {
         historyNeedsSave: "Guarda el archivo primero: el historial empieza cuando está en disco",
         reviewAiFirst: "Termina de revisar los cambios de IA primero",
         versionRestored: "Versión restaurada. Guarda para conservarla o deshaz para volver",
+        imageImported: "Imagen añadida a ./images/",
+        imageDropSaveFirst: "Guarda esta nota primero antes de soltar imágenes en ella",
     },
 
     explorer: {
@@ -156,6 +158,12 @@ const es: Dict = {
         moveToTrash: "Mover a la papelera",
         filterPlaceholder: "Filtrar esta carpeta",
         filterAria: "Filtrar archivos en esta carpeta",
+        expandFolder: "Expandir {name}",
+        collapseFolder: "Contraer {name}",
+        duplicate: "Duplicar",
+        duplicated: "Se creó «{name}»",
+        copyPath: "Copiar ruta",
+        revealInFolder: "Mostrar en carpeta",
     },
 
     toc: {
@@ -815,7 +823,9 @@ const es: Dict = {
         rewrite: "Reescribir",
         shorten: "Acortar",
         expand: "Ampliar",
-        translate: "Traducir → EN",
+        translate: "Traducir",
+        explain: "Explicar",
+        translateTarget: "Idioma de destino",
         close: "Cerrar burbuja IA",
         stop: "Detener generación",
         suggestion: "Sugerencia",

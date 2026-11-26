@@ -134,6 +134,8 @@ const ptBR: Dict = {
         historyNeedsSave: "Salve o arquivo primeiro: o histórico começa depois que está no disco",
         reviewAiFirst: "Termine de revisar as alterações da IA primeiro",
         versionRestored: "Versão restaurada. Salve para manter ou desfaça para voltar",
+        imageImported: "Imagem adicionada em ./images/",
+        imageDropSaveFirst: "Salve esta nota antes de soltar imagens nela",
     },
 
     explorer: {
@@ -156,6 +158,12 @@ const ptBR: Dict = {
         moveToTrash: "Mover para a lixeira",
         filterPlaceholder: "Filtrar esta pasta",
         filterAria: "Filtrar arquivos nesta pasta",
+        expandFolder: "Expandir {name}",
+        collapseFolder: "Recolher {name}",
+        duplicate: "Duplicar",
+        duplicated: "\"{name}\" criado",
+        copyPath: "Copiar caminho",
+        revealInFolder: "Mostrar na pasta",
     },
 
     toc: {
@@ -815,7 +823,9 @@ const ptBR: Dict = {
         rewrite: "Reescrever",
         shorten: "Encurtar",
         expand: "Expandir",
-        translate: "Traduzir → EN",
+        translate: "Traduzir",
+        explain: "Explicar",
+        translateTarget: "Idioma de destino",
         close: "Fechar balão de IA",
         stop: "Parar geração",
         suggestion: "Sugestão",

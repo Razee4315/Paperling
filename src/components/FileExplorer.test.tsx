@@ -61,3 +61,41 @@ it("keeps an explicit folder rooted when the active tab changes elsewhere (#227)
     await screen.findByRole("option", { name: /a.md/ });
     expect(screen.getByRole("button", { name: /Go up/ }).hasAttribute("disabled")).toBe(true);
 });
+
+it("expands and collapses folders inline without navigating away", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd, args) =>
+        cmd === "list_directory_files" ? listings[(args as { directory: string }).directory] ?? [] : null,
+    );
+    render(<FileExplorer isOpen currentFilePath="C:/notes/a.md" onClose={vi.fn()} onFileSelect={vi.fn()} />);
+    const expandBtn = await screen.findByRole("button", { name: "Expand sub" });
+    expect(expandBtn.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(expandBtn);
+    expect(await screen.findByRole("option", { name: /b.md/ })).toBeDefined();
+    expect(screen.getByRole("option", { name: /a.md/ })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Collapse sub" }).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sub" }));
+    expect(screen.queryByRole("option", { name: /b.md/ })).toBeNull();
+});
+
+it("offers Duplicate, Copy path, and Reveal in folder and duplicates files cleanly", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+        if (cmd === "list_directory_files") return listings[(args as { directory: string }).directory] ?? [];
+        if (cmd === "read_file") return { content: "# Hello copy", encoding: "utf-8" };
+        if (cmd === "get_file_info") throw new Error("not found");
+        if (cmd === "save_file") return 1234;
+        return null;
+    });
+    const onNotify = vi.fn();
+    render(<FileExplorer isOpen currentFilePath="C:/notes/a.md" onClose={vi.fn()} onFileSelect={vi.fn()} onNotify={onNotify} />);
+    fireEvent.click(await screen.findByRole("button", { name: "More actions for a.md" }));
+    expect(screen.getByRole("menuitem", { name: "Copy path" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Reveal in folder" })).toBeDefined();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Duplicate" }));
+    await waitFor(() =>
+        expect(vi.mocked(invoke)).toHaveBeenCalledWith(
+            "save_file",
+            expect.objectContaining({ path: "C:/notes/a (copy).md", content: "# Hello copy" }),
+        ),
+    );
+    expect(onNotify).toHaveBeenCalledWith('Created "a (copy).md"', "success");
+});

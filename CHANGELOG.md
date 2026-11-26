@@ -13,12 +13,14 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 ### Added
 
+- **Workspace navigation & media polish (`NAV-05`, `WIKI-02`, `IMG-06`, `AI-14`).** Quick Switcher and `[[wikilinks]]` now resolve nested workspace subfolders, dropped image files copy safely into `./images/` and insert Markdown image embeds, `![[image|WxH]]` embed dimensions resize rendered images, the file explorer supports inline folder tree expansion plus Duplicate / Copy path / Reveal actions, and the inline AI bubble adds **Explain** and a selectable **Translate** target language.
 - **Multilingual interface across 8 languages with OS auto-detection (`I18N-01`, `I18N-02`, #308 by @nordenecke).** Settings → Appearance → **Language** defaults to *Follow system* (reacting live to OS language changes like Theme's *System* mode) and offers English, 简体中文, Español, Français, Deutsch, 日本語, 한국어, and Português with instant UI switching, plus decoded CJK/non-ASCII local image paths (`IMG-04`).
 - **Wikilink `![[image]]` embeds (`IMG-EMBED-01`).** Allow `wikilink:` image `src` attributes through the sanitize schema with scheme and traversal checks so embedded local images render instead of staying on a loading skeleton.
 - **Auto-closing brackets and quotes toggle (`EDIT-04`, #313).** Disable automatic insertion of closing pairs in Settings → Editor → Writing.
 
 ### Fixed
 
+- **Security, stability, performance, accessibility & backend hardening.** Tightened export HTML CSP (`style-src 'self' 'unsafe-inline'` and strict preview/diagram sanitization), atomic file/key/image writes, two-step case-only renames, symlink-safe workspace scans, non-blocking PDF export waits, paused background preview/deferred editor chunk loading, WCAG AA text contrast across all 7 themes, modal focus traps, and Android `IS_PENDING` MediaStore saves.
 - **Configurable and disable-able RTL/LTR direction hotkey (`BIDI-04`, `SHC-12`, #293).** Disable the Windows/Linux `Ctrl+Right/Left Shift` chord or bind/disable a custom text-direction shortcut in Settings → Shortcuts / Settings → Editor.
 - **Android: write edits back to device files (`ANDR-02`, #305).** Save and Autosave now write back to the original SAF/Downloads document instead of only updating the disposable cache mirror, and read-only or failed write-backs keep the buffer marked unsaved so closing a tab warns instead of losing edits.
 
