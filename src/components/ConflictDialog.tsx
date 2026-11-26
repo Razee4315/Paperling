@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { Modal } from "./Modal";
 import mascotSad from "../assets/mascot/mascot-sad.png";
+import { useI18n } from "../i18n";
 
 interface ConflictDialogProps {
     isOpen: boolean;
@@ -30,6 +31,7 @@ export function ConflictDialog({
     onSaveCopy,
     onClose,
 }: ConflictDialogProps) {
+    const { t } = useI18n();
     const keepMineButtonRef = useRef<HTMLButtonElement>(null);
 
     return (
@@ -54,10 +56,10 @@ export function ConflictDialog({
                     />
                     <div>
                         <h2 id="conflict-dialog-title" className="text-base font-semibold text-[var(--text-primary)]">
-                            File changed on disk
+                            {t("conflict.title")}
                         </h2>
                         <p className="text-sm text-[var(--text-secondary)]">
-                            {fileName} was modified by another program
+                            {t("conflict.subtitle", { name: fileName })}
                         </p>
                     </div>
                 </div>
@@ -66,9 +68,7 @@ export function ConflictDialog({
             {/* Body */}
             <div className="px-5 pb-4">
                 <p id="conflict-dialog-desc" className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                    You have unsaved edits, and the file on disk is now different. Choose which version wins — until
-                    you decide, autosave and manual save are paused. “Save a copy…” keeps your edits in a new file
-                    without choosing.
+                    {t("conflict.body")}
                 </p>
             </div>
 
@@ -78,20 +78,20 @@ export function ConflictDialog({
                     onClick={onSaveCopy}
                     className="px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors"
                 >
-                    Save a copy…
+                    {t("conflict.saveCopy")}
                 </button>
                 <button
                     onClick={onLoadFromDisk}
                     className="px-4 py-2 text-sm font-medium text-[var(--danger)] hover:bg-[var(--danger)]/10 rounded-lg transition-colors"
                 >
-                    Load from disk
+                    {t("conflict.loadFromDisk")}
                 </button>
                 <button
                     ref={keepMineButtonRef}
                     onClick={onKeepMine}
                     className="px-4 py-2 text-sm font-medium text-[var(--accent-text)] bg-[var(--accent)] hover:bg-[var(--accent-hover)] rounded-lg transition-colors"
                 >
-                    Keep my version
+                    {t("conflict.keepMine")}
                 </button>
             </div>
         </Modal>

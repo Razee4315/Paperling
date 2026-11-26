@@ -165,6 +165,22 @@ const KEY_TOUR_DONE = "paperling:tourDone";
 export const getTourDone = (): boolean => safeGet<boolean>(KEY_TOUR_DONE, false);
 export const setTourDone = (v: boolean): void => safeSet(KEY_TOUR_DONE, v);
 
+// UI language (I18N-01). "system" follows the OS locale, which is the default:
+// a first launch on a Chinese Windows shows a Chinese UI without the user
+// having to find the setting, and an English one is unaffected. Values that are
+// not one of the known preferences are discarded rather than trusted, so a
+// hand-edited localStorage entry can't leave the app rendering nothing.
+const KEY_LOCALE = "paperling:locale";
+const LOCALE_PREFERENCES = ["system", "en", "zh-CN", "es", "fr", "de", "ja", "ko", "pt-BR"] as const;
+export type StoredLocalePreference = (typeof LOCALE_PREFERENCES)[number];
+export const getLocalePreference = (): StoredLocalePreference => {
+    const v = safeGet<string>(KEY_LOCALE, "system");
+    return (LOCALE_PREFERENCES as readonly string[]).includes(v)
+        ? (v as StoredLocalePreference)
+        : "system";
+};
+export const setLocalePreference = (p: StoredLocalePreference): void => safeSet(KEY_LOCALE, p);
+
 const KEY_TYPEWRITER_MODE = "paperling:typewriterMode";
 const KEY_TOOLBAR = "paperling:toolbar";
 const KEY_WORD_WRAP = "paperling:wordWrap";
@@ -187,6 +203,13 @@ export const setSpellCheck = (v: boolean): void => safeSet(KEY_SPELL_CHECK, v);
 const KEY_CODE_FOLDING = "paperling:codeFolding";
 export const getCodeFolding = (): boolean => safeGet<boolean>(KEY_CODE_FOLDING, true);
 export const setCodeFolding = (v: boolean): void => safeSet(KEY_CODE_FOLDING, v);
+
+// Auto-close brackets and quotes in the editor (issue #313, EDIT-04). On by
+// default; disabling stops CodeMirror's closeBrackets from inserting matching
+// closing characters on typing.
+const KEY_AUTO_CLOSE_BRACKETS = "paperling:autoCloseBrackets";
+export const getAutoCloseBrackets = (): boolean => safeGet<boolean>(KEY_AUTO_CLOSE_BRACKETS, true);
+export const setAutoCloseBrackets = (v: boolean): void => safeSet(KEY_AUTO_CLOSE_BRACKETS, v);
 
 // Keep earlier versions of files on this computer (HIST-01). On by default:
 // it exists for the day you didn't think you'd need it.
@@ -270,6 +293,13 @@ export const getTextDirection = (): TextDirection => {
     return isTextDirection(v) ? v : "auto";
 };
 export const setTextDirection = (v: TextDirection): void => safeSet(KEY_TEXT_DIRECTION, v);
+
+// Windows/Linux Ctrl+Right/Left Shift reading-order chord (issue #293, BIDI-04).
+// On by default to keep existing behavior; users whose keyboard-layout switch
+// uses Ctrl+Shift or who want it off can disable it from Settings.
+const KEY_DIRECTION_CHORD = "paperling:directionChord";
+export const getDirectionChordEnabled = (): boolean => safeGet<boolean>(KEY_DIRECTION_CHORD, true);
+export const setDirectionChordEnabled = (v: boolean): void => safeSet(KEY_DIRECTION_CHORD, v);
 
 // Zen mode: distraction-free reading canvas. Hides the title bar, tab bar,
 // mode toggle, status bar, and all side panels, leaving only the rendered
@@ -356,17 +386,46 @@ const KEY_AI_API_KEY = "paperling:aiApiKey";
 let cachedAIKey = "";
 let aiKeyLoaded = false;
 
+let lastPersistedAIKey = "";
+let aiKeySaveChain: Promise<void> = Promise.resolve();
+let aiKeyDebounceTimer: number | null = null;
+let pendingAIKeyWrite: string | null = null;
+
+function dispatchSetAIKey(key: string): Promise<void> {
+    lastPersistedAIKey = key;
+    aiKeySaveChain = aiKeySaveChain
+        .then(() => import("@tauri-apps/api/core"))
+        .then(({ invoke }) => invoke("set_ai_key", { key }))
+        .then(() => { try { localStorage.removeItem(KEY_AI_API_KEY); } catch {/* ignore */} })
+        .catch((err) => console.error("Could not securely persist the AI API key:", err));
+    return aiKeySaveChain;
+}
+
+export function flushPendingAIKey(): void {
+    if (aiKeyDebounceTimer !== null) {
+        window.clearTimeout(aiKeyDebounceTimer);
+        aiKeyDebounceTimer = null;
+    }
+    if (pendingAIKeyWrite !== null) {
+        const key = pendingAIKeyWrite;
+        pendingAIKeyWrite = null;
+        if (key !== lastPersistedAIKey) void dispatchSetAIKey(key);
+    }
+}
+
 export async function initAIKey(): Promise<void> {
     if (aiKeyLoaded) return;
     aiKeyLoaded = true;
     try {
         const { invoke } = await import("@tauri-apps/api/core");
         cachedAIKey = await invoke<string>("get_ai_key");
+        lastPersistedAIKey = cachedAIKey;
         // One-time migration: move any legacy plaintext key into the keychain.
         if (!cachedAIKey) {
             const legacy = safeGet<string>(KEY_AI_API_KEY, "");
             if (legacy) {
                 cachedAIKey = legacy;
+                lastPersistedAIKey = legacy;
                 try {
                     await invoke("set_ai_key", { key: legacy });
                     localStorage.removeItem(KEY_AI_API_KEY);
@@ -387,21 +446,24 @@ export const getAIConfig = (): { endpoint: string; model: string; apiKey: string
     apiKey: cachedAIKey || safeGet<string>(KEY_AI_API_KEY, ""),
 });
 
-export const setAIConfig = (cfg: { endpoint: string; model: string; apiKey: string }): void => {
+export const setAIConfig = (cfg: { endpoint: string; model: string; apiKey: string }, immediateKey = false): void => {
     safeSet(KEY_AI_ENDPOINT, cfg.endpoint);
     safeSet(KEY_AI_MODEL, cfg.model);
+    if (cfg.apiKey === "") {
+        try { localStorage.removeItem(KEY_AI_API_KEY); } catch {/* ignore */}
+    }
     cachedAIKey = cfg.apiKey;
-    // Persist the key to the OS keychain (desktop) or the app-private key
-    // file (mobile). If that fails we deliberately do NOT fall back to
-    // localStorage: a cleartext secret on disk outlives the session and
-    // survives even a later keychain cleanup. The key stays in memory for
-    // this session; the failure is logged so "it didn't save" is visible.
-    // (The one-time legacy MIGRATION read in initAIKey is unaffected — it
-    // moves an existing plaintext key into secure storage and deletes it.)
-    import("@tauri-apps/api/core")
-        .then(({ invoke }) => invoke("set_ai_key", { key: cfg.apiKey }))
-        .then(() => { try { localStorage.removeItem(KEY_AI_API_KEY); } catch {/* ignore */} })
-        .catch((err) => console.error("Could not securely persist the AI API key:", err));
+    if (cfg.apiKey === lastPersistedAIKey) return;
+    pendingAIKeyWrite = cfg.apiKey;
+    if (immediateKey || typeof window === "undefined") {
+        flushPendingAIKey();
+        return;
+    }
+    if (aiKeyDebounceTimer !== null) window.clearTimeout(aiKeyDebounceTimer);
+    aiKeyDebounceTimer = window.setTimeout(() => {
+        aiKeyDebounceTimer = null;
+        flushPendingAIKey();
+    }, 350);
 };
 
 // DEFAULTS-01: autosave, open-in-reader, the formatting toolbar and spell

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFrontmatter, serializeFrontmatter } from "./frontmatter";
+import { parseFrontmatter, serializeFrontmatter, updateFrontmatterKey } from "./frontmatter";
 
 describe("parseFrontmatter", () => {
     it("returns the source unchanged when there is no frontmatter", () => {
@@ -45,5 +45,32 @@ describe("serializeFrontmatter round-trip", () => {
 
     it("returns the body unchanged when there is no data", () => {
         expect(serializeFrontmatter({}, "hello")).toBe("hello");
+    });
+
+    it("does not mistake horizontal-rule markdown chapters for frontmatter and supports ...", () => {
+        expect(parseFrontmatter("---\nFirst paragraph.\n\nSecond paragraph.\n---\nMore text").hasFrontmatter).toBe(false);
+        const dotted = parseFrontmatter("---\ntitle: Doc\n...\nBody");
+        expect(dotted.hasFrontmatter).toBe(true);
+        expect(dotted.data.title).toBe("Doc");
+        expect(dotted.body).toBe("Body");
+    });
+
+    it("updateFrontmatterKey preserves comments, nested maps, and multiline values", () => {
+        const src = [
+            "---",
+            "# Header comment",
+            "title: Old",
+            "author:",
+            "  name: Alice",
+            "published: false",
+            "---",
+            "Body",
+        ].join("\n");
+        const parsed = parseFrontmatter(src);
+        expect(parsed.complexKeys).toContain("author");
+        const next = updateFrontmatterKey(src, "published", true);
+        expect(next).toContain("# Header comment");
+        expect(next).toContain("author:\n  name: Alice");
+        expect(next).toContain("published: true");
     });
 });

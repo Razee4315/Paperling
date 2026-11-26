@@ -182,6 +182,47 @@ describe("user binding overrides (SHC-10)", () => {
         expect(kb.matchesBinding(press("F1"), "palette")).toBe(true);
     });
 
+    it("supports disabling shortcuts (including aliases) and binding toggleTextDirection (#293)", async () => {
+        const kb = await import("./keybindings");
+        const ctrl = kb.isMac ? { metaKey: true } : { ctrlKey: true };
+        kb.resetAllBindings();
+
+        // toggleTextDirection starts unbound (null) by default.
+        expect(kb.getBinding("toggleTextDirection")).toBeNull();
+        expect(kb.isDisabled("toggleTextDirection")).toBe(true);
+        expect(kb.formatShortcut("toggleTextDirection")).toBe("");
+
+        // Binding it persists across reload and participates in conflict detection.
+        kb.setBindingOverride("toggleTextDirection", { key: "r", mod: true, alt: true });
+        expect(kb.formatShortcut("toggleTextDirection")).toBe(kb.isMac ? "⌥⌘R" : "Ctrl+Alt+R");
+        expect(kb.matchesBinding(press("r", { ...ctrl, altKey: true }), "toggleTextDirection")).toBe(true);
+        expect(kb.findConflict("save", { key: "r", mod: true, alt: true })).toBe("toggleTextDirection");
+        kb.__reloadBindingOverrides();
+        expect(kb.isDisabled("toggleTextDirection")).toBe(false);
+
+        // Disabling a built-in binding (even one with aliases like palette/F1) stops both primary and aliases,
+        // clears formatShortcut/toCmKey, and removes it from conflict detection.
+        kb.disableBinding("palette");
+        expect(kb.getBinding("palette")).toBeNull();
+        expect(kb.isDisabled("palette")).toBe(true);
+        expect(kb.formatShortcut("palette")).toBe("");
+        expect(kb.toCmKey("palette")).toBe("");
+        expect(kb.matchesBinding(press("p", ctrl), "palette")).toBe(false);
+        expect(kb.matchesBinding(press("F1"), "palette")).toBe(false);
+        expect(kb.findConflict("save", { key: "p", mod: true })).toBeNull();
+
+        kb.__reloadBindingOverrides();
+        expect(kb.isDisabled("palette")).toBe(true);
+
+        // Restoring default brings back primary + alias; disabling toggleTextDirection unbinds it.
+        kb.setBindingOverride("palette", null);
+        expect(kb.isDisabled("palette")).toBe(false);
+        expect(kb.matchesBinding(press("F1"), "palette")).toBe(true);
+        kb.disableBinding("toggleTextDirection");
+        expect(kb.isDisabled("toggleTextDirection")).toBe(true);
+        kb.resetAllBindings();
+    });
+
     it("records physical keys and refuses unmodified combos", async () => {
         const kb = await import("./keybindings");
         const ctrl = kb.isMac ? { metaKey: true } : { ctrlKey: true };
@@ -189,5 +230,22 @@ describe("user binding overrides (SHC-10)", () => {
         expect(kb.bindingFromEvent(press("d", { code: "KeyD" }))).toBeNull();
         expect(kb.bindingFromEvent(press("F7", { code: "F7" }))).toEqual({ key: "F7" });
         expect(kb.bindingFromEvent(press("Control", ctrl))).toBeNull();
+    });
+
+    it("avoids macOS reserved combos for replace/inlineCode, detects alias conflicts, and supports non-Latin layouts (SHC-13)", async () => {
+        setPlatform("MacIntel");
+        const macKb = await loadFresh();
+        expect(macKb.formatShortcut("replace")).toBe("⌥⌘F");
+        expect(macKb.formatShortcut("inlineCode")).toBe("⌃`");
+
+        setPlatform("Win32");
+        const winKb = await loadFresh();
+        // Alias collision: binding a command to F1 conflicts with `palette`.
+        expect(winKb.findConflict("save", { key: "F1" })).toBe("palette");
+        // Non-Latin (Cyrillic) layout reports e.key="ы" on physical KeyS -> falls back to e.code.
+        expect(winKb.matchesBinding(new KeyboardEvent("keydown", { key: "ы", code: "KeyS", ctrlKey: true }), "save")).toBe(true);
+        // Logical Latin layout (Dvorak) reports ASCII "o" on physical KeyS -> stays logical.
+        expect(winKb.matchesBinding(new KeyboardEvent("keydown", { key: "o", code: "KeyS", ctrlKey: true }), "save")).toBe(false);
+        expect(winKb.matchesBinding(new KeyboardEvent("keydown", { key: "o", code: "KeyS", ctrlKey: true }), "openFile")).toBe(true);
     });
 });

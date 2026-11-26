@@ -24,6 +24,8 @@ interface PaperlingBridge {
     /** mime is optional and defaults to text/markdown on the native side
         (HTML export passes "text/html" so Downloads opens it in a browser). */
     saveToDownloads?: (name: string, content: string, mime: string, requestId: string) => void;
+    /** Writes edits from a cache working copy back to its original content:// URI (ANDR-02). */
+    syncToSource?: (cachePath: string, content: string, requestId: string) => void;
 }
 
 function getBridge(): PaperlingBridge | undefined {
@@ -49,6 +51,17 @@ export function openSystemFilePicker(): boolean {
  * the returned cache path like any other save path.
  */
 export const DOWNLOADS_SENTINEL = "__paperling:downloads";
+
+export function makeDownloadsSentinel(name: string): string {
+    return `${DOWNLOADS_SENTINEL}:${name}`;
+}
+
+export function parseDownloadsSentinel(value: string | null | undefined): string | null {
+    if (!value) return null;
+    if (value === DOWNLOADS_SENTINEL) return "";
+    if (value.startsWith(`${DOWNLOADS_SENTINEL}:`)) return value.slice(DOWNLOADS_SENTINEL.length + 1);
+    return null;
+}
 
 export interface DownloadsSaveResult {
     ok: boolean;
@@ -106,4 +119,64 @@ export async function saveToDownloads(
 
 export function downloadsSaveAvailable(): boolean {
     return !!getBridge()?.saveToDownloads;
+}
+
+export interface SyncSourceResult {
+    ok: boolean;
+    error?: string;
+}
+
+/**
+ * True when `path` is an Android imported/Downloads working copy inside
+ * `<cacheDir>/open/<hash>/<name>` rather than a note in the app-private
+ * notes folder. ANDR-02 (#305).
+ */
+export function isAndroidCachePath(path: string): boolean {
+    return /\/cache\/open\/[^/]+\//.test(path.replace(/\\/g, "/"));
+}
+
+export function syncToSourceAvailable(): boolean {
+    return !!getBridge()?.syncToSource;
+}
+
+const pendingSyncs = new Map<string, (result: SyncSourceResult) => void>();
+let nextSyncId = 0;
+
+/**
+ * Write `content` back to the original Android content:// URI associated with
+ * `cachePath`. Keyed by `requestId` in a map so concurrent active + background
+ * tab autosaves can settle out of order safely. ANDR-02 (#305).
+ */
+export async function syncToSource(cachePath: string, content: string): Promise<SyncSourceResult> {
+    const bridge = getBridge();
+    if (!bridge?.syncToSource) return { ok: false, error: "not-available" };
+    const requestId = `${Date.now()}-${++nextSyncId}`;
+    return new Promise((resolve) => {
+        const w = window as unknown as {
+            __paperlingOnSyncResult?: (ok: boolean, error: string | null, requestId: string) => void;
+        };
+        const finish = (result: SyncSourceResult) => {
+            const waiter = pendingSyncs.get(requestId);
+            if (!waiter) return;
+            pendingSyncs.delete(requestId);
+            window.clearTimeout(timer);
+            if (pendingSyncs.size === 0) w.__paperlingOnSyncResult = undefined;
+            resolve(result);
+        };
+        const timer = window.setTimeout(
+            () => finish({ ok: false, error: "Saving back to the original file timed out" }),
+            15_000,
+        );
+        pendingSyncs.set(requestId, finish);
+        w.__paperlingOnSyncResult = (ok, error, resultId) => {
+            const target = pendingSyncs.get(resultId);
+            if (!target) return;
+            target(ok ? { ok: true } : { ok: false, error: error ?? "Could not save back to the original file" });
+        };
+        try {
+            bridge.syncToSource!(cachePath, content, requestId);
+        } catch {
+            finish({ ok: false, error: "Could not start saving back to the original file." });
+        }
+    });
 }

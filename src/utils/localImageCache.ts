@@ -34,17 +34,52 @@ export function joinImagePath(baseDir: string, relPath: string): string {
     return `${baseDir.replace(/[/\\]+$/, "")}/${relPath}`;
 }
 
-export function createLocalImageCache({ stat, read, createUrl, revokeUrl, cap = 100 }: LocalImageCacheDeps) {
+export interface LocalImageCache {
+    (baseDir: string, relPath: string, mimeType: string): Promise<string>;
+    retain: (url: string) => void;
+    release: (url: string) => void;
+}
+
+export function createLocalImageCache({ stat, read, createUrl, revokeUrl, cap = 100 }: LocalImageCacheDeps): LocalImageCache {
     const entries = new Map<string, { url: string; mtime: number | null }>();
     const inFlight = new Map<string, Promise<string>>();
+    const refCounts = new Map<string, number>();
+    const pendingRevoke = new Set<string>();
 
-    return function getLocalImageUrl(baseDir: string, relPath: string, mimeType: string): Promise<string> {
+    function retireUrl(url: string) {
+        if ((refCounts.get(url) ?? 0) > 0) {
+            pendingRevoke.add(url);
+        } else {
+            pendingRevoke.delete(url);
+            revokeUrl(url);
+        }
+    }
+
+    const getLocalImageUrl = function getLocalImageUrl(baseDir: string, relPath: string, mimeType: string): Promise<string> {
         const key = `${baseDir}\u0000${relPath}`;
         const running = inFlight.get(key);
         if (running) return running;
         const lookup = lookUp(key, baseDir, relPath, mimeType).finally(() => inFlight.delete(key));
         inFlight.set(key, lookup);
         return lookup;
+    } as LocalImageCache;
+
+    getLocalImageUrl.retain = (url: string) => {
+        if (!url.startsWith("blob:")) return;
+        refCounts.set(url, (refCounts.get(url) ?? 0) + 1);
+    };
+
+    getLocalImageUrl.release = (url: string) => {
+        const count = refCounts.get(url);
+        if (!count) return;
+        if (count > 1) {
+            refCounts.set(url, count - 1);
+            return;
+        }
+        refCounts.delete(url);
+        if (pendingRevoke.delete(url)) {
+            revokeUrl(url);
+        }
     };
 
     async function lookUp(key: string, baseDir: string, relPath: string, mimeType: string): Promise<string> {
@@ -58,7 +93,7 @@ export function createLocalImageCache({ stat, read, createUrl, revokeUrl, cap = 
                 entries.set(key, hit);
                 return hit.url;
             }
-            revokeUrl(hit.url);
+            retireUrl(hit.url);
         }
         const buf = await read(baseDir, relPath);
         const url = createUrl(new Blob([buf], { type: mimeType }));
@@ -66,10 +101,12 @@ export function createLocalImageCache({ stat, read, createUrl, revokeUrl, cap = 
         if (entries.size > cap) {
             const oldestKey = entries.keys().next().value;
             if (oldestKey !== undefined) {
-                revokeUrl(entries.get(oldestKey)!.url);
+                retireUrl(entries.get(oldestKey)!.url);
                 entries.delete(oldestKey);
             }
         }
         return url;
     }
+
+    return getLocalImageUrl;
 }

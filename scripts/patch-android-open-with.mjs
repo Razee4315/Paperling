@@ -68,6 +68,7 @@ const INTENT_FILTER_XML = `\
 const ACTIVITY_IMPORTS = `\
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.view.View
 import android.webkit.WebView
@@ -248,6 +249,15 @@ const ACTIVITY_BODY = `\
           }
         }
       }
+
+      @android.webkit.JavascriptInterface
+      fun syncToSource(cachePath: String, content: String, requestId: String) {
+        runOnUiThread {
+          if (isAppOrigin(findWebView(window.decorView))) {
+            Thread { performSyncToSource(cachePath, content, requestId) }.start()
+          }
+        }
+      }
     }, "PaperlingAndroid")
     // Only pages loaded after addJavascriptInterface see it. If the app page
     // already started loading, one early reload puts the bridge in place.
@@ -290,6 +300,11 @@ const ACTIVITY_BODY = `\
   private fun launchDocumentPicker() {
     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
       addCategory(Intent.CATEGORY_OPENABLE)
+      addFlags(
+        Intent.FLAG_GRANT_READ_URI_PERMISSION
+          or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+          or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+      )
       // "*/*", unfiltered: .md files are registered with every MIME under the
       // sun (octet-stream, text/plain, vendor types) — filtering would hide
       // exactly the files the user is looking for.
@@ -318,15 +333,36 @@ const ACTIVITY_BODY = `\
         put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, safe)
         put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime)
         put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+        put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
       }
       val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
         ?: throw IllegalStateException("Could not create the Downloads entry")
-      contentResolver.openOutputStream(uri)?.use { out ->
-        out.write(content.toByteArray(Charsets.UTF_8))
-      } ?: throw IllegalStateException("Could not open the Downloads entry for writing")
-      val actualName = queryDisplayName(uri) ?: safe
-      val cache = File(workingDirFor(uri), actualName)
-      cache.writeText(content, Charsets.UTF_8)
+      val cache: File
+      val actualName: String
+      try {
+        contentResolver.openOutputStream(uri)?.use { out ->
+          out.write(content.toByteArray(Charsets.UTF_8))
+          out.flush()
+        } ?: throw IllegalStateException("Could not open the Downloads entry for writing")
+        val done = android.content.ContentValues().apply {
+          put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+        }
+        contentResolver.update(uri, done, null, null)
+        actualName = queryDisplayName(uri) ?: safe
+        val dir = workingDirFor(uri)
+        cache = File(dir, actualName)
+        val tmpCache = File.createTempFile("cache", ".part", dir)
+        try {
+          tmpCache.writeText(content, Charsets.UTF_8)
+          if (!tmpCache.renameTo(cache)) throw java.io.IOException("Could not write Downloads mirror")
+        } finally {
+          tmpCache.delete()
+        }
+      } catch (t: Throwable) {
+        try { contentResolver.delete(uri, null, null) } catch (_: Exception) {}
+        throw t
+      }
+      rememberSourceUri(cache, uri, true)
       val js = "window.__paperlingOnSaveResult && window.__paperlingOnSaveResult(true, " +
         JSONObject.quote(cache.absolutePath) + ", " + JSONObject.quote(actualName) + ", " + JSONObject.quote(requestId) + ")"
       runOnUiThread { webviewEval(js) }
@@ -347,12 +383,17 @@ const ACTIVITY_BODY = `\
       return
     }
     try {
+      val grantFlags = (data?.flags ?: 0) and
+        (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+      takePersistableGrant(uri, grantFlags)
+      val writable = isDocumentWritable(uri, (grantFlags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0)
       val name = queryDisplayName(uri) ?: "picked.md"
       val safe = name.replace(Regex("[/\\\\\\\\:*?\\"<>|]"), "_")
       val outFile = importToCache(uri, safe) ?: run {
         webviewEval("window.__paperlingPickDone && window.__paperlingPickDone(false)")
         return
       }
+      rememberSourceUri(outFile, uri, writable)
       val js = "window.__paperlingOpenFile && window.__paperlingOpenFile(" +
         JSONObject.quote(outFile.absolutePath) + ", " + JSONObject.quote(safe) + ")"
       webviewEval(js)
@@ -382,9 +423,16 @@ const ACTIVITY_BODY = `\
     if (intent?.action != Intent.ACTION_VIEW) return
     val uri = intent.data ?: return
     try {
+      val grantFlags = intent.flags and
+        (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+      if ((intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+        takePersistableGrant(uri, grantFlags)
+      }
+      val writable = isDocumentWritable(uri, (grantFlags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0)
       val name = queryDisplayName(uri) ?: "opened.md"
       val safe = name.replace(Regex("[/\\\\\\\\:*?\\"<>|]"), "_")
       val outFile = importToCache(uri, safe) ?: return
+      rememberSourceUri(outFile, uri, writable)
       val payload = JSONObject()
       payload.put("path", outFile.absolutePath)
       payload.put("name", safe)
@@ -392,6 +440,155 @@ const ACTIVITY_BODY = `\
       deliverToWebview(outFile.absolutePath, safe)
     } catch (e: Exception) {
       android.util.Log.e("Paperling", "Failed to import the opened file", e)
+    }
+  }
+
+  // ANDR-02 (#305): imported SAF / Open-With / Downloads notes edit a working
+  // copy in cache/open/<hash>/<name>. Keep each cache path paired with its
+  // source content:// URI so Save and Autosave write back to the real device
+  // file instead of only updating the disposable cache mirror.
+  private val uriMapLock = Any()
+  private val uriWriteLock = Any()
+  private val maxTrackedUris = 200
+
+  private fun canonicalPathOf(file: File): String {
+    return try { file.canonicalPath } catch (_: Exception) { file.absolutePath }
+  }
+
+  private fun externalUrisFile(): File = File(filesDir, "external-uris.json")
+
+  private fun readExternalUriMap(): JSONObject {
+    val file = externalUrisFile()
+    if (!file.exists()) return JSONObject()
+    return try {
+      JSONObject(file.readText(Charsets.UTF_8))
+    } catch (_: Exception) {
+      JSONObject()
+    }
+  }
+
+  private fun rememberSourceUri(cacheFile: File, uri: Uri, writable: Boolean) {
+    synchronized(uriMapLock) {
+      try {
+        val map = readExternalUriMap()
+        val entry = JSONObject()
+        entry.put("uri", uri.toString())
+        entry.put("writable", writable)
+        entry.put("at", System.currentTimeMillis())
+        map.put(canonicalPathOf(cacheFile), entry)
+        if (map.length() > maxTrackedUris) {
+          val entries = mutableListOf<Pair<String, Long>>()
+          val keys = map.keys()
+          while (keys.hasNext()) {
+            val k = keys.next()
+            val at = map.optJSONObject(k)?.optLong("at", 0L) ?: 0L
+            entries.add(k to at)
+          }
+          entries.sortBy { it.second }
+          val excess = entries.size - maxTrackedUris
+          for (i in 0 until excess) {
+            map.remove(entries[i].first)
+          }
+        }
+        filesDir.mkdirs()
+        val dest = externalUrisFile()
+        val tmp = File.createTempFile("external-uris", ".tmp", filesDir)
+        try {
+          tmp.writeText(map.toString(), Charsets.UTF_8)
+          if (!tmp.renameTo(dest)) {
+            dest.writeText(map.toString(), Charsets.UTF_8)
+          }
+        } finally {
+          tmp.delete()
+        }
+      } catch (e: Exception) {
+        android.util.Log.e("Paperling", "Failed to remember source URI", e)
+      }
+    }
+  }
+
+  private fun lookupSourceUri(cacheFile: File): Pair<Uri, Boolean>? {
+    synchronized(uriMapLock) {
+      val map = readExternalUriMap()
+      val entry = map.optJSONObject(canonicalPathOf(cacheFile)) ?: return null
+      val uriText = entry.optString("uri", "")
+      if (uriText.isEmpty()) return null
+      return Uri.parse(uriText) to entry.optBoolean("writable", false)
+    }
+  }
+
+  private fun takePersistableGrant(uri: Uri, flags: Int) {
+    val rw = flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+    if (rw == 0) return
+    try {
+      contentResolver.takePersistableUriPermission(uri, rw)
+    } catch (_: Exception) {
+      if ((rw and Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0 && rw != Intent.FLAG_GRANT_READ_URI_PERMISSION) {
+        try {
+          contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {}
+      }
+    }
+  }
+
+  private fun isDocumentWritable(uri: Uri, fallback: Boolean): Boolean {
+    if (DocumentsContract.isDocumentUri(this, uri)) {
+      try {
+        contentResolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_FLAGS), null, null, null)?.use { cursor ->
+          if (cursor.moveToFirst()) {
+            val idx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS)
+            if (idx >= 0 && !cursor.isNull(idx)) {
+              return (cursor.getInt(idx) and DocumentsContract.Document.FLAG_SUPPORTS_WRITE) != 0
+            }
+          }
+        }
+      } catch (_: Exception) {
+        // Fall through to intent-grant fallback.
+      }
+    }
+    return fallback
+  }
+
+  private fun openTruncatedOutputStream(uri: Uri): java.io.OutputStream? {
+    return try {
+      contentResolver.openOutputStream(uri, "wt")
+    } catch (_: IllegalArgumentException) {
+      contentResolver.openOutputStream(uri, "rwt")
+    } catch (_: UnsupportedOperationException) {
+      contentResolver.openOutputStream(uri, "rwt")
+    }
+  }
+
+  private fun performSyncToSource(cachePath: String, content: String, requestId: String) {
+    try {
+      val openRoot = File(cacheDir, "open").canonicalFile
+      val target = File(cachePath).canonicalFile
+      val rootPrefix = openRoot.path + File.separator
+      if (!target.path.startsWith(rootPrefix)) {
+        throw IllegalStateException("Invalid external working copy path")
+      }
+      val (sourceUri, writable) = lookupSourceUri(target)
+        ?: throw IllegalStateException("Could not find the original file on this device. Use Save As to save your changes.")
+      if (!writable) {
+        throw IllegalStateException("This file was opened read-only and cannot be saved in place. Use Save As to save a copy.")
+      }
+      synchronized(uriWriteLock) {
+        val stream = openTruncatedOutputStream(sourceUri)
+          ?: throw IllegalStateException("Could not open the original file for writing")
+        stream.use { out ->
+          out.write(content.toByteArray(Charsets.UTF_8))
+          out.flush()
+        }
+      }
+      val js = "window.__paperlingOnSyncResult && window.__paperlingOnSyncResult(true, null, " +
+        JSONObject.quote(requestId) + ")"
+      runOnUiThread { webviewEval(js) }
+    } catch (e: Exception) {
+      android.util.Log.e("Paperling", "Write-back to source URI failed", e)
+      val js = "window.__paperlingOnSyncResult && window.__paperlingOnSyncResult(false, " +
+        JSONObject.quote(e.message ?: "Could not save back to the original file") + ", " +
+        JSONObject.quote(requestId) + ")"
+      runOnUiThread { webviewEval(js) }
     }
   }
 
@@ -412,14 +609,31 @@ const ACTIVITY_BODY = `\
 
   // Copies through a sibling temp file and renames it into place, so a read
   // that fails halfway can never truncate a working copy a tab already uses.
-  // Returns null when the provider gives no stream.
+  // Returns null when the provider gives no stream. Caps imports at 50 MB to
+  // match the Rust read_file limit. ANDR-04.
   private fun importToCache(uri: Uri, safe: String): File? {
+    val maxImportBytes = 50L * 1024L * 1024L
     val dir = workingDirFor(uri)
     val outFile = File(dir, safe)
     val tmp = File.createTempFile("import", ".part", dir)
     try {
       val input = contentResolver.openInputStream(uri) ?: return null
-      input.use { src -> tmp.outputStream().use { dst -> src.copyTo(dst) } }
+      input.use { src ->
+        tmp.outputStream().use { dst ->
+          val buffer = ByteArray(64 * 1024)
+          var total = 0L
+          while (true) {
+            val n = src.read(buffer)
+            if (n < 0) break
+            total += n
+            if (total > maxImportBytes) {
+              throw java.io.IOException("File is too large (maximum is 50 MB)")
+            }
+            dst.write(buffer, 0, n)
+          }
+          dst.flush()
+        }
+      }
       if (!tmp.renameTo(outFile)) throw java.io.IOException("Could not store the imported file")
       return outFile
     } finally {
@@ -505,6 +719,7 @@ const BACKUP_RULES_XML = `\
 <full-backup-content>
     <exclude domain="file" path="ai-key" />
     <exclude domain="file" path="notes/" />
+    <exclude domain="file" path="external-uris.json" />
 </full-backup-content>
 `;
 const EXTRACTION_RULES_XML = `\
@@ -516,10 +731,12 @@ const EXTRACTION_RULES_XML = `\
     <cloud-backup>
         <exclude domain="file" path="ai-key" />
         <exclude domain="file" path="notes/" />
+        <exclude domain="file" path="external-uris.json" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="ai-key" />
         <exclude domain="file" path="notes/" />
+        <exclude domain="file" path="external-uris.json" />
     </device-transfer>
 </data-extraction-rules>
 `;

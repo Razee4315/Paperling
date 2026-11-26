@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { fileHistory } from "./fileHistory";
@@ -269,5 +269,93 @@ describe("idleWriteToken (EXT-08)", () => {
     await expect(failing).rejects.toBe("disk full");
     expect(idleWriteToken()).not.toBeNull();
     expect(idleWriteToken()).not.toBe(afterOk);
+  });
+});
+
+describe("fileIO Android source write-back (#305, ANDR-02)", () => {
+  const CACHE_PATH = "/data/user/0/com.paperling/cache/open/a1b2c3d4/tmp.md";
+  const NOTES_PATH = "/data/user/0/com.paperling/files/notes/tmp.md";
+  const win = window as unknown as {
+    PaperlingAndroid?: { syncToSource?: (path: string, text: string, id: string) => void };
+    __paperlingOnSyncResult?: (ok: boolean, error: string | null, id: string) => void;
+  };
+
+  afterEach(() => {
+    delete win.PaperlingAndroid;
+    delete win.__paperlingOnSyncResult;
+    vi.doUnmock("./platform");
+    vi.resetModules();
+  });
+
+  it("syncs Android cache files (with BOM) back to source BEFORE calling save_file", async () => {
+    const order: string[] = [];
+    (invoke as Mock).mockReset().mockImplementation(async (cmd: string) => {
+      order.push(cmd);
+      if (cmd === "read_file") return { path: CACHE_PATH, content: "\uFEFFold", encoding: "utf-8-bom" };
+      return 42;
+    });
+    win.PaperlingAndroid = {
+      syncToSource: (path, text, id) => {
+        order.push(`sync:${path}:${text}`);
+        win.__paperlingOnSyncResult!(true, null, id);
+      },
+    };
+
+    await readTextFile(CACHE_PATH);
+    await expect(saveTextFile(CACHE_PATH, "new")).resolves.toBe(42);
+    expect(order).toEqual(["read_file", `sync:${CACHE_PATH}:\uFEFFnew`, "save_file"]);
+  });
+
+  it("rejects before touching save_file or fileHistory when source write-back fails", async () => {
+    (fileHistory.record as Mock).mockClear();
+    (invoke as Mock).mockReset().mockResolvedValue(42);
+    win.PaperlingAndroid = {
+      syncToSource: (_path, _text, id) => {
+        win.__paperlingOnSyncResult!(false, "This file was opened read-only", id);
+      },
+    };
+    const before = idleWriteToken();
+    await expect(saveTextFile(CACHE_PATH, "edited")).rejects.toThrow("This file was opened read-only");
+    expect(invoke).not.toHaveBeenCalledWith("save_file", expect.anything());
+    expect(fileHistory.record).not.toHaveBeenCalledWith(CACHE_PATH, "edited", "saved");
+    expect(idleWriteToken()).not.toBeNull();
+    expect(idleWriteToken()).not.toBe(before);
+  });
+
+  it("skips syncToSource for private notes files or when skipExternalSync is set", async () => {
+    const syncSpy = vi.fn((_p: string, _c: string, id: string) => win.__paperlingOnSyncResult!(true, null, id));
+    win.PaperlingAndroid = { syncToSource: syncSpy };
+    (invoke as Mock).mockReset().mockResolvedValue(12);
+
+    await saveTextFile(NOTES_PATH, "note");
+    await saveTextFile(CACHE_PATH, "downloaded", { skipExternalSync: true });
+    expect(syncSpy).not.toHaveBeenCalled();
+    expect(saves()).toHaveLength(2);
+  });
+
+  it("refuses silently succeeding on mobile when the native sync bridge is unavailable", async () => {
+    vi.resetModules();
+    vi.doMock("./platform", () => ({ IS_MOBILE: true }));
+    const { saveTextFile: saveMobile } = await import("./fileIO");
+    (invoke as Mock).mockReset().mockResolvedValue(99);
+    await expect(saveMobile(CACHE_PATH, "edited")).rejects.toThrow(/Use Save As/);
+    expect(invoke).not.toHaveBeenCalledWith("save_file", expect.anything());
+  });
+
+  it("retargets BOM tracking on rename/trash and allows skipping fileHistory for internal probes", async () => {
+    const { hadBom, retargetEncodings, readTextFile: rtf } = await import("./fileIO");
+    (fileHistory.record as Mock).mockClear();
+    (invoke as Mock).mockReset().mockResolvedValue({ path: "C:/BomOld.md", content: "\uFEFFhello", encoding: "utf-8-bom" });
+
+    await rtf("C:/BomOld.md", { recordHistory: false });
+    expect(fileHistory.record).not.toHaveBeenCalled();
+    expect(hadBom("C:/BomOld.md")).toBe(true);
+
+    retargetEncodings("C:/BomOld.md", "C:/BomNew.md");
+    expect(hadBom("C:/BomOld.md")).toBe(false);
+    expect(hadBom("C:/BomNew.md")).toBe(true);
+
+    retargetEncodings("C:/BomNew.md", null);
+    expect(hadBom("C:/BomNew.md")).toBe(false);
   });
 });

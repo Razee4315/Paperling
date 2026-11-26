@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import mascotWave from "../assets/mascot/mascot-wave.png";
 import iconPalette from "../assets/mascot/icon-command-palette.png";
 import iconPencil from "../assets/mascot/icon-pencil.png";
@@ -6,8 +6,10 @@ import iconCheck from "../assets/mascot/icon-check-badge.png";
 import iconSwatches from "../assets/mascot/icon-theme-swatches.png";
 import mascotRocket from "../assets/mascot/mascot-rocket.png";
 import { formatShortcut } from "../config/keybindings";
+import { attachFocusTrap } from "../utils/focusTrap";
 import { getAutoSave } from "../utils/persistence";
 import { IS_MOBILE } from "../utils/platform";
+import { useI18n } from "../i18n";
 
 interface TourProps {
     /** Called when the tour finishes or is skipped. Caller persists the done flag. */
@@ -36,15 +38,15 @@ interface Step {
 // tour now; the long tail gets one closing line and the interactive guide.
 // Built per run so shortcuts match the platform and the saving step describes
 // what this profile actually does.
-const buildSteps = (): Step[] => [
+const buildSteps = (t: ReturnType<typeof useI18n>["t"]): Step[] => [
     {
         id: "welcome",
         placement: "center",
         image: mascotWave,
-        imageAlt: "Paperling mascot waving hello",
+        imageAlt: t("tour.stepWelcomeAlt"),
         imageClass: "h-32",
-        title: "Hey, welcome to Paperling!",
-        body: "I'm the paperling this app is named after. Want a quick look around? It takes about 15 seconds, and you can replay it anytime from the command palette.",
+        title: t("tour.stepWelcomeTitle"),
+        body: t("tour.stepWelcomeBody"),
     },
     {
         id: "mode",
@@ -52,60 +54,60 @@ const buildSteps = (): Step[] => [
         // Bottom bar on the phone, the floating switch on desktop: both sit low.
         placement: "above",
         image: iconPencil,
-        imageAlt: "A pencil",
+        imageAlt: t("tour.stepModeAlt"),
         imageClass: "h-20",
-        title: "Read it, or edit it",
+        title: t("tour.stepModeTitle"),
         body: IS_MOBILE
-            ? "Notes open ready to read. Tap Edit to change the text, and Read to come back."
-            : `Notes open ready to read. This switch (${formatShortcut("toggleMode")}) changes between reading, side by side, and the editor. To fix a single sentence, just double-click it while reading.`,
+            ? t("tour.stepModeBodyMobile")
+            : t("tour.stepModeBodyDesktop", { shortcut: formatShortcut("toggleMode") }),
     },
     {
         id: "save",
         target: "[data-tour='save']",
         placement: "above",
         image: iconCheck,
-        imageAlt: "A check mark badge",
+        imageAlt: t("tour.stepSaveAlt"),
         imageClass: "h-20",
-        title: getAutoSave() ? "Saved for you" : "Saving",
+        title: getAutoSave() ? t("tour.stepSaveTitleAuto") : t("tour.stepSaveTitleManual"),
         body: getAutoSave()
             ? IS_MOBILE
-                ? "Paperling saves a moment after you stop typing. A brand-new note asks once where it should live."
-                : "Paperling saves a moment after you stop typing, and this light shows it. A brand-new note asks once where it should live."
+                ? t("tour.stepSaveBodyAutoMobile")
+                : t("tour.stepSaveBodyAutoDesktop")
             : IS_MOBILE
-                ? "The dot next to the note's name shows unsaved changes. Save is in the menu; Autosave can be turned on in Settings."
-                : `This light shows whether your changes are saved. Click it, press Save, or use ${formatShortcut("save")}. Autosave can be turned on in Settings.`,
+                ? t("tour.stepSaveBodyManualMobile")
+                : t("tour.stepSaveBodyManualDesktop", { shortcut: formatShortcut("save") }),
     },
     {
         id: "look",
         target: "[data-tour='settings']",
         placement: "below",
         image: iconSwatches,
-        imageAlt: "Theme colour swatches",
+        imageAlt: t("tour.stepLookAlt"),
         imageClass: "h-20",
-        title: "Make it yours",
+        title: t("tour.stepLookTitle"),
         body: IS_MOBILE
-            ? "Theme, font and text size are in Settings, in the menu at the top left."
-            : `Theme, font and text size live here. ${formatShortcut("zoomIn")} and ${formatShortcut("zoomOut")} zoom the text any time.`,
+            ? t("tour.stepLookBodyMobile")
+            : t("tour.stepLookBodyDesktop", { zoomIn: formatShortcut("zoomIn"), zoomOut: formatShortcut("zoomOut") }),
     },
     {
         id: "more",
         placement: "center",
         image: iconPalette,
-        imageAlt: "Command palette illustration",
+        imageAlt: t("tour.stepMoreAlt"),
         imageClass: "h-24",
-        title: "Everything else is one box away",
+        title: t("tour.stepMoreTitle"),
         body: IS_MOBILE
-            ? "Files and the outline are in the bottom bar. Search, export and the rest are behind the magnifier at the top."
-            : `Files, the outline, search across notes, export and the rest are in the command palette: ${formatShortcut("palette")}.`,
+            ? t("tour.stepMoreBodyMobile")
+            : t("tour.stepMoreBodyDesktop", { shortcut: formatShortcut("palette") }),
     },
     {
         id: "done",
         placement: "center",
         image: mascotRocket,
-        imageAlt: "Paperling mascot on a rocket",
+        imageAlt: t("tour.stepDoneAlt"),
         imageClass: "h-32",
-        title: "That's it, you're ready!",
-        body: "Want to see it all in action? Open the interactive guide: a real document with live math, diagrams, tables and more, all ready for you to poke at. You can also replay this tour anytime from the command palette.",
+        title: t("tour.stepDoneTitle"),
+        body: t("tour.stepDoneBody"),
     },
 ];
 
@@ -118,12 +120,15 @@ const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min)
 interface SpotRect { left: number; top: number; width: number; height: number }
 
 export function Tour({ onClose, onOpenTutorial }: TourProps) {
-    const [STEPS] = useState(buildSteps);
+    const { t } = useI18n();
+    const STEPS = useMemo(() => buildSteps(t), [t]);
     const [stepIndex, setStepIndex] = useState(0);
     const [rect, setRect] = useState<SpotRect | null>(null);
     const [cardPos, setCardPos] = useState<{ left: number; top: number } | null>(null);
     const cardRef = useRef<HTMLDivElement>(null);
     const nextRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => attachFocusTrap(cardRef.current), []);
 
     const step = STEPS[stepIndex];
     const isFirst = stepIndex === 0;
@@ -239,7 +244,7 @@ export function Tour({ onClose, onOpenTutorial }: TourProps) {
             className="fixed inset-0 z-[300] no-select"
             role="dialog"
             aria-modal="true"
-            aria-label="Welcome tour"
+            aria-label={t("tour.ariaLabel")}
         >
             {/* Dim layer. With a target, a spotlight hole punched via box-shadow;
                 without one, a plain full dim. */}
@@ -283,7 +288,7 @@ export function Tour({ onClose, onOpenTutorial }: TourProps) {
                     </div>
 
                     {/* Progress dots */}
-                    <div className="flex items-center gap-1.5" aria-label={`Step ${stepIndex + 1} of ${STEPS.length}`}>
+                    <div className="flex items-center gap-1.5" aria-label={t("tour.progressAria", { current: stepIndex + 1, total: STEPS.length })}>
                         {STEPS.map((s, i) => (
                             <span
                                 key={s.id}
@@ -300,7 +305,7 @@ export function Tour({ onClose, onOpenTutorial }: TourProps) {
                             onClick={onClose}
                             className="btn-press whitespace-nowrap text-sm font-medium px-4 py-2 rounded-[var(--radius-md)] bg-[var(--bg-primary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border)] transition-all duration-200"
                         >
-                            {isFirst || isLast ? "Just start writing" : "Skip tour"}
+                            {isFirst || isLast ? t("tour.justStartWriting") : t("tour.skip")}
                         </button>
                         <div className="flex items-center gap-2">
                             {!isFirst && (
@@ -308,7 +313,7 @@ export function Tour({ onClose, onOpenTutorial }: TourProps) {
                                     onClick={back}
                                     className="btn-press whitespace-nowrap text-sm font-medium px-4 py-2 rounded-[var(--radius-md)] bg-[var(--bg-primary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border)] transition-all duration-200"
                                 >
-                                    Back
+                                    {t("tour.back")}
                                 </button>
                             )}
                             <button
@@ -316,7 +321,7 @@ export function Tour({ onClose, onOpenTutorial }: TourProps) {
                                 onClick={advance}
                                 className="btn-press whitespace-nowrap text-sm font-medium px-4 py-2 rounded-[var(--radius-md)] bg-[var(--accent)] hover:opacity-90 text-[var(--accent-text)] transition-all duration-200"
                             >
-                                {isLast ? "Open the guide" : isFirst ? "Show me around" : "Next"}
+                                {isLast ? t("tour.openGuide") : isFirst ? t("tour.showMeAround") : t("tour.next")}
                             </button>
                         </div>
                     </div>

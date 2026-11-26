@@ -24,6 +24,9 @@ function memoryBackend() {
         },
         remove: async (ids) => { for (const id of ids) rows.splice(rows.findIndex((r) => r.id === id), 1); },
         removeOlderThan: async (time) => { for (const r of rows.filter((x) => x.savedAt <= time)) rows.splice(rows.indexOf(r), 1); },
+        pruneGlobal: async (maxTotal) => {
+            while (rows.length > maxTotal) rows.shift();
+        },
         clear: async () => { rows.length = 0; },
     };
     return { backend, rows };
@@ -132,5 +135,16 @@ describe("createFileHistory", () => {
         await history.record("/a.md", "v1", "opened", 1000);
         await history.clear();
         expect(await history.list("/a.md")).toEqual([]);
+    });
+
+    it("enforces MAX_TOTAL_SNAPSHOTS via pruneGlobal on the first write", async () => {
+        const { MAX_TOTAL_SNAPSHOTS } = await import("./fileHistory");
+        const { backend, rows } = memoryBackend();
+        for (let i = 0; i < MAX_TOTAL_SNAPSHOTS + 5; i++) {
+            rows.push(snap({ id: i + 1, key: `/note-${i}.md`, savedAt: 1000 + i }));
+        }
+        const history = createFileHistory(() => backend);
+        await history.record("/fresh.md", "new", "opened", 9_999_999);
+        expect(rows.length).toBeLessThanOrEqual(MAX_TOTAL_SNAPSHOTS);
     });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IS_MOBILE } from "../utils/platform";
 import { usePersistedState } from "../hooks/usePersistedState";
+import { useI18n } from "../i18n";
 
 /**
  * The one find-in-document mechanism (FIND-01). A single bar UI + behaviour
@@ -39,8 +40,8 @@ export interface FindController {
     isValidPattern(query: string, opts: FindOpts): boolean;
     /** Recompute + paint every match; returns the count and where to start. */
     search(query: string, opts: FindOpts): FindResult;
-    /** Emphasise + reveal match #index (0-based); no-op if out of range. */
-    setActive(index: number): void;
+    /** Emphasise + optionally reveal match #index (0-based); no-op if out of range. */
+    setActive(index: number, reveal?: boolean): void;
     /** Remove every highlight this controller painted. */
     clear(): void;
     /**
@@ -103,25 +104,34 @@ const persistFindState = (s: PersistedFindState) => {
 };
 
 export function FindBar({ isOpen, initialMode = "find", controller, revision, onClose, openRequest }: FindBarProps) {
+    const { t } = useI18n();
     const [findState, setFindState] = usePersistedState(loadFindState, persistFindState);
     const { query, replacement, caseSensitive, regex } = findState;
-    const showReplace = (initialMode === "replace" && controller.supportsReplace) || (findState.showReplace && controller.supportsReplace);
+    const showReplace = findState.showReplace && controller.supportsReplace;
     const [activeIdx, setActiveIdx] = useState(-1);
     const [count, setCount] = useState(0);
+    const [searchVersion, setSearchVersion] = useState(0);
     const [invalid, setInvalid] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
+    const shouldRevealRef = useRef(true);
 
     const useRegex = regex && controller.supportsRegex;
 
     const setQuery = (v: string) => setFindState((s) => ({ ...s, query: v }));
     const setReplacement = (v: string) => setFindState((s) => ({ ...s, replacement: v }));
 
+    const prevOpenRef = useRef(false);
     useEffect(() => {
+        const openedNow = isOpen && !prevOpenRef.current;
+        prevOpenRef.current = isOpen;
+        if (openedNow && initialMode === "replace" && controller.supportsReplace) {
+            setFindState((s) => (s.showReplace ? s : { ...s, showReplace: true }));
+        }
         if (isOpen) {
             inputRef.current?.focus();
             inputRef.current?.select();
         }
-    }, [isOpen, initialMode, controller]);
+    }, [isOpen, initialMode, controller.supportsReplace, setFindState]);
 
     // An open request (possibly on an already-open bar) seeds the query from
     // the selection and puts the caret back in the field. FIND-06/07.
@@ -130,13 +140,20 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
         if (!openRequest || openRequest.nonce === lastRequestRef.current) return;
         lastRequestRef.current = openRequest.nonce;
         const seed = openRequest.text;
-        if (seed) setFindState((s) => ({ ...s, query: s.regex && controller.supportsRegex ? escapeRegex(seed) : seed }));
+        const forceReplace = initialMode === "replace" && controller.supportsReplace;
+        if (seed || forceReplace) {
+            setFindState((s) => ({
+                ...s,
+                ...(seed ? { query: s.regex && controller.supportsRegex ? escapeRegex(seed) : seed } : {}),
+                ...(forceReplace ? { showReplace: true } : {}),
+            }));
+        }
         // After the render that applies the seed, so select() covers it.
         requestAnimationFrame(() => {
             inputRef.current?.focus();
             inputRef.current?.select();
         });
-    }, [openRequest, controller, setFindState]);
+    }, [openRequest, initialMode, controller, setFindState]);
 
     // Clear the previous highlights the instant the query (or its options)
     // changes, so nothing stale lingers on screen during the debounce window —
@@ -154,6 +171,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
         const q = query;
         const opts: FindOpts = { caseSensitive, regex: useRegex };
         if (!q) {
+            lastSearchKeyRef.current = "";
             controller.clear();
             setCount(0);
             setActiveIdx(-1);
@@ -168,23 +186,31 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
             return;
         }
         const key = `${q}\u0000${caseSensitive}\u0000${useRegex}`;
-        const delay = key === lastSearchKeyRef.current ? REVISION_DEBOUNCE_MS : QUERY_DEBOUNCE_MS;
+        const passiveRevision = key === lastSearchKeyRef.current;
+        const delay = passiveRevision ? REVISION_DEBOUNCE_MS : QUERY_DEBOUNCE_MS;
         const id = window.setTimeout(() => {
             lastSearchKeyRef.current = key;
+            shouldRevealRef.current = !passiveRevision;
             const { count: n, activeIndex } = controller.search(q, opts);
             setInvalid(false);
             setCount(n);
             setActiveIdx(n > 0 ? activeIndex : -1);
+            setSearchVersion((v) => v + 1);
             if (n === 0) controller.clear();
         }, delay);
         return () => window.clearTimeout(id);
     }, [isOpen, query, caseSensitive, regex, useRegex, revision, controller]);
 
-    // Emphasise + reveal the active match whenever it (or the result set) changes.
-    // The all-matches paint happens in search(); this only moves the emphasis.
+    // Emphasise + optionally reveal the active match whenever it (or the result
+    // set) changes. Passive revision refreshes pass reveal=false so typing in
+    // the editor never yanks selection/scroll away from the user.
     useEffect(() => {
-        if (activeIdx >= 0 && activeIdx < count) controller.setActive(activeIdx);
-    }, [activeIdx, count, controller]);
+        if (activeIdx >= 0 && activeIdx < count) {
+            const reveal = shouldRevealRef.current;
+            shouldRevealRef.current = true;
+            controller.setActive(activeIdx, reveal);
+        }
+    }, [activeIdx, count, searchVersion, controller]);
 
     // Drop every highlight when the bar closes or unmounts.
     useEffect(() => {
@@ -193,14 +219,17 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
     useEffect(() => () => controller.clear(), [controller]);
 
     const next = useCallback(() => {
+        shouldRevealRef.current = true;
         setActiveIdx((i) => (count === 0 ? -1 : (i + 1) % count));
     }, [count]);
     const prev = useCallback(() => {
+        shouldRevealRef.current = true;
         setActiveIdx((i) => (count === 0 ? -1 : (i - 1 + count) % count));
     }, [count]);
 
     const replaceCurrent = useCallback(() => {
         if (activeIdx < 0 || !controller.replaceActive) return;
+        shouldRevealRef.current = true;
         // Adopt the fresh result: the active index lands on the next match
         // (the caret was just advanced past the replacement), so repeated
         // Replace presses walk the list like VS Code (FIND-03).
@@ -208,18 +237,22 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
         if (fresh) {
             setCount(fresh.count);
             setActiveIdx(fresh.count > 0 ? fresh.activeIndex : -1);
+            setSearchVersion((v) => v + 1);
         }
     }, [activeIdx, controller, replacement, query, caseSensitive, useRegex]);
     const replaceAll = useCallback(() => {
         if (count === 0 || !controller.replaceAll) return;
+        shouldRevealRef.current = true;
         const fresh = controller.replaceAll(replacement, query, { caseSensitive, regex: useRegex });
         if (fresh) {
             setCount(fresh.count);
             setActiveIdx(fresh.count > 0 ? fresh.activeIndex : -1);
+            setSearchVersion((v) => v + 1);
         }
     }, [count, controller, replacement, query, caseSensitive, useRegex]);
 
     const handleKey = (e: React.KeyboardEvent) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === "Escape") {
             e.preventDefault();
             onClose();
@@ -235,6 +268,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
     // keyboard flow "query → Tab → Enter" navigate instead of replacing
     // (FIND-04). Shift+Enter still goes to the previous match.
     const handleReplaceKey = (e: React.KeyboardEvent) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === "Enter") {
             e.preventDefault();
             e.stopPropagation();
@@ -246,10 +280,10 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
     if (!isOpen) return null;
 
     const totalLabel = invalid
-        ? "Invalid pattern"
+        ? t("findBar.invalidPattern")
         : count === 0
-            ? (query.trim() ? "No results" : "")
-            : `${activeIdx + 1} of ${count}`;
+            ? (query.trim() ? t("findBar.noResults") : "")
+            : t("findBar.matchOf", { current: activeIdx + 1, total: count });
 
     // Two desktop/mobile shapes from one component. The desktop single row
     // (input + count + prev/next + toggles + close) needs ~420px; on a phone
@@ -259,16 +293,16 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
     // input gets min-w-0 so flex can actually shrink it.
     const navButtons = (
         <>
-            <button onClick={prev} title="Previous (Shift+Enter)" aria-label="Previous match" className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
+            <button onClick={prev} title={t("findBar.prevTitle")} aria-label={t("findBar.prevAria")} className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
                 <span className="material-symbols-outlined text-[16px]">keyboard_arrow_up</span>
             </button>
-            <button onClick={next} title="Next (Enter)" aria-label="Next match" className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
+            <button onClick={next} title={t("findBar.nextTitle")} aria-label={t("findBar.nextAria")} className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
                 <span className="material-symbols-outlined text-[16px]">keyboard_arrow_down</span>
             </button>
             <button
                 onClick={() => setFindState((s) => ({ ...s, caseSensitive: !s.caseSensitive }))}
                 aria-pressed={caseSensitive}
-                title="Match case"
+                title={t("findBar.matchCase")}
                 className={`w-6 h-6 rounded text-[12px] font-bold flex items-center justify-center ${caseSensitive ? "bg-[var(--accent)] text-[var(--accent-text)]" : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"}`}
             >
                 Aa
@@ -277,7 +311,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
                 <button
                     onClick={() => setFindState((s) => ({ ...s, regex: !s.regex }))}
                     aria-pressed={regex}
-                    title="Regex"
+                    title={t("findBar.regex")}
                     className={`w-6 h-6 rounded text-[12px] font-mono flex items-center justify-center ${regex ? "bg-[var(--accent)] text-[var(--accent-text)]" : "hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"}`}
                 >
                     .*
@@ -289,7 +323,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
     return (
         <div
             role="dialog"
-            aria-label={controller.supportsReplace ? "Find and replace" : "Find in document"}
+            aria-label={controller.supportsReplace ? t("findBar.dialogReplaceAria") : t("findBar.dialogFindAria")}
             className="find-bar absolute top-2 right-4 z-40 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl px-2 py-2 flex flex-col gap-2 animate-fade-in-down"
             style={{ minWidth: controller.supportsReplace ? 360 : 300 }}
             onKeyDown={handleKey}
@@ -299,7 +333,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
                     <button
                         type="button"
                         onClick={() => setFindState((s) => ({ ...s, showReplace: !s.showReplace }))}
-                        aria-label={showReplace ? "Hide replace" : "Show replace"}
+                        aria-label={showReplace ? t("findBar.hideReplace") : t("findBar.showReplace")}
                         className="flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
                     >
                         <span className="material-symbols-outlined text-[16px]">
@@ -312,10 +346,10 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Find in document"
+                    placeholder={t("findBar.placeholder")}
                     enterKeyHint="search"
                     className="flex-1 min-w-0 px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-                    aria-label="Find text"
+                    aria-label={t("findBar.findTextAria")}
                 />
                 <span className={`text-[11px] tabular-nums whitespace-nowrap min-w-[80px] text-right ${invalid ? "text-[var(--danger)]" : "text-[var(--text-secondary)]"}`}>
                     {totalLabel}
@@ -323,7 +357,7 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
                 {/* Keep close beside the input on mobile — navigation/toggles
                     wrap to the row below (see FindNavRow). */}
                 {!IS_MOBILE && navButtons}
-                <button onClick={onClose} title="Close (Esc)" aria-label="Close find" className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
+                <button onClick={onClose} title={t("findBar.closeTitle")} aria-label={t("findBar.closeAria")} className="w-6 h-6 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center justify-center">
                     <span className="material-symbols-outlined text-[16px]">close</span>
                 </button>
             </div>
@@ -341,24 +375,24 @@ export function FindBar({ isOpen, initialMode = "find", controller, revision, on
                         value={replacement}
                         onChange={(e) => setReplacement(e.target.value)}
                         onKeyDown={handleReplaceKey}
-                        placeholder="Replace"
+                        placeholder={t("findBar.replacePlaceholder")}
                         enterKeyHint="done"
                         className="flex-1 min-w-0 px-2 py-1 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-                        aria-label="Replace with"
+                        aria-label={t("findBar.replaceAria")}
                     />
                     <button
                         onClick={replaceCurrent}
                         disabled={activeIdx < 0}
                         className="px-2 py-1 text-xs rounded bg-[var(--bg-input)] border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
                     >
-                        Replace
+                        {t("findBar.replace")}
                     </button>
                     <button
                         onClick={replaceAll}
                         disabled={count === 0}
                         className="px-2 py-1 text-xs rounded bg-[var(--bg-input)] border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
                     >
-                        Replace All
+                        {t("findBar.replaceAll")}
                     </button>
                 </div>
             )}

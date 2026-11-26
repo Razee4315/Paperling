@@ -12,7 +12,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { rehypeBlockDirection, type TextDirection } from "../utils/textDirection";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { parseFrontmatter, serializeFrontmatter, type FrontmatterValue } from "../utils/frontmatter";
+import { parseFrontmatter, updateFrontmatterKey, type FrontmatterValue } from "../utils/frontmatter";
 import { IS_MOBILE } from "../utils/platform";
 import { createLocalImageCache } from "../utils/localImageCache";
 import { writeCleanSelection } from "../utils/previewCopy";
@@ -46,7 +46,7 @@ function OrderedList({ node, children, style, ...props }: React.ComponentProps<"
 // matches, but only to warm the bundle while someone is mid-typing a chemistry
 // block: RENDERING still requires math delimiters ($...$ or $$...$$), because
 // nothing converts a bare \ce{} into a math node (#111).
-const MATH_DETECTION_REGEX = /(\$\$[\s\S]+?\$\$)|((?:^|[^\d$])\$[^\s$][^\n$]*?[^\s$]\$(?!\d))|(\\ce\{)|(\\pu\{)/m;
+const MATH_DETECTION_REGEX = /(\$\$[\s\S]+?\$\$)|(^ {0,3}(?:`{3,}|~{3,})[ \t]*math\b)|((?:^|[^\d$])\$(?:[^\s$]|[^\s$][^\n$]*?[^\s$])\$(?!\d))|(\\ce\{)|(\\pu\{)/m;
 const hasMath = (s: string): boolean => MATH_DETECTION_REGEX.test(s);
 
 // rehype-highlight config. `detect: false` is the library default — pinned here
@@ -114,9 +114,11 @@ const SANITIZE_SCHEMA = {
     protocols: {
         ...defaultSchema.protocols,
         href: [...(defaultSchema.protocols?.href ?? []), "wikilink"],
-        // `data` for image sources only (LocalImage guards to data:image/*) so
-        // base64-embedded images render instead of skeletonizing forever.
-        src: [...(defaultSchema.protocols?.src ?? []), "data"],
+        // `data` for base64-embedded images and `wikilink` for `![[image]]`
+        // embeds (IMG-EMBED-01). LocalImage restricts `data:` to `data:image/*`
+        // and enforces safe relative paths inside `baseDir` before calling
+        // `read_image_file`.
+        src: [...(defaultSchema.protocols?.src ?? []), "data", "wikilink"],
     },
 } as typeof defaultSchema;
 
@@ -253,6 +255,9 @@ const loadMathPlugins = (): Promise<PluginPair> => {
     ]).then(([rm, rk]) => {
         mathPluginsCache = { remark: rm.default, rehype: rk.default };
         return mathPluginsCache;
+    }).catch((err) => {
+        mathLoadPromise = null;
+        throw err;
     });
     return mathLoadPromise;
 };
@@ -292,14 +297,40 @@ interface MarkdownPreviewProps {
 
 /* ---------- Wikilink pre-processing (NAV-08) ---------- */
 
-const WIKILINK_RE = /\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
+const WIKILINK_RE = /(!?)\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
 // One capture group → String.split keeps protected spans at odd indices:
 // code spans, single-line $$…$$ and inline $…$ are literal text, never links.
 const INLINE_PROTECTED_RE = /(`+[^`]*`+|\$\$[^$]*\$\$|\$[^$\n]+\$)/;
 
+function parseEmbedSize(raw: string): { width: number; height?: number } | null {
+    const match = /^(\d{1,4})(?:x(\d{1,4}))?$/i.exec(raw.trim());
+    if (!match) return null;
+    const width = Number(match[1]);
+    const height = match[2] != null ? Number(match[2]) : undefined;
+    if (width < 1 || width > 4096) return null;
+    if (height != null && (height < 1 || height > 4096)) return null;
+    return { width, height };
+}
+
 const rewriteWikilinks = (text: string): string =>
-    text.replace(WIKILINK_RE, (_m, target: string, alias?: string) => {
+    text.replace(WIKILINK_RE, (_m, bang: string, target: string, alias?: string) => {
         const t = target.trim();
+        if (bang === "!") {
+            let sizeHash = "";
+            let a = wikilinkLabel(t);
+            if (alias != null) {
+                const parts = alias.split("|");
+                const size = parseEmbedSize(parts[parts.length - 1] ?? "");
+                if (size) {
+                    parts.pop();
+                    sizeHash = size.height != null ? `#w=${size.width}&h=${size.height}` : `#w=${size.width}`;
+                    a = parts.join("|").trim() || wikilinkLabel(t);
+                } else {
+                    a = alias.trim();
+                }
+            }
+            return `![${a}](wikilink:${encodeURIComponent(t)}${sizeHash})`;
+        }
         // No alias: show Obsidian's label (`Note › Heading`, `Heading` for a
         // same-note link) instead of the raw `Note#Heading`. NAV-09.
         const a = alias != null ? alias.trim() : wikilinkLabel(t);
@@ -367,8 +398,11 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 // image rewritten on disk shows its new version. See localImageCache. IMG-04.
 const getCachedLocalImageUrl = createLocalImageCache({
     stat: (path) =>
-        invoke<{ modified: number }>("get_file_info", { path }).then(
-            (info) => info.modified,
+        invoke<{ modified: number } | null>("get_file_info", { path }).then(
+            // A null reply (browser mode, or a mocked backend) means "unknown
+            // mtime", not a crash: the cached copy stays and the read below
+            // still reports a genuinely missing file.
+            (info) => info?.modified ?? null,
             () => null,
         ),
     // Read via the validated Rust command (containment + symlink-safe) instead
@@ -378,6 +412,40 @@ const getCachedLocalImageUrl = createLocalImageCache({
     createUrl: (blob) => URL.createObjectURL(blob),
     revokeUrl: (url) => URL.revokeObjectURL(url),
 });
+
+/**
+ * Turn a markdown-derived URL back into a filesystem path.
+ *
+ * Every destination that goes through the parser is URI-normalized by
+ * `mdast-util-to-hast` (the same normalization GitHub applies), so
+ * `![图](第01章_assets/solid.png)` reaches the `img` component as
+ * `%E7%AC%AC01%E7%AB%A0_.../solid.png`. The filesystem wants the decoded name,
+ * so each consumer of a markdown path has to decode it: text links already do
+ * (`resolveRelativePath`), images did not — every reference containing a CJK
+ * character, a space or `#` asked Rust for a file whose name really has
+ * `%E7%AC%AC` in it and got ENOENT, which surfaced as "Failed to load image".
+ * IMG-04.
+ *
+ * Decode BEFORE the `isUnsafeRelativePath` guard, never after: `%2e%2e%2f`
+ * must not smuggle a `..` segment past it.
+ *
+ * - A name with a literal `%` that is not valid escape syntax (`100%.png`)
+ *   cannot be decoded; keep it as written instead of throwing.
+ * - `+` is left alone: `decodeURIComponent`, unlike form-encoded parsing,
+ *   treats it as a literal plus — which is what a file name means.
+ * - A file that is literally NAMED `note%20one.png` (escapes that are meant
+ *   literally) can't be told apart from an encoded name, so it loses: every
+ *   mainstream markdown exporter writes encoded URLs, and a literal `%NN` on
+ *   disk is vanishingly rare next to 474 broken CJK references.
+ */
+export function decodeMarkdownPath(path: string): string {
+    if (!path.includes("%")) return path;
+    try {
+        return decodeURIComponent(path);
+    } catch {
+        return path;
+    }
+}
 
 // Component to handle local image loading
 function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string; baseDir: string | null } & React.ImgHTMLAttributes<HTMLImageElement>) {
@@ -408,8 +476,21 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
     // focus doesn't flash every image back to its loading skeleton.
     const shownKeyRef = useRef<string | null>(null);
 
+    // Strip optional `#w=...(&h=...)` embed sizing fragment from `wikilink:`
+    // images (`![[img.png|300]]` / `![[img.png|300x200]]`) before loading.
+    const isWikilink = src.startsWith("wikilink:");
+    const wikilinkSizeMatch = isWikilink ? /#w=(\d{1,4})(?:&h=(\d{1,4}))?$/.exec(src) : null;
+    const rawEmbedW = wikilinkSizeMatch ? Number(wikilinkSizeMatch[1]) : undefined;
+    const rawEmbedH = wikilinkSizeMatch?.[2] ? Number(wikilinkSizeMatch[2]) : undefined;
+    const validEmbedWidth = rawEmbedW != null && rawEmbedW >= 1 && rawEmbedW <= 4096 ? rawEmbedW : undefined;
+    const validEmbedHeight = rawEmbedH != null && rawEmbedH >= 1 && rawEmbedH <= 4096 ? rawEmbedH : undefined;
+    const rawPath = isWikilink
+        ? (wikilinkSizeMatch ? src.slice("wikilink:".length, wikilinkSizeMatch.index) : src.slice("wikilink:".length))
+        : src;
+    const cacheSrc = isWikilink ? `wikilink:${rawPath}` : src;
+
     useEffect(() => {
-        const shownKey = `${baseDir}\u0000${src}\u0000${blocked}`;
+        const shownKey = `${baseDir}\u0000${cacheSrc}\u0000${blocked}`;
         if (shownKeyRef.current !== shownKey) {
             shownKeyRef.current = shownKey;
             setImageSrc("");
@@ -420,15 +501,13 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
         // `![[image.png]]` embeds arrive pre-rewritten to wikilink: scheme —
         // resolve them as plain paths next to the document, like a text
         // wikilink would be. IMG-EMBED-01.
-        const effective = src.startsWith("wikilink:")
-            ? decodeURIComponent(src.slice("wikilink:".length))
-            : src;
 
         // External URLs and data: URIs go straight to the <img>. They don't
         // need the document's directory, so they must load even when no file
         // is on disk (browser mode / untitled buffer) — the old `!baseDir`
-        // early-return left them as an eternal loading skeleton.
-        if (/^https:\/\//i.test(effective) || /^data:image\//i.test(effective)) {
+        // early-return left them as an eternal loading skeleton. Keep `wikilink:`
+        // out of this passthrough so `![[https://...]]` cannot smuggle a remote URL.
+        if (!isWikilink && (/^https:\/\//i.test(rawPath) || /^data:image\//i.test(rawPath))) {
             setImageSrc(src);
             setError(false);
             return;
@@ -440,11 +519,15 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             return;
         }
 
-        // Strip a leading `./` then validate. Anything with a `..` segment, an
-        // absolute prefix, or a drive letter is rejected — see
-        // isUnsafeRelativePath above.
-        const cleanPath = effective.startsWith('./') ? effective.slice(2) : effective;
-        if (isUnsafeRelativePath(cleanPath)) {
+        // Strip a leading `./`, percent-decode ONCE (both parsed markdown
+        // destinations and `wikilink:` embeds arrive percent-encoded — see
+        // decodeMarkdownPath) and only THEN validate. Reject any nested URI
+        // scheme (e.g. `wikilink:https://...`, `wikilink:javascript:...`),
+        // `..` segment, absolute prefix, or drive letter.
+        const cleanPath = decodeMarkdownPath(
+            rawPath.startsWith('./') ? rawPath.slice(2) : rawPath,
+        );
+        if (/^[a-z][a-z0-9+.-]*:/i.test(cleanPath) || isUnsafeRelativePath(cleanPath)) {
             setError(true);
             return;
         }
@@ -472,7 +555,15 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             // Don't revoke the URL — the cache owns it. Cache eviction handles
             // revocation when the entry is pushed out by LRU pressure.
         };
-    }, [src, baseDir, blocked, refreshTick]);
+    }, [src, cacheSrc, rawPath, isWikilink, baseDir, blocked, refreshTick]);
+
+    // Hold a retain reference on cached blob URLs while this <img> displays them,
+    // so LRU eviction doesn't revoke a URL that is still mounted.
+    useEffect(() => {
+        if (!imageSrc.startsWith("blob:")) return;
+        getCachedLocalImageUrl.retain(imageSrc);
+        return () => getCachedLocalImageUrl.release(imageSrc);
+    }, [imageSrc]);
 
     // IMG-03 (#224): HTTPS is permitted by CSP, with a per-image opt-in when
     // automatic loading is off. Plain HTTP remains blocked in every build.
@@ -506,9 +597,14 @@ function LocalImage({ src, alt, baseDir, ...props }: { src: string; alt: string;
             src={imageSrc}
             alt={alt || 'image'}
             {...props}
+            style={{
+                ...(props.style ?? {}),
+                ...(validEmbedWidth ? { width: `${validEmbedWidth}px` } : {}),
+                ...(validEmbedHeight ? { height: `${validEmbedHeight}px` } : {}),
+            }}
             loading="lazy"
             onError={() => setError(true)}
-            className="max-w-full h-auto rounded-lg my-4 cursor-zoom-in transition-transform hover:scale-[1.01]"
+            className={`max-w-full ${validEmbedHeight ? "" : "h-auto "}rounded-lg my-4 cursor-zoom-in transition-transform hover:scale-[1.01]`}
             onClick={() => {
                 const evt = new CustomEvent("paperling:zoom", { detail: { src: imageSrc, alt } });
                 window.dispatchEvent(evt);
@@ -535,13 +631,19 @@ function extractCodeChild(children: React.ReactNode): { className?: string; text
 }
 
 /** Code block with a copy-to-clipboard button — also intercepts mermaid blocks. */
-function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) {
+function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement> & { "data-source-line"?: unknown; "data-source-end-line"?: unknown }) {
     const ref = useRef<HTMLPreElement>(null);
     const [copied, setCopied] = useState(false);
 
     const codeInfo = extractCodeChild(children);
     if (codeInfo && isMermaidLanguage(codeInfo.className)) {
-        return <MermaidBlock code={codeInfo.text} />;
+        return (
+            <MermaidBlock
+                code={codeInfo.text}
+                sourceLine={rest["data-source-line"]}
+                sourceEndLine={rest["data-source-end-line"]}
+            />
+        );
     }
 
     const handleCopy = async () => {
@@ -575,30 +677,67 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) 
     );
 }
 
+function FrontmatterScalarInput({
+    value,
+    onCommit,
+}: {
+    value: string | number;
+    onCommit: (next: FrontmatterValue) => void;
+}) {
+    const [draft, setDraft] = useState(String(value));
+    useEffect(() => {
+        setDraft(String(value));
+    }, [value]);
+    return (
+        <input
+            type={typeof value === "number" ? "number" : "text"}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+                if (typeof value === "number") {
+                    const parsed = draft.trim() === "" ? NaN : Number(draft);
+                    if (Number.isFinite(parsed)) onCommit(parsed);
+                    else setDraft(String(value));
+                } else {
+                    onCommit(draft);
+                }
+            }}
+            onKeyDown={(e) => {
+                if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+            }}
+            className="w-full px-2 py-0.5 text-sm bg-transparent border-b border-transparent hover:border-[var(--border)] focus:border-[var(--accent)] outline-none text-[var(--text-primary)]"
+        />
+    );
+}
+
 /** Render YAML frontmatter as a collapsible, editable metadata card. */
 function FrontmatterCard({
     data,
+    complexKeys = [],
     editable,
-    onChange,
+    onChangeKey,
 }: {
     data: Record<string, FrontmatterValue>;
+    complexKeys?: readonly string[];
     editable: boolean;
-    onChange?: (next: Record<string, FrontmatterValue>) => void;
+    onChangeKey?: (key: string, value: FrontmatterValue) => void;
 }) {
     const [collapsed, setCollapsed] = useState(false);
+    const complexSet = new Set(complexKeys);
     const entries = Object.entries(data);
     if (entries.length === 0) return null;
 
-    const updateKey = (k: string, v: FrontmatterValue) => onChange?.({ ...data, [k]: v });
+    const updateKey = (k: string, v: FrontmatterValue) => onChangeKey?.(k, v);
 
     const renderValue = (k: string, v: FrontmatterValue) => {
+        const keyEditable = editable && !complexSet.has(k);
         if (Array.isArray(v)) {
             return (
                 <div className="flex flex-wrap gap-1 items-center">
                     {v.map((item, i) => (
                         <span key={i} className="px-2 py-0.5 text-xs bg-[var(--bg-hover)] rounded-[var(--radius-sm)] border border-[var(--border-subtle)] text-[var(--text-primary)] flex items-center gap-1">
                             {item}
-                            {editable && (
+                            {keyEditable && (
                                 <button
                                     type="button"
                                     onClick={() => updateKey(k, v.filter((_, idx) => idx !== i))}
@@ -610,7 +749,7 @@ function FrontmatterCard({
                             )}
                         </span>
                     ))}
-                    {editable && (
+                    {keyEditable && (
                         <input
                             type="text"
                             placeholder="+ add"
@@ -630,7 +769,7 @@ function FrontmatterCard({
             );
         }
         if (typeof v === "boolean") {
-            if (editable) {
+            if (keyEditable) {
                 return (
                     <button
                         type="button"
@@ -644,17 +783,13 @@ function FrontmatterCard({
             }
             return <span className="text-xs font-mono">{v ? "true" : "false"}</span>;
         }
-        if (editable) {
+        if (keyEditable) {
             return (
-                <input
-                    type={typeof v === "number" ? "number" : "text"}
-                    defaultValue={String(v)}
-                    onBlur={(e) => {
-                        const raw = e.target.value;
-                        const next: FrontmatterValue = typeof v === "number" ? Number(raw) : raw;
+                <FrontmatterScalarInput
+                    value={v}
+                    onCommit={(next) => {
                         if (next !== v) updateKey(k, next);
                     }}
-                    className="w-full px-2 py-0.5 text-sm bg-transparent border-b border-transparent hover:border-[var(--border)] focus:border-[var(--accent)] outline-none text-[var(--text-primary)]"
                 />
             );
         }
@@ -994,13 +1129,13 @@ function MarkdownPreviewImpl({
     }, [onContentChange]);
 
     const components = useMemo(() => ({
-        img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
+        img: ({ src, alt, node: _node, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) => (
             <LocalImage src={src || ''} alt={alt || 'image'} baseDir={baseDir} {...props} />
         ),
         a: ({ href, children, node, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) => {
             // Wikilink: open same-folder file via callback
             if (href && href.startsWith("wikilink:")) {
-                const target = decodeURIComponent(href.slice("wikilink:".length));
+                const target = decodeMarkdownPath(href.slice("wikilink:".length));
                 return (
                     <a
                         {...rest}
@@ -1030,13 +1165,21 @@ function MarkdownPreviewImpl({
                         href={href}
                         onClick={(e) => {
                             e.preventDefault();
-                            const id = decodeURIComponent(href.slice(1));
-                            let el: HTMLElement | null = document.getElementById(id);
+                            const id = decodeMarkdownPath(href.slice(1));
+                            const container = mainRef.current;
+                            const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                                ? CSS.escape(id)
+                                : id.replace(/([^\w-])/g, "\\$1");
+                            let el: HTMLElement | null = id
+                                ? (container
+                                    ? container.querySelector<HTMLElement>(`#${escapedId}`)
+                                    : document.getElementById(id))
+                                : null;
                             if (!el) {
                                 // Fuzzy fallback: find a heading whose textContent
                                 // slugifies to a string containing the requested id.
                                 const needle = id.toLowerCase().replace(/-/g, " ").trim();
-                                const headings = document.querySelectorAll<HTMLElement>(
+                                const headings = (container ?? document).querySelectorAll<HTMLElement>(
                                     ".markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6"
                                 );
                                 for (const h of headings) {
@@ -1160,7 +1303,7 @@ function MarkdownPreviewImpl({
     // entry is off by the number of frontmatter lines.
     const fmOffsetRef = useRef(0);
 
-    const { body: parsedBody, data: frontmatter, hasFrontmatter } = useMemo(
+    const { body: parsedBody, data: frontmatter, complexKeys, hasFrontmatter } = useMemo(
         () => parseFrontmatter(previewContent),
         [previewContent]
     );
@@ -1190,9 +1333,9 @@ function MarkdownPreviewImpl({
         if (mathPlugins) return;
         if (!hasMath(renderBody)) return;
         let cancelled = false;
-        loadMathPlugins().then((p) => {
-            if (!cancelled) setMathPlugins(p);
-        });
+        loadMathPlugins()
+            .then((p) => { if (!cancelled) setMathPlugins(p); })
+            .catch(() => { /* leave math literal if dynamic chunk fails to load */ });
         return () => { cancelled = true; };
     }, [renderBody, mathPlugins]);
 
@@ -1219,7 +1362,7 @@ function MarkdownPreviewImpl({
     // "auto": a forced direction is a single `dir` on .markdown-body instead.
     const rehypePlugins = useMemo(() => {
         const base = mathPlugins
-            ? [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], mathPlugins.rehype, [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds]
+            ? [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], [mathPlugins.rehype, { maxSize: 500, maxExpand: 100 }], [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds]
             : [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], [rehypeHighlight, HIGHLIGHT_OPTIONS], rehypeSourceLine, rehypeHeadingIds];
         // rehypeEmoji stays behind rehypeHeadingIds: see utils/emoji.ts.
         if (emojiNames) base.push([rehypeEmoji, { names: emojiNames }]);
@@ -1295,8 +1438,15 @@ function MarkdownPreviewImpl({
     // refresh it via ResizeObserver + on content change and read the cache in the
     // hot path. PREVIEW-04.
     const scrollMaxRef = useRef(0);
+    const anchorCacheRef = useRef<{
+        blocks: HTMLElement[];
+        lines: number[];
+        tops: number[];
+        scrollHeight: number;
+    } | null>(null);
     const refreshScrollMax = useCallback(() => {
         const el = mainRef.current;
+        anchorCacheRef.current = null;
         if (el) scrollMaxRef.current = el.scrollHeight - el.clientHeight;
     }, []);
 
@@ -1359,7 +1509,7 @@ function MarkdownPreviewImpl({
         ro.observe(el);
         return () => ro.disconnect();
     }, [refreshScrollMax]);
-    useEffect(() => { refreshScrollMax(); }, [renderedBody, refreshScrollMax]);
+    useEffect(() => { refreshScrollMax(); }, [renderedBody, blocks, mathPlugins, readerRevision, refreshScrollMax]);
     // Reset the id on cleanup: StrictMode (dev) remounts effects, and a stale
     // non-zero id left handleScroll bailing out forever (no line reports, no
     // split sync).
@@ -1453,23 +1603,35 @@ function MarkdownPreviewImpl({
     const anchorList = useCallback((): AnchorList | null => {
         const el = mainRef.current;
         if (!el || el.clientHeight === 0) return null; // hidden pane
-        const blocks = el.querySelectorAll<HTMLElement>("[data-source-line]");
-        const base = el.getBoundingClientRect().top - el.scrollTop;
-        const off = fmOffsetRef.current;
-        const tops = new Map<number, number>();
+        const scrollHeight = el.scrollHeight;
+        let cached = anchorCacheRef.current;
+        if (!cached || cached.scrollHeight !== scrollHeight) {
+            const nodes = Array.from(el.querySelectorAll<HTMLElement>("[data-source-line]"));
+            const off = fmOffsetRef.current;
+            cached = {
+                blocks: nodes,
+                lines: nodes.map((node) => sourceLineOf(node) + off),
+                tops: new Array<number>(nodes.length).fill(NaN),
+                scrollHeight,
+            };
+            anchorCacheRef.current = cached;
+        }
+        const entry = cached;
+        let base: number | null = null;
         return {
-            count: blocks.length,
-            lineAt: (i) => sourceLineOf(blocks[i]) + off,
+            count: entry.blocks.length,
+            lineAt: (i) => entry.lines[i],
             topAt: (i) => {
-                let t = tops.get(i);
-                if (t === undefined) {
-                    t = blocks[i].getBoundingClientRect().top - base;
-                    tops.set(i, t);
+                let t = entry.tops[i];
+                if (Number.isNaN(t)) {
+                    if (base === null) base = el.getBoundingClientRect().top - el.scrollTop;
+                    t = entry.blocks[i].getBoundingClientRect().top - base;
+                    entry.tops[i] = t;
                 }
                 return t;
             },
             endLine: lineCountRef.current + 1,
-            endTop: el.scrollHeight,
+            endTop: entry.scrollHeight,
         };
     }, []);
 
@@ -1603,11 +1765,13 @@ function MarkdownPreviewImpl({
                 <div className={`preview-column ${readableLineLength ? "max-w-[800px] mx-auto" : "w-full"} px-8 pt-12 pb-28`}>
                     {hasFrontmatter && (
                         <FrontmatterCard
+                            key={docKey ?? "__no_doc__"}
                             data={frontmatter}
+                            complexKeys={complexKeys}
                             editable={!!onContentChange && !editingBlock}
-                            onChange={(next) => {
+                            onChangeKey={(key, val) => {
                                 if (!onContentChange) return;
-                                onContentChange(serializeFrontmatter(next, parsedBody));
+                                onContentChange(updateFrontmatterKey(liveContent ?? previewContent, key, val));
                             }}
                         />
                     )}

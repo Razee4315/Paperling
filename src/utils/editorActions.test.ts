@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
     handleTab,
+    handleTableTab,
     handleEnter,
+    toggleLinePrefix,
     wrapSelection,
     insertLink,
     toggleTask,
@@ -189,5 +191,28 @@ describe("toggleTask (TASK-01)", () => {
         expect(toggleTask(st(doc, 0, doc.length)).text).toBe("- [x] a\n\n- [x] b\n- [ ] c");
         const done = "- [x] a\n- [ ] b";
         expect(toggleTask(st(done, 0, done.length)).text).toBe("- [ ] a\n- [ ] b");
+    });
+
+    it("toggles line prefix safely on empty doc or leading newline and ignores escaped pipes in tables", () => {
+        expect(toggleLinePrefix(st("", 0), "> ").text).toBe("> ");
+        expect(toggleLinePrefix(st("\nbody", 0), "> ").text).toBe("> \nbody");
+        expect(toggleLinePrefix(st("> quote", 0), "> ").text).toBe("quote");
+
+        // Escaped pipe inside a table cell should stay one cell on Tab
+        const row = "| a \\| b | c |";
+        const res = handleTableTab(st(row, 3), false);
+        expect(res).not.toBeNull();
+        expect(row.slice(res!.selStart, res!.selStart + 1)).toBe("c");
+
+        // Single-space and tab outdent in Shift+Tab
+        expect(handleTab(st(" x", 2), true, { inCodeBlock: true })?.text).toBe("x");
+        expect(handleTab(st("\tx", 2), true, { inCodeBlock: true })?.text).toBe("x");
+
+        // wrapSelection should not confuse **bold** closing with *italic*
+        const bold = "**hi**";
+        expect(wrapSelection(st(bold, 2, 4), "*").text).toBe("***hi***");
+        // Disjoint italic words should wrap outer selection rather than stripping inner delimiters
+        const twoItalics = "*a* and *b*";
+        expect(wrapSelection(st(twoItalics, 0, twoItalics.length), "*").text).toBe("**a* and *b**");
     });
 });

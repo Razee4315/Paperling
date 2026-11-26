@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { buildHtmlDocument, type HtmlAssetReader } from "../utils/htmlDocument";
 import { parentDirectory } from "../utils/documentPaths";
 import { getRemoteImages } from "../utils/persistence";
+import { useI18n } from "../i18n";
 
 interface HtmlPreviewProps {
     content: string;
@@ -27,6 +28,7 @@ const assets: HtmlAssetReader = {
  * assumes, whatever the app's theme. #295.
  */
 export function HtmlPreview({ content, fileName, filePath }: HtmlPreviewProps) {
+    const { t } = useI18n();
     const [srcDoc, setSrcDoc] = useState<string | null>(null);
     const [remoteImages, setRemoteImages] = useState(getRemoteImages);
 
@@ -48,7 +50,7 @@ export function HtmlPreview({ content, fileName, filePath }: HtmlPreviewProps) {
         <main className="flex-1 min-h-0 flex flex-col bg-white" data-html-preview>
             {srcDoc !== null && (
                 <iframe
-                    title={`Rendered ${fileName}`}
+                    title={t("htmlPreview.renderedTitle", { name: fileName })}
                     sandbox=""
                     srcDoc={srcDoc}
                     className="flex-1 w-full border-0 bg-white"

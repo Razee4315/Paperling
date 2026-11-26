@@ -75,14 +75,17 @@ export const BINDINGS = {
     bold: { key: "b", mod: true },
     italic: { key: "i", mod: true },
     strikethrough: { key: "x", mod: true, shift: true },
-    inlineCode: { key: "`", mod: true },
+    inlineCode: isMac ? { key: "`", ctrl: true } : { key: "`", mod: true },
     link: { key: "k", mod: true },
     blockquote: { key: "/", mod: true },
     find: { key: "f", mod: true },
-    replace: { key: "h", mod: true },
+    replace: isMac ? { key: "f", mod: true, alt: true } : { key: "h", mod: true },
     selectNextOccurrence: { key: "d", mod: true },
     toggleTask: { key: "Enter", mod: true },
-} satisfies Record<string, Binding>;
+    // Unbound by default; the Windows/Linux Ctrl+Right/Left Shift chord lives
+    // behind its own toggle, and users can bind any combo here (BIDI-04 / #293).
+    toggleTextDirection: null as Binding | null,
+} satisfies Record<string, Binding | null>;
 
 export type BindingId = keyof typeof BINDINGS;
 
@@ -129,14 +132,21 @@ const isSymbolKey = (key: string) => key.length === 1 && !/[a-z0-9]/i.test(key);
 
 const OVERRIDES_KEY = "paperling:keybindings";
 
-function loadOverrides(): Partial<Record<BindingId, Binding>> {
+/** `false` explicitly disables a command's shortcut (SHC-12 / #293). */
+type BindingOverride = Binding | false;
+
+function loadOverrides(): Partial<Record<BindingId, BindingOverride>> {
     try {
         const raw = typeof localStorage !== "undefined" ? localStorage.getItem(OVERRIDES_KEY) : null;
         if (!raw) return {};
-        const parsed = JSON.parse(raw) as Record<string, Binding>;
-        const out: Partial<Record<BindingId, Binding>> = {};
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const out: Partial<Record<BindingId, BindingOverride>> = {};
         for (const [id, b] of Object.entries(parsed)) {
-            if (id in BINDINGS && b && typeof b.key === "string" && b.key) out[id as BindingId] = b;
+            if (!(id in BINDINGS)) continue;
+            if (b === false) out[id as BindingId] = false;
+            else if (b && typeof b === "object" && typeof (b as Binding).key === "string" && (b as Binding).key) {
+                out[id as BindingId] = b as Binding;
+            }
         }
         return out;
     } catch {
@@ -144,15 +154,21 @@ function loadOverrides(): Partial<Record<BindingId, Binding>> {
     }
 }
 
-let overrides = loadOverrides();
+let overrides: Partial<Record<BindingId, BindingOverride>> = loadOverrides();
 
-/** The effective binding: the user's override, else the default. */
-export function getBinding(id: BindingId): Binding {
-    return overrides[id] ?? BINDINGS[id];
+/** The effective binding: the user's override, else the default (null when disabled/unbound). */
+export function getBinding(id: BindingId): Binding | null {
+    const over = overrides[id];
+    if (over === false) return null;
+    return over ?? BINDINGS[id];
 }
 
 export function isOverridden(id: BindingId): boolean {
     return overrides[id] !== undefined;
+}
+
+export function isDisabled(id: BindingId): boolean {
+    return getBinding(id) === null;
 }
 
 function persistOverrides() {
@@ -169,6 +185,15 @@ export function setBindingOverride(id: BindingId, binding: Binding | null): void
     const next = { ...overrides };
     if (binding) next[id] = binding;
     else delete next[id];
+    overrides = next;
+    persistOverrides();
+}
+
+/** Disable a command's shortcut so no key press triggers it (SHC-12). */
+export function disableBinding(id: BindingId): void {
+    const next = { ...overrides };
+    if (BINDINGS[id] === null) delete next[id];
+    else next[id] = false;
     overrides = next;
     persistOverrides();
 }
@@ -190,11 +215,15 @@ const sameCombo = (a: Binding, b: Binding) =>
     !!a.alt === !!b.alt &&
     !!a.shift === !!b.shift;
 
-/** Another command already using this combo (effective bindings), if any. */
+/** Another command already using this combo (effective bindings + active aliases), if any. */
 export function findConflict(id: BindingId, binding: Binding): BindingId | null {
     for (const other of Object.keys(BINDINGS) as BindingId[]) {
         if (other === id) continue;
-        if (sameCombo(getBinding(other), binding)) return other;
+        const otherBinding = getBinding(other);
+        if (otherBinding && sameCombo(otherBinding, binding)) return other;
+        if (!isOverridden(other) && (ALIASES[other] ?? []).some((alias) => sameCombo(alias, binding))) {
+            return other;
+        }
     }
     return null;
 }
@@ -230,19 +259,34 @@ export function bindingFromEvent(e: KeyboardEvent): Binding | null {
 
 /** Does a keyboard event match the given binding, resolving `mod` per platform? */
 export function matchesBinding(e: KeyboardEvent, id: BindingId): boolean {
-    if (matchesOne(e, getBinding(id))) return true;
+    const binding = getBinding(id);
+    if (!binding) return false;
+    if (matchesOne(e, binding)) return true;
     // Aliases are extra muscle-memory combos for the DEFAULT binding; once the
-    // user rebinds a command, only their choice triggers it.
+    // user rebinds or disables a command, only their choice triggers it.
     if (isOverridden(id)) return false;
     return (ALIASES[id] ?? []).some((alias) => matchesOne(e, alias));
 }
 
 /** Match a single combo. `matchesBinding` layers the aliases on top of this. */
 function matchesOne(e: KeyboardEvent, b: Binding): boolean {
+    const expectedCode = /^[a-z]$/i.test(b.key)
+        ? `Key${b.key.toUpperCase()}`
+        : /^[0-9]$/.test(b.key)
+            ? `Digit${b.key}`
+            : null;
     // ⌥ on macOS turns a letter into a symbol (⌥Z reports "Ω"), so an Alt combo
     // there matches on the physical key instead.
     const macAltLetter = isMac && !!b.alt && /^[a-z]$/i.test(b.key) && e.code === `Key${b.key.toUpperCase()}`;
-    if (e.key.toLowerCase() !== b.key.toLowerCase() && !macAltLetter) return false;
+    // Non-Latin / IME layouts report non-ASCII `e.key` ("ы", "س", "Process") for
+    // modified shortcuts; match physical `e.code` without breaking logical Latin
+    // layouts like Dvorak/Colemak where `e.key` is another ASCII letter/digit. SHC-13.
+    const nonLatinFallback =
+        !!(b.mod || b.ctrl || b.alt) &&
+        expectedCode !== null &&
+        e.code === expectedCode &&
+        !/^[a-z0-9]$/i.test(e.key);
+    if (e.key.toLowerCase() !== b.key.toLowerCase() && !macAltLetter && !nonLatinFallback) return false;
 
     // Primary/secondary modifier resolution.
     const secondaryDown = isMac ? e.ctrlKey : e.metaKey;
@@ -310,9 +354,10 @@ export function formatBinding(b: Binding): string {
     return parts.join("+");
 }
 
-/** Display string for a registered binding, e.g. formatShortcut("saveAs"). */
+/** Display string for a registered binding, e.g. formatShortcut("saveAs"). Empty when disabled. */
 export function formatShortcut(id: BindingId): string {
-    return formatBinding(getBinding(id));
+    const b = getBinding(id);
+    return b ? formatBinding(b) : "";
 }
 
 /** Display strings for a binding's secondary combos, if it has any (#147). */
@@ -343,7 +388,8 @@ const CM_KEY: Record<string, string> = {
  * find/replace), which are all mod-based and shift-free.
  */
 export function toCmKey(id: BindingId): string {
-    const b: Binding = getBinding(id);
+    const b = getBinding(id);
+    if (!b) return "";
     const parts: string[] = [];
     if (b.mod) parts.push("Mod");
     if (b.ctrl) parts.push("Ctrl");

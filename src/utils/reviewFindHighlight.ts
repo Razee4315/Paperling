@@ -84,7 +84,8 @@ export function highlightRemovedMatch(
     chunkEl: HTMLElement | null,
     query: string,
     caseSensitive: boolean,
-    ordinal: number
+    ordinal: number,
+    regex = false,
 ): boolean {
     clearRemovedHighlight();
     if (!chunkEl || !query || query.includes("\n")) return false;
@@ -93,7 +94,7 @@ export function highlightRemovedMatch(
     const H = HighlightCtor();
     if (!reg || !H) return false;
 
-    const ranges = collectDomMatches(chunkEl, query, caseSensitive, SKIP_INSIDE);
+    const ranges = collectDomMatches(chunkEl, query, caseSensitive, SKIP_INSIDE, regex);
     const range = ranges[ordinal];
     if (!range) return false;
 

@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openSystemFilePicker, saveToDownloads } from "./nativePicker";
+import { isAndroidCachePath, makeDownloadsSentinel, openSystemFilePicker, parseDownloadsSentinel, saveToDownloads, syncToSource } from "./nativePicker";
 
 const w = window as unknown as {
-    PaperlingAndroid?: { openDocument?: () => void; saveToDownloads?: (n: string, c: string, m: string, id: string) => void };
+    PaperlingAndroid?: {
+        openDocument?: () => void;
+        saveToDownloads?: (n: string, c: string, m: string, id: string) => void;
+        syncToSource?: (p: string, c: string, id: string) => void;
+    };
     __paperlingOnSaveResult?: (ok: boolean, a: string | null, b: string | null, id: string) => void;
+    __paperlingOnSyncResult?: (ok: boolean, error: string | null, id: string) => void;
 };
-afterEach(() => { delete w.PaperlingAndroid; vi.useRealTimers(); });
+afterEach(() => { delete w.PaperlingAndroid; delete w.__paperlingOnSyncResult; vi.useRealTimers(); });
 
 describe("Android document bridge (#253/#254)", () => {
     it("reports an absent or throwing picker bridge", () => {
@@ -57,5 +62,56 @@ describe("Android document bridge (#253/#254)", () => {
         expect((await saveToDownloads("third.md", "more work")).error).toContain("already in progress");
         w.__paperlingOnSaveResult!(true, "/cache/current.md", "current.md", native.mock.calls[1][3]);
         expect((await current).path).toBe("/cache/current.md");
+    });
+});
+
+describe("Android source write-back bridge (#305, ANDR-02)", () => {
+    it("identifies Android imported/Downloads cache working-copy paths", () => {
+        expect(isAndroidCachePath("/data/user/0/com.paperling/cache/open/a1b2c3d4/tmp.md")).toBe(true);
+        expect(isAndroidCachePath("C:\\cache\\open\\a1b2c3d4\\tmp.md")).toBe(true);
+        expect(isAndroidCachePath("/data/user/0/com.paperling/files/notes/tmp.md")).toBe(false);
+        expect(isAndroidCachePath("/data/user/0/com.paperling/cache/tmp.md")).toBe(false);
+    });
+
+    it("returns not-available when syncToSource is absent and cleans up on Java throw", async () => {
+        await expect(syncToSource("/cache/open/ab/a.md", "x")).resolves.toEqual({ ok: false, error: "not-available" });
+        w.PaperlingAndroid = { syncToSource: () => { throw new Error("Java exception"); } };
+        expect((await syncToSource("/cache/open/ab/a.md", "x")).ok).toBe(false);
+        expect(w.__paperlingOnSyncResult).toBeUndefined();
+    });
+
+    it("resolves concurrent out-of-order syncs by requestId and ignores stale replies", async () => {
+        vi.useFakeTimers();
+        const native = vi.fn();
+        w.PaperlingAndroid = { syncToSource: native };
+        const first = syncToSource("/cache/open/1/a.md", "first");
+        const second = syncToSource("/cache/open/2/b.md", "second");
+        const id1 = native.mock.calls[0][2];
+        const id2 = native.mock.calls[1][2];
+
+        // Unknown requestId is ignored; second can settle before first.
+        w.__paperlingOnSyncResult!(true, null, "stale-id");
+        w.__paperlingOnSyncResult!(false, "Read-only document", id2);
+        await expect(second).resolves.toEqual({ ok: false, error: "Read-only document" });
+        expect(w.__paperlingOnSyncResult).toBeDefined();
+
+        w.__paperlingOnSyncResult!(true, null, id1);
+        await expect(first).resolves.toEqual({ ok: true });
+        expect(w.__paperlingOnSyncResult).toBeUndefined();
+    });
+
+    it("times out an unresponsive sync and cleans up the handler", async () => {
+        vi.useFakeTimers();
+        w.PaperlingAndroid = { syncToSource: () => {} };
+        const res = syncToSource("/cache/open/1/a.md", "x");
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect((await res).error).toContain("timed out");
+        expect(w.__paperlingOnSyncResult).toBeUndefined();
+    });
+
+    it("encodes and parses Android Downloads save sentinels without losing chosen filename", () => {
+        const sentinel = makeDownloadsSentinel("notes-export.md");
+        expect(parseDownloadsSentinel(sentinel)).toBe("notes-export.md");
+        expect(parseDownloadsSentinel("C:/docs/plain.md")).toBeNull();
     });
 });

@@ -26,7 +26,11 @@ export type DiskChangeDecision =
 
 export function decideDiskChange(knownMtime: number, diskMtime: number): DiskChangeDecision {
     if (knownMtime > 0 && diskMtime > 0) {
-        return diskMtime > knownMtime ? { kind: "changed", diskMtime } : { kind: "unchanged" };
+        if (diskMtime > knownMtime) return { kind: "changed", diskMtime };
+        // EXT-13: an older mtime (git checkout, Time Machine/cloud rollback)
+        // cannot be trusted as "unchanged" — verify against originalContent.
+        if (diskMtime < knownMtime) return { kind: "compare" };
+        return { kind: "unchanged" };
     }
     return { kind: "compare" };
 }

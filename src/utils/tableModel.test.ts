@@ -31,10 +31,17 @@ describe("parseTable", () => {
         expect(m.aligns).toEqual(["left", "center", "right"]);
     });
 
-    it("pads ragged rows to the header column count", () => {
+    it("pads ragged rows to the widest row without truncating extra cells", () => {
         const m = parseTable(["| a | b | c |", "| - | - | - |", "| 1 |", "| 1 | 2 | 3 | 4 |"]);
-        expect(m.rows[0]).toEqual(["1", "", ""]);
-        expect(m.rows[1]).toEqual(["1", "2", "3"]); // extra cell truncated
+        expect(m.headers).toEqual(["a", "b", "c", ""]);
+        expect(m.rows[0]).toEqual(["1", "", "", ""]);
+        expect(m.rows[1]).toEqual(["1", "2", "3", "4"]);
+    });
+
+    it("ignores escaped pipes when locating a cell", () => {
+        const text = "| a | b |\n| - | - |\n| x \\| y | z |";
+        const region = findTableAt(text, text.length - 3)!;
+        expect(locateCell(region, text.length - 3).colIndex).toBe(1);
     });
 
     it("treats escaped pipes as literal cell content", () => {

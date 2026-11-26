@@ -15,7 +15,7 @@
 // It is deliberately pure (no CodeMirror, no DOM) so the ordering and offset
 // arithmetic — the part that is easy to get subtly wrong — is unit-testable.
 
-import { findAll, matchLength } from "./findReplace";
+import { findAllMatches } from "./findReplace";
 
 /** A run of original-document text rendered as removed lines by one chunk. */
 export interface DeletedRegion {
@@ -64,12 +64,12 @@ export interface FindOpts {
 
 /** Matches inside one string, as offsets shifted by `base`. */
 function matchesIn(text: string, base: number, query: string, opts: FindOpts): Array<{ from: number; to: number }> {
-    return findAll(text, query, opts.caseSensitive, opts.regex)
-        .map((at) => ({
-            from: base + at,
-            to: base + at + matchLength(text, at, query, opts.caseSensitive, opts.regex),
-        }))
-        .filter((r) => r.to > r.from);
+    return findAllMatches(text, query, opts.caseSensitive, opts.regex)
+        .filter((m) => m.to > m.from)
+        .map((m) => ({
+            from: base + m.from,
+            to: base + m.to,
+        }));
 }
 
 /**

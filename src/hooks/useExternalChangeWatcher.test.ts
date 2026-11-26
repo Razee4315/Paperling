@@ -232,9 +232,10 @@ describe("useExternalChangeWatcher", () => {
     );
     const o = setup({ knownMtimeRef: ref(0), contentRef: ref("typed"), originalContentRef: ref("same") });
     await focus();
-    expect(o.onConflict).toHaveBeenCalled();
+    expect(o.onConflict).toHaveBeenCalledWith(200);
     expect(o.reload).not.toHaveBeenCalled();
-    expect(o.knownMtimeRef.current).toBe(200); // adopted so Keep-mine can absorb
+    // EXT-12: knownMtime stays unabsorbed until the user chooses Keep mine.
+    expect(o.knownMtimeRef.current).toBe(0);
   });
 
   it("stays quiet when the baseline mtime is 0, the buffer is dirty, but the disk content matches", async () => {
@@ -258,5 +259,23 @@ describe("useExternalChangeWatcher", () => {
     expect(invoke).toHaveBeenCalledTimes(1); // the stat only — no read_file
     expect(o.reload).not.toHaveBeenCalled();
     expect(o.onConflict).not.toHaveBeenCalled();
+  });
+
+  it("detects mtime rollback on external content change and skips checks while conflictPendingRef is set", async () => {
+    (invoke as Mock).mockImplementation((cmd: string) =>
+      cmd === "get_file_info"
+        ? Promise.resolve({ modified: 100 })
+        : Promise.resolve({ path: "C:/doc.md", content: "rolled back version" }),
+    );
+    const conflictPendingRef = ref(false);
+    const o = setup({ knownMtimeRef: ref(500), contentRef: ref("typed"), originalContentRef: ref("same"), conflictPendingRef });
+    await focus();
+    expect(o.onConflict).toHaveBeenCalledWith(100);
+    expect(o.knownMtimeRef.current).toBe(500);
+
+    (invoke as Mock).mockClear();
+    conflictPendingRef.current = true;
+    await focus();
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

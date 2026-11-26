@@ -11,6 +11,26 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-26
+
+Paperling 1.3 speaks eight languages, navigates whole workspace folders effortlessly, handles embedded and dropped images smoothly, and brings a deep reliability, accessibility, and security pass across desktop and Android.
+
+- **Eight languages, matching your system.** English, 简体中文, Español, Français, Deutsch, 日本語, 한국어, and Português — defaulting to *Follow system* and switching live in Settings → Appearance (#308).
+- **Navigate whole folders.** Quick Switcher and `[[wikilinks]]` now reach notes inside subfolders (and jump straight to open tabs), and the Files panel expands folders inline with Duplicate, Copy path, and Reveal actions.
+- **Images that just work.** Drop images into a note to copy them safely into `./images/`, render `![[image]]` embeds, resize them with `![[image|WxH]]`, and open non-ASCII or CJK image paths reliably.
+- **Writing & shortcuts.** Turn off auto-closing brackets and quotes in Settings → Editor (#313), and rebind or disable the RTL/LTR text-direction shortcut in Settings (#293).
+- **Inline AI assist.** Selection assist adds **Explain** alongside writing edits and lets you pick the target language when using **Translate**.
+- **Android: edits save back to your device.** Save and Autosave now write back to the original device file instead of only a temporary copy, and failed or read-only write-backs keep your unsaved warning intact (#305).
+- **Faster, sharper, and safer.** Higher WCAG AA text contrast across all seven themes, keyboard focus traps in dialogs, unclipped context menus, paused background preview and lazy-loaded editor chunks, stricter export CSP and diagram sanitization, atomic saves, case-only renames on Windows/macOS, and updated Rust security dependencies.
+
+Your current settings are kept when you update.
+
+**[Full release notes](https://github.com/Razee4315/Paperling/blob/main/release-notes/v1.3.0.md)**
+
+### Thank you
+
+To @nordenecke for the Simplified Chinese interface contribution (#308), and to @dsvi, @HaveLightII, and @JackAidley for the bug reports and feature requests that shaped this release (#293, #305, #313).
+
 ## [1.2.0] - 2026-10-31
 
 Paperling 1.2 opens more of your files, keeps earlier versions of them, and fills in the everyday gaps.

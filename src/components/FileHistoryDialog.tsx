@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { unifiedMergeView } from "@codemirror/merge";
 import { Modal } from "./Modal";
+import { useI18n } from "../i18n";
 import { fileHistory, type Snapshot, type SnapshotReason } from "../utils/fileHistory";
 
 interface FileHistoryDialogProps {
@@ -14,14 +15,6 @@ interface FileHistoryDialogProps {
     onRestore: (content: string) => void;
     onClose: () => void;
 }
-
-const REASON_LABEL: Record<SnapshotReason, string> = {
-    opened: "Opened",
-    saved: "Saved",
-    "before-restore": "Before a restore",
-};
-
-const whenFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 const lineCount = (text: string) => (text === "" ? 0 : text.split("\n").length);
 
@@ -58,8 +51,20 @@ function VersionDiff({ original, current }: { original: string; current: string 
  * and nothing reaches the disk until the file is saved. HIST-01.
  */
 export function FileHistoryDialog({ isOpen, path, fileName, current, onRestore, onClose }: FileHistoryDialogProps) {
+    const { t, locale } = useI18n();
     const [snapshots, setSnapshots] = useState<Snapshot[] | null>(null);
     const [selectedId, setSelectedId] = useState<number | null>(null);
+
+    // Dates follow the UI language, not just the operating system's locale.
+    const whenFormat = useMemo(
+        () => new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }),
+        [locale],
+    );
+
+    const reasonLabel = (reason: SnapshotReason) =>
+        reason === "opened" ? t("history.opened")
+            : reason === "saved" ? t("history.saved")
+                : t("history.beforeRestore");
 
     useEffect(() => {
         if (!isOpen) return;
@@ -88,17 +93,17 @@ export function FileHistoryDialog({ isOpen, path, fileName, current, onRestore, 
             panelClassName="w-[min(920px,95vw)] h-[min(620px,90dvh)] flex flex-col"
         >
             <div className="px-4 py-3 border-b border-[var(--border)] shrink-0">
-                <h2 id="file-history-title" className="text-sm font-semibold text-[var(--text-primary)]">File history: {fileName}</h2>
-                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">Kept on this computer. Red is what the version had, green is what you've added since.</p>
+                <h2 id="file-history-title" className="text-sm font-semibold text-[var(--text-primary)]">{t("history.title", { name: fileName })}</h2>
+                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">{t("history.hint")}</p>
             </div>
 
             {snapshots !== null && snapshots.length === 0 ? (
                 <div className="flex-1 flex items-center justify-center px-8 text-center text-sm text-[var(--text-secondary)]">
-                    No earlier versions yet. Paperling keeps a copy each time this file is opened or saved.
+                    {t("history.empty")}
                 </div>
             ) : (
                 <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
-                    <ul aria-label="Versions" className="sm:w-56 max-h-36 sm:max-h-none shrink-0 overflow-y-auto border-b sm:border-b-0 sm:border-r border-[var(--border)]">
+                    <ul aria-label={t("history.versions")} className="sm:w-56 max-h-36 sm:max-h-none shrink-0 overflow-y-auto border-b sm:border-b-0 sm:border-r border-[var(--border)]">
                         {snapshots?.map((snapshot) => (
                             <li key={snapshot.id}>
                                 <button
@@ -109,7 +114,7 @@ export function FileHistoryDialog({ isOpen, path, fileName, current, onRestore, 
                                 >
                                     <span className="block text-xs text-[var(--text-primary)]">{whenFormat.format(snapshot.savedAt)}</span>
                                     <span className="block text-[11px] text-[var(--text-muted)]">
-                                        {REASON_LABEL[snapshot.reason]} · {lineCount(snapshot.content)} lines{snapshot.content === current ? " · current" : ""}
+                                        {reasonLabel(snapshot.reason)} · {t("history.lines", { count: lineCount(snapshot.content) })}{snapshot.content === current ? ` · ${t("history.current")}` : ""}
                                     </span>
                                 </button>
                             </li>
@@ -122,15 +127,15 @@ export function FileHistoryDialog({ isOpen, path, fileName, current, onRestore, 
             )}
 
             <div className="px-4 py-3 border-t border-[var(--border)] shrink-0 flex items-center justify-end gap-2">
-                {selected?.content === current && <span className="mr-auto text-xs text-[var(--text-muted)]">Same as your current text</span>}
-                <button type="button" onClick={onClose} className="px-3 py-1.5 text-sm rounded-[var(--radius-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">Close</button>
+                {selected?.content === current && <span className="mr-auto text-xs text-[var(--text-muted)]">{t("history.sameAsCurrent")}</span>}
+                <button type="button" onClick={onClose} className="px-3 py-1.5 text-sm rounded-[var(--radius-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">{t("history.close")}</button>
                 <button
                     type="button"
                     disabled={!selected || selected.content === current}
                     onClick={() => { if (selected) onRestore(selected.content); }}
                     className="px-3 py-1.5 text-sm font-medium rounded-[var(--radius-sm)] bg-[var(--accent)] text-[var(--accent-text)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                    Restore this version
+                    {t("history.restore")}
                 </button>
             </div>
         </Modal>

@@ -27,17 +27,21 @@ export function standaloneSvg(svg: string, background: string): { markup: string
     root.setAttribute("height", String(height));
     root.removeAttribute("style");
     if (!root.getAttribute("xmlns")) root.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    // Background as the first child so transparent areas aren't black/clear;
+    // inserted via DOM API rather than string interpolation for valid escaping.
+    const bg = doc.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bg.setAttribute("x", String(vb[0] || 0));
+    bg.setAttribute("y", String(vb[1] || 0));
+    bg.setAttribute("width", "100%");
+    bg.setAttribute("height", "100%");
+    bg.setAttribute("fill", background);
+    root.insertBefore(bg, root.firstChild);
     // Resolve the page font variable the diagram's <style> uses.
     const font = getComputedStyle(document.documentElement).getPropertyValue("--font-body").trim() || "sans-serif";
     const markup = new XMLSerializer()
         .serializeToString(root)
         .replace(/var\(--font-body\)/g, font.replace(/"/g, "'"));
-    // Background as the first child so transparent areas aren't black/clear.
-    const withBg = markup.replace(
-        /(<svg[^>]*>)/,
-        `$1<rect x="${vb[0] || 0}" y="${vb[1] || 0}" width="100%" height="100%" fill="${background}"/>`,
-    );
-    return { markup: withBg, width, height };
+    return { markup, width, height };
 }
 
 function pageBackground(): string {
@@ -46,15 +50,16 @@ function pageBackground(): string {
 
 /** Rasterise the diagram at 2x and put it on the clipboard as PNG. */
 export async function copyDiagramAsPng(svg: string): Promise<void> {
+    let url: string | null = null;
     try {
         const { markup, width, height } = standaloneSvg(svg, pageBackground());
         const scale = 2;
         const img = new Image();
-        const url = URL.createObjectURL(new Blob([markup], { type: "image/svg+xml;charset=utf-8" }));
+        url = URL.createObjectURL(new Blob([markup], { type: "image/svg+xml;charset=utf-8" }));
         await new Promise<void>((resolve, reject) => {
             img.onload = () => resolve();
             img.onerror = () => reject(new Error("Could not rasterise the diagram"));
-            img.src = url;
+            img.src = url!;
         });
         const canvas = document.createElement("canvas");
         canvas.width = Math.ceil(width * scale);
@@ -62,13 +67,14 @@ export async function copyDiagramAsPng(svg: string): Promise<void> {
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("Canvas unavailable");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        URL.revokeObjectURL(url);
         const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
         if (!blob) throw new Error("Could not encode PNG");
         await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
         notify("Diagram copied as PNG", "success");
     } catch (err) {
         notify(err instanceof Error ? `Copy failed: ${err.message}` : "Copy failed", "error");
+    } finally {
+        if (url) URL.revokeObjectURL(url);
     }
 }
 

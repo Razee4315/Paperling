@@ -128,6 +128,29 @@ describe("FindBar", () => {
         expect(screen.getByLabelText("Replace with")).toBeInTheDocument();
         expect(screen.getByTitle("Regex")).toBeInTheDocument();
     });
+
+    it("lets users collapse the replace row even when opened with initialMode='replace'", () => {
+        localStorage.clear();
+        const c = mockController({ supportsReplace: true, supportsRegex: true });
+        render(<FindBar isOpen initialMode="replace" controller={c} revision={0} onClose={() => {}} />);
+        expect(screen.getByLabelText("Replace with")).toBeInTheDocument();
+        act(() => { fireEvent.click(screen.getByLabelText("Hide replace")); });
+        expect(screen.queryByLabelText("Replace with")).not.toBeInTheDocument();
+    });
+
+    it("calls setActive(idx, false) on passive revision updates so selection isn't stolen while typing", () => {
+        localStorage.clear();
+        const setActive = vi.fn();
+        const c = mockController({ setActive });
+        const { rerender } = render(<FindBar isOpen controller={c} revision={0} onClose={() => {}} />);
+        type("of");
+        act(() => { vi.advanceTimersByTime(90); });
+        expect(setActive).toHaveBeenLastCalledWith(0, true);
+        setActive.mockClear();
+        rerender(<FindBar isOpen controller={c} revision={1} onClose={() => {}} />);
+        act(() => { vi.advanceTimersByTime(350); });
+        expect(setActive).toHaveBeenLastCalledWith(0, false);
+    });
 });
 
 describe("findSeedFromSelection", () => {

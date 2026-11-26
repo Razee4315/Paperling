@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { attachFocusTrap } from "../utils/focusTrap";
 import { IS_TOUCH } from "../utils/platform";
+import { useI18n } from "../i18n";
 
 export interface PaletteCommand {
     id: string;
@@ -75,14 +76,18 @@ function matchIndices(needle: string, haystack: string): number[] | null {
 }
 
 /** Render `label` with the characters matched by `query` accented, so it's
- *  obvious why a result ranked where it did. Coalesces adjacent matched/plain
- *  characters into runs to keep the node count down. */
+ *  obvious why a result ranked where it did (including multi-word queries). */
 function highlightLabel(label: string, query: string): React.ReactNode {
-    const q = query.trim();
-    if (!q) return label;
-    const idx = matchIndices(q, label);
-    if (!idx) return label;
-    const matched = new Set(idx);
+    const terms = query.trim().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return label;
+    const matched = new Set<number>();
+    for (const term of terms) {
+        const idx = matchIndices(term, label);
+        if (idx) {
+            for (const pos of idx) matched.add(pos);
+        }
+    }
+    if (matched.size === 0) return label;
     const parts: React.ReactNode[] = [];
     let buf = "";
     let bufMatched = matched.has(0);
@@ -134,6 +139,7 @@ function isShortcutHint(hint: string): boolean {
 }
 
 export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount }: CommandPaletteProps) {
+    const { t } = useI18n();
     const [query, setQuery] = useState("");
     const [activeIdx, setActiveIdx] = useState(0);
     const dialogRef = useRef<HTMLDivElement>(null);
@@ -179,8 +185,10 @@ export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount
             const line = valid ? Math.min(n, max) : 0;
             return [{
                 id: "goto.line",
-                label: valid ? `Go to line ${line}` : `Type a line number${lineCount ? ` (1–${lineCount})` : ""}`,
-                section: "Go to line",
+                label: valid
+                    ? t("palette.gotoLine", { line })
+                    : (lineCount ? t("palette.typeLineRange", { max: lineCount }) : t("palette.typeLine")),
+                section: t("palette.goToLine"),
                 icon: "move_down",
                 run: () => {
                     if (valid) window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
@@ -197,7 +205,7 @@ export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount
             .sort((a, b) => a.score - b.score)
             .map((r) => r.item);
         return scored;
-    }, [items, query, isOpen]);
+    }, [items, query, isOpen, lineCount, t]);
 
     // Group by section preserving order
     const grouped = useMemo(() => {
@@ -215,33 +223,38 @@ export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount
         return out;
     }, [ranked]);
 
+    // Visual render order matches `grouped`, not global score-sorted `ranked`,
+    // so keyboard navigation & Enter stay aligned with the highlighted row.
+    const flatItems = useMemo(() => grouped.flatMap((g) => g.items), [grouped]);
+
     // Keep activeIdx valid when results change. Functional update so React
     // bails out via Object.is when no clamp is needed — otherwise this effect
     // would queue a setState on every render where activeIdx is already in
     // range, triggering the same setState-in-effect pattern that caused the
     // earlier "Maximum update depth" crash.
     useEffect(() => {
-        setActiveIdx((prev) => (prev >= ranked.length ? 0 : prev));
-    }, [ranked.length]);
+        setActiveIdx((prev) => (prev >= flatItems.length ? 0 : prev));
+    }, [flatItems.length]);
 
     // Auto-scroll active row into view
     useEffect(() => {
         const list = listRef.current;
         if (!list) return;
         const active = list.querySelector<HTMLElement>(`[data-idx="${activeIdx}"]`);
-        active?.scrollIntoView({ block: "nearest" });
+        active?.scrollIntoView?.({ block: "nearest" });
     }, [activeIdx]);
 
     const onKeyDown = (e: React.KeyboardEvent) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === "ArrowDown") {
             e.preventDefault();
-            setActiveIdx((i) => (ranked.length === 0 ? 0 : (i + 1) % ranked.length));
+            setActiveIdx((i) => (flatItems.length === 0 ? 0 : (i + 1) % flatItems.length));
         } else if (e.key === "ArrowUp") {
             e.preventDefault();
-            setActiveIdx((i) => (ranked.length === 0 ? 0 : (i - 1 + ranked.length) % ranked.length));
+            setActiveIdx((i) => (flatItems.length === 0 ? 0 : (i - 1 + flatItems.length) % flatItems.length));
         } else if (e.key === "Enter") {
             e.preventDefault();
-            const cmd = ranked[activeIdx];
+            const cmd = flatItems[activeIdx];
             if (cmd) {
                 onClose();
                 cmd.run();
@@ -252,6 +265,7 @@ export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount
     if (!isOpen) return null;
 
     let runningIdx = -1;
+    const activeOptionId = flatItems[activeIdx] ? `palette-option-${activeIdx}` : undefined;
 
     return (
         <div className="fixed inset-0 z-[110] flex items-start justify-center pt-[12vh]" role="dialog" aria-modal="true" aria-label="Command palette">
@@ -266,10 +280,14 @@ export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount
                     <span className="material-symbols-outlined text-[var(--text-secondary)]">search</span>
                     <input
                         type="text"
+                        role="combobox"
+                        aria-expanded={isOpen}
+                        aria-controls="command-palette-listbox"
+                        aria-activedescendant={activeOptionId}
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Type a command, file, or heading…"
-                        aria-label="Search commands"
+                        placeholder={t("palette.placeholder")}
+                        aria-label={t("palette.ariaLabel")}
                         className="flex-1 bg-transparent text-[var(--text-primary)] outline-none text-sm placeholder:text-[var(--text-muted)]"
                     />
                     {!IS_TOUCH && (
@@ -277,8 +295,8 @@ export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount
                     )}
                 </div>
 
-                <ul ref={listRef} className="max-h-[420px] overflow-y-auto py-1" role="listbox">
-                    {ranked.length === 0 ? (
+                <ul id="command-palette-listbox" ref={listRef} className="max-h-[420px] overflow-y-auto py-1" role="listbox">
+                    {flatItems.length === 0 ? (
                         <li className="px-4 py-6 text-center text-sm text-[var(--text-secondary)]">No results</li>
                     ) : grouped.map((g) => (
                         <li key={g.section}>
@@ -293,6 +311,7 @@ export function CommandPalette({ isOpen, items, onClose, initialQuery, lineCount
                                     return (
                                         <li key={cmd.id}>
                                             <button
+                                                id={`palette-option-${idx}`}
                                                 role="option"
                                                 aria-selected={active}
                                                 data-idx={idx}

@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { decideDiskChange } from "./diskGuard";
 
 describe("decideDiskChange", () => {
-    it("lets mtime decide when both sides are usable", () => {
+    it("lets mtime decide when equal or newer, and falls back to compare on mtime rollback (EXT-13)", () => {
         expect(decideDiskChange(100, 200)).toEqual({ kind: "changed", diskMtime: 200 });
         expect(decideDiskChange(100, 100)).toEqual({ kind: "unchanged" });
-        // An older on-disk mtime (sync tool restored a version) is not "changed":
-        // the guard never fires on it, matching the pre-EXT-10 comparison.
-        expect(decideDiskChange(200, 100)).toEqual({ kind: "unchanged" });
+        // An older on-disk mtime (git checkout / cloud rollback) verifies content
+        // before deciding so an external rollback isn't silently overwritten.
+        expect(decideDiskChange(200, 100)).toEqual({ kind: "compare" });
     });
 
     it("falls back to a content comparison when the known mtime is 0", () => {

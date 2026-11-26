@@ -99,14 +99,31 @@ function build(view: EditorView): DecorationSet {
     return Decoration.set(ranges, true);
 }
 
+const selectionLinesEqual = (a: EditorState["selection"]["ranges"], b: EditorState["selection"]["ranges"], docA: EditorState["doc"], docB: EditorState["doc"]): boolean => {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (
+            docA.lineAt(a[i].from).number !== docB.lineAt(b[i].from).number ||
+            docA.lineAt(a[i].to).number !== docB.lineAt(b[i].to).number
+        ) {
+            return false;
+        }
+    }
+    return true;
+};
+
 const plugin = ViewPlugin.fromClass(
     class {
         decorations: DecorationSet;
         constructor(view: EditorView) { this.decorations = build(view); }
         update(update: ViewUpdate) {
-            if (update.docChanged || update.selectionSet || update.viewportChanged || syntaxTree(update.startState) !== syntaxTree(update.state)) {
-                this.decorations = build(update.view);
+            if (!update.docChanged && !update.viewportChanged && syntaxTree(update.startState) === syntaxTree(update.state)) {
+                if (!update.selectionSet) return;
+                if (selectionLinesEqual(update.startState.selection.ranges, update.state.selection.ranges, update.startState.doc, update.state.doc)) {
+                    return;
+                }
             }
+            this.decorations = build(update.view);
         }
     },
     { decorations: (value) => value.decorations },

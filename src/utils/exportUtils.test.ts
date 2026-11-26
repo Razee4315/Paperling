@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { exportToDocx, generateHTML, prepareExportHtml } from "./exportUtils";
+import { exportToDocx, generateHTML, prepareDocxHtml, prepareExportHtml, printHtmlDocument } from "./exportUtils";
 
 const invokeMock = invoke as Mock;
 
@@ -106,6 +106,38 @@ describe("prepareExportHtml", () => {
         const out = await prepareExportHtml('<a href="notes/other.md" data-relative-md="true">other</a>');
         expect(out).toContain('href="notes/other.md"');
         expect(out).not.toContain('href="#"');
+    });
+
+    it("strips data-mermaid-source and re-renders light diagrams when requested", async () => {
+        const renderMermaid = vi.fn(async () => "<svg><text>light</text></svg>");
+        const out = await prepareExportHtml(
+            '<div class="mermaid-rendered" data-mermaid-source="graph TD; A-->B" data-source-end-line="4"><svg>dark</svg></div>',
+            { lightDiagrams: true, renderMermaid },
+        );
+        expect(renderMermaid).toHaveBeenCalledWith("graph TD; A-->B");
+        expect(out).toContain("<text>light</text>");
+        expect(out).not.toContain("data-mermaid-source");
+        expect(out).not.toContain("data-source-end-line");
+    });
+});
+
+describe("prepareDocxHtml & print contrast", () => {
+    it("flattens KaTeX annotation markup and task checkboxes for DOCX", () => {
+        const out = prepareDocxHtml(
+            '<p><span class="katex"><span class="katex-mathml"><math><annotation encoding="application/x-tex">E=mc^2</annotation></math></span><span class="katex-html">visual</span></span></p>' +
+            '<ul><li><input type="checkbox" checked="">Done</li><li><input type="checkbox">Todo</li></ul>',
+        );
+        expect(out).toContain("<code>E=mc^2</code>");
+        expect(out).not.toContain("visual");
+        expect(out).toContain("☑ Done");
+        expect(out).toContain("☐ Todo");
+    });
+
+    it("includes white-paper print ink overrides and exports printHtmlDocument", () => {
+        const html = generateHTML("<p>x</p>", "t", "dark", "inter", "medium");
+        expect(html).toContain("h1, h2, h3, h4, h5, h6, strong, b {");
+        expect(html).toContain("color: #111111;");
+        expect(typeof printHtmlDocument).toBe("function");
     });
 });
 

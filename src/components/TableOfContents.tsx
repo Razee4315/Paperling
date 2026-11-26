@@ -1,9 +1,10 @@
-import { useMemo, useEffect, useRef, useState } from "react";
+import { memo, useMemo, useEffect, useRef, useState } from "react";
 import { useSidePanel } from "../hooks/useSidePanel";
 import { extractHeadings } from "../utils/outline";
 import { IS_MOBILE } from "../utils/platform";
 import mascotReading from "../assets/mascot/mascot-reading.png";
 import mascotMagnify from "../assets/mascot/mascot-magnify.png";
+import { useI18n } from "../i18n";
 
 interface TocItem {
     id: string;
@@ -20,12 +21,13 @@ interface TableOfContentsProps {
     activeLine?: number;
 }
 
-export function TableOfContents({
+function TableOfContentsImpl({
     isOpen,
     content,
     onClose,
     activeLine = 1,
 }: TableOfContentsProps) {
+    const { t } = useI18n();
     const panelRef = useRef<HTMLElement>(null);
     const [filter, setFilter] = useState("");
 
@@ -96,7 +98,7 @@ export function TableOfContents({
         <aside
             ref={panelRef}
             role="navigation"
-            aria-label="Table of contents"
+            aria-label={t("toc.ariaLabel")}
             tabIndex={-1}
             data-panel={IS_MOBILE ? "left" : "right"}
             style={IS_MOBILE ? undefined : { width: "var(--sidebar-width)" }}
@@ -107,11 +109,11 @@ export function TableOfContents({
             <div className="h-10 shrink-0 px-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-titlebar)]">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)] no-select">
                     <span className="material-symbols-outlined text-[18px]">format_list_bulleted</span>
-                    <span>Outline</span>
+                    <span>{t("toc.title")}</span>
                 </div>
                 <button
                     onClick={onClose}
-                    aria-label="Close outline"
+                    aria-label={t("toc.close")}
                     className="btn-press flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                 >
                     <span className="material-symbols-outlined text-[18px]">close</span>
@@ -125,8 +127,8 @@ export function TableOfContents({
                         type="text"
                         value={filter}
                         onChange={(e) => setFilter(e.target.value)}
-                        placeholder="Filter headings…"
-                        aria-label="Filter headings"
+                        placeholder={t("toc.filterPlaceholder")}
+                        aria-label={t("toc.filterAria")}
                         className="w-full px-2 py-1 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-[var(--radius-sm)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                     />
                 </div>
@@ -137,13 +139,13 @@ export function TableOfContents({
                 {headings.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8 text-[var(--text-secondary)] text-sm gap-2 px-4 text-center">
                         <img src={mascotReading} alt="" aria-hidden="true" draggable={false} className="w-20 h-20 object-contain select-none opacity-90" />
-                        <span>No headings yet.</span>
+                        <span>{t("toc.empty")}</span>
                         <span className="text-[11px] text-[var(--text-muted)]">Type <code className="font-mono">#</code> to add one.</span>
                     </div>
                 ) : visible.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8 gap-2 text-[var(--text-secondary)] text-sm">
                         <img src={mascotMagnify} alt="" aria-hidden="true" draggable={false} className="w-20 h-20 object-contain select-none opacity-90" />
-                        <span>No matches</span>
+                        <span>{t("toc.noMatches")}</span>
                     </div>
                 ) : (
                     <ul className="py-2">
@@ -176,3 +178,5 @@ export function TableOfContents({
         </aside>
     );
 }
+
+export const TableOfContents = memo(TableOfContentsImpl);

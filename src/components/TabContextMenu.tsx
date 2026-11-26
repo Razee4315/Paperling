@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { useDropdownKeyboard } from "../hooks/useDropdownKeyboard";
 
 export interface TabMenuAction {
     label: string;
@@ -22,19 +24,26 @@ interface TabContextMenuProps {
  */
 export function TabContextMenu({ x, y, actions, onClose }: TabContextMenuProps) {
     const ref = useRef<HTMLDivElement>(null);
+    const onMenuKeyDown = useDropdownKeyboard(true, ref, onClose);
 
     useEffect(() => {
         const onDown = (e: MouseEvent) => {
             if (ref.current && !ref.current.contains(e.target as Node)) onClose();
         };
-        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+            }
+        };
         document.addEventListener("mousedown", onDown);
-        document.addEventListener("keydown", onKey);
+        document.addEventListener("keydown", onKey, true);
         window.addEventListener("blur", onClose);
         window.addEventListener("resize", onClose);
         return () => {
             document.removeEventListener("mousedown", onDown);
-            document.removeEventListener("keydown", onKey);
+            document.removeEventListener("keydown", onKey, true);
             window.removeEventListener("blur", onClose);
             window.removeEventListener("resize", onClose);
         };
@@ -42,13 +51,16 @@ export function TabContextMenu({ x, y, actions, onClose }: TabContextMenuProps) 
 
     // Keep the menu on-screen: nudge left/up if it would overflow the viewport.
     const width = 220;
-    const left = Math.min(x, window.innerWidth - width - 8);
-    const top = Math.min(y, window.innerHeight - actions.length * 34 - 8);
+    const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
+    const top = Math.max(8, Math.min(y, window.innerHeight - actions.length * 34 - 8));
 
-    return (
+    // Portal into document.body so CSS `transform` + `overflow-hidden` on panels
+    // like FileExplorer cannot create a clipping containing block for `fixed`.
+    return createPortal(
         <div
             ref={ref}
             role="menu"
+            onKeyDown={onMenuKeyDown}
             style={{ left, top, width }}
             className="fixed z-[120] py-1 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] shadow-2xl text-sm no-select"
         >
@@ -61,11 +73,12 @@ export function TabContextMenu({ x, y, actions, onClose }: TabContextMenuProps) 
                         onClick={() => { a.onClick(); onClose(); }}
                         className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[var(--text-secondary)] enabled:hover:bg-[var(--bg-hover)] enabled:hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-default transition-colors"
                     >
-                        <span className="material-symbols-outlined text-[16px] shrink-0">{a.icon}</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[16px] shrink-0">{a.icon}</span>
                         <span className="truncate">{a.label}</span>
                     </button>
                 </div>
             ))}
-        </div>
+        </div>,
+        document.body,
     );
 }

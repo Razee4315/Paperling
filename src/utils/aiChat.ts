@@ -72,15 +72,28 @@ export async function streamChat(
         sawDataLine = true;
         const payload = trimmed.slice(5).trim();
         if (payload === "[DONE]") return;
+        let json: Record<string, unknown>;
         try {
-            const json = JSON.parse(payload);
-            const delta: string = json?.choices?.[0]?.delta?.content ?? "";
-            if (delta) {
-                full += delta;
-                opts.onToken?.(delta);
-            }
+            json = JSON.parse(payload) as Record<string, unknown>;
         } catch {
             /* partial JSON across chunk boundary — completed on next read */
+            return;
+        }
+        if (json?.error) {
+            const errObj = json.error as { message?: unknown };
+            const msg = typeof json.error === "string"
+                ? json.error
+                : typeof errObj?.message === "string"
+                    ? errObj.message
+                    : JSON.stringify(json.error);
+            throw new Error(maskKeyLikeStrings(msg));
+        }
+        const choices = json?.choices as Array<{ delta?: { content?: string } }> | undefined;
+        const ollamaMsg = json?.message as { content?: string } | undefined;
+        const delta = choices?.[0]?.delta?.content ?? ollamaMsg?.content ?? "";
+        if (delta) {
+            full += delta;
+            opts.onToken?.(delta);
         }
     };
 
@@ -160,9 +173,17 @@ export const ASK_SYSTEM_PROMPT =
     "formatted in Markdown. This is a read-only Q&A mode — do not rewrite or output " +
     "the whole document unless explicitly asked.";
 
-/** Wrap untrusted document text in tags (avoids colliding with the doc's own ``` fences). */
+const MAX_CONTEXT_CHARS = 100_000;
+const BASE64_DATA_IMAGE_RE = /(!\[[^\]]*\]\()data:image\/[^)\s]+(\))/gi;
+
+/** Wrap untrusted document text in tags (avoids colliding with the doc's own ``` fences)
+ *  while stripping inline base64 images and capping huge payloads. */
 function asDocument(note: string): string {
-    return `<document>\n${note}\n</document>`;
+    const cleaned = note.replace(BASE64_DATA_IMAGE_RE, "$1image-omitted$2");
+    const clipped = cleaned.length > MAX_CONTEXT_CHARS
+        ? `${cleaned.slice(0, MAX_CONTEXT_CHARS)}\n\n[... document truncated at ${MAX_CONTEXT_CHARS.toLocaleString()} characters ...]`
+        : cleaned;
+    return `<document>\n${clipped}\n</document>`;
 }
 
 export function buildAskMessages(
@@ -229,7 +250,7 @@ export interface EditResult {
     hasEdits: boolean;
 }
 
-const EDIT_BLOCK_RE = /<<<<<<<[ \t]*SEARCH[ \t]*\r?\n([\s\S]*?)\r?\n=======[ \t]*\r?\n([\s\S]*?)\r?\n>>>>>>>[ \t]*REPLACE/g;
+const EDIT_BLOCK_RE = /<<<<<<<[ \t]*SEARCH[ \t]*\r?\n([\s\S]*?)\r?\n=======[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?>>>>>>>[ \t]*REPLACE/g;
 
 /**
  * Parse SEARCH/REPLACE blocks out of an agent response and apply them to the
@@ -242,7 +263,7 @@ export function parseEdits(response: string, currentDoc: string): EditResult {
     EDIT_BLOCK_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = EDIT_BLOCK_RE.exec(response)) !== null) {
-        blocks.push([m[1], m[2]]);
+        blocks.push([m[1], m[2] ?? ""]);
     }
 
     let doc = currentDoc;

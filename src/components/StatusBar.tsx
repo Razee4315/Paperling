@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useI18n } from "../i18n";
 
 interface StatusBarProps {
     isSaved: boolean;
@@ -27,13 +28,10 @@ interface StatusBarProps {
     encoding?: string | null;
 }
 
-const formatReadingTime = (min: number): string => {
-    if (min < 1) return "< 1 min read";
-    if (min < 60) return `${Math.round(min)} min read`;
-    const hours = Math.floor(min / 60);
-    const rem = Math.round(min % 60);
-    return rem === 0 ? `${hours}h read` : `${hours}h ${rem}m read`;
-};
+// The wording (and the inflections) live in the dictionary: Chinese does not
+// pluralise, so "min read" cannot be assembled from parts here.
+const formatReadingTime = (min: number, t: ReturnType<typeof useI18n>["t"]): string =>
+    t("statusBar.readingTime", { min });
 
 function StatusBarImpl({
     isSaved,
@@ -55,21 +53,22 @@ function StatusBarImpl({
     onSave,
     encoding = null,
 }: StatusBarProps) {
+    const { t } = useI18n();
     const hasSelection = selectionLength > 0;
     return (
         // Not a live region: role="status" made screen readers announce the
         // whole bar (Ln/Col, word count) on every keystroke. Only the save
         // state is announced, from its own polite region below. A11Y-05.
         <footer
-            aria-label="Status bar"
+            aria-label={t("statusBar.bar")}
             className="h-7 shrink-0 bg-[var(--bg-titlebar)] border-t border-[var(--border)] px-4 flex items-center justify-between text-[11px] font-medium tracking-wide tabular-nums text-[var(--text-secondary)] no-select transition-colors"
         >
             <div className="flex items-center gap-1">
                 {/* File Explorer Toggle */}
                 <button
                     onClick={onToggleFileExplorer}
-                    title="Files (Ctrl+Shift+E)"
-                    aria-label={showFileExplorer ? "Close file explorer" : "Open file explorer"}
+                    title={t("statusBar.filesTitle")}
+                    aria-label={showFileExplorer ? t("statusBar.closeExplorer") : t("statusBar.openExplorer")}
                     aria-pressed={showFileExplorer}
                     className={`btn-press flex items-center justify-center w-8 h-6 rounded transition-colors ${showFileExplorer
                         ? "bg-[var(--accent)] text-[var(--accent-text)]"
@@ -84,8 +83,8 @@ function StatusBarImpl({
                 {/* TOC Toggle */}
                 <button
                     onClick={onToggleTOC}
-                    title="Table of Contents (Ctrl+Shift+O)"
-                    aria-label={showTOC ? "Close table of contents" : "Open table of contents"}
+                    title={t("statusBar.tocTitle")}
+                    aria-label={showTOC ? t("statusBar.closeToc") : t("statusBar.openToc")}
                     aria-pressed={showTOC}
                     className={`btn-press flex items-center justify-center w-8 h-6 rounded transition-colors ${showTOC
                         ? "bg-[var(--accent)] text-[var(--accent-text)]"
@@ -100,8 +99,8 @@ function StatusBarImpl({
                 {/* Backlinks Toggle */}
                 <button
                     onClick={onToggleBacklinks}
-                    title="Backlinks"
-                    aria-label={showBacklinks ? "Close backlinks" : "Open backlinks"}
+                    title={t("statusBar.backlinksTitle")}
+                    aria-label={showBacklinks ? t("statusBar.closeBacklinks") : t("statusBar.openBacklinks")}
                     aria-pressed={showBacklinks}
                     className={`btn-press flex items-center justify-center w-8 h-6 rounded transition-colors ${showBacklinks
                         ? "bg-[var(--accent)] text-[var(--accent-text)]"
@@ -121,9 +120,9 @@ function StatusBarImpl({
                     // most direct way to save for someone who doesn't use Ctrl+S.
                     onClick={isSaved ? undefined : onSave}
                     disabled={isSaved || !onSave}
-                    title={isSaved ? undefined : "Click to save"}
+                    title={isSaved ? undefined : t("statusBar.clickToSave")}
                     className={`flex items-center gap-1.5 rounded px-1 -mx-1 ${savePulse > 0 ? "save-pulse" : ""} ${isSaved || !onSave ? "cursor-default" : "hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"}`}
-                    aria-label={isSaved ? "File saved" : "File has unsaved changes. Save now"}
+                    aria-label={isSaved ? t("statusBar.fileSaved") : t("statusBar.fileUnsavedSaveNow")}
                 >
                     <span
                         className={`w-2 h-2 rounded-full transition-all ${isSaved
@@ -131,21 +130,21 @@ function StatusBarImpl({
                             : "bg-[var(--status-unsaved)] shadow-[0_0_4px_rgba(255,184,108,0.4)] status-dot-unsaved"
                             }`}
                     ></span>
-                    <span className="transition-colors" role="status" aria-live="polite">{isSaved ? "Saved" : "Unsaved"}</span>
+                    <span className="transition-colors" role="status" aria-live="polite">{isSaved ? t("statusBar.saved") : t("statusBar.unsaved")}</span>
                 </button>
                 {(mode === "code" || mode === "split") && (
                     // Tabular digits (footer) plus a minimum width: Ln/Col and
                     // the counts no longer nudge their neighbours sideways as
                     // they grow while typing. RLL-05.
                     <div className="min-w-[6.5rem] text-right hover:text-[var(--text-primary)] cursor-default transition-colors">
-                        Ln {lineNumber}, Col {columnNumber}
+                        {t("statusBar.lineCol", { line: lineNumber, column: columnNumber })}
                     </div>
                 )}
                 {encoding && (
                     <div
                         className="hover:text-[var(--text-primary)] cursor-default transition-colors"
-                        title="File encoding. Saving keeps it."
-                        aria-label={`File encoding: ${encoding}`}
+                        title={t("statusBar.encodingTitle")}
+                        aria-label={t("statusBar.encodingAria", { encoding })}
                     >
                         {encoding}
                     </div>
@@ -160,28 +159,28 @@ function StatusBarImpl({
                         // readers read "42 characters" for "42 words").
                         aria-label={
                             hasSelection
-                                ? `Selected ${selectionWordCount.toLocaleString()} of ${wordCount.toLocaleString()} words`
-                                : `${wordCount.toLocaleString()} words`
+                                ? t("statusBar.selectedWordsAria", { selected: selectionWordCount, total: wordCount })
+                                : t("statusBar.wordsAria", { count: wordCount })
                         }
                         title={
                             hasSelection
-                                ? `Selection: ${selectionWordCount.toLocaleString()} words, ${selectionLength.toLocaleString()} characters`
-                                : (charCount !== undefined ? `${charCount.toLocaleString()} characters` : undefined)
+                                ? t("statusBar.selectionTitle", { words: selectionWordCount, chars: selectionLength })
+                                : (charCount !== undefined ? t("statusBar.charsTitle", { count: charCount }) : undefined)
                         }
                     >
                         <span className="material-symbols-outlined text-[14px] opacity-70">text_fields</span>
                         {hasSelection
-                            ? `${selectionWordCount.toLocaleString()} / ${wordCount.toLocaleString()} ${wordCount === 1 ? "word" : "words"}`
-                            : `${wordCount.toLocaleString()} ${wordCount === 1 ? "word" : "words"}`}
+                            ? t("statusBar.selectedWords", { selected: selectionWordCount, total: wordCount })
+                            : t("statusBar.wordCount", { count: wordCount })}
                     </div>
                 )}
                 {readingTimeMin !== undefined && readingTimeMin > 0 && (
                     <div
                         className="flex items-center gap-1 hover:text-[var(--text-primary)] cursor-default transition-colors"
-                        title="Estimated reading time at 200 wpm"
+                        title={t("statusBar.readingTimeTitle")}
                     >
                         <span className="material-symbols-outlined text-[14px] opacity-70">schedule</span>
-                        {formatReadingTime(readingTimeMin)}
+                        {formatReadingTime(readingTimeMin, t)}
                     </div>
                 )}
             </div>

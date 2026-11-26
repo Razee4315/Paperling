@@ -93,12 +93,13 @@ function textOffset(element: HTMLElement, node: Node, offset: number): number {
 }
 
 function textPoint(element: HTMLElement, offset: number): [Node, number] {
+    let remaining = Math.max(0, offset);
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     let node: Node | null, last: Node | null = null;
     while ((node = walker.nextNode())) {
         const length = node.textContent?.length ?? 0;
-        if (offset <= length) return [node, Math.max(0, offset)];
-        offset -= length;
+        if (remaining <= length) return [node, remaining];
+        remaining -= length;
         last = node;
     }
     return last ? [last, last.textContent?.length ?? 0] : [element, 0];
@@ -166,18 +167,26 @@ export function useReaderEditor(options: Options) {
     }
 
     function finish() {
+        const container = root();
+        const activeInside = !!(container && document.activeElement && container.contains(document.activeElement));
+        const wasActive = snapshot.current !== null || active.current !== null || ranges.current.size > 0;
         deactivate();
         // These paragraphs/style replacements are owned by the editing session,
         // not React. Remove them before rebuilding from the saved source, or a
         // newly appended paragraph would appear twice after Done (READ-03).
-        root()?.querySelectorAll("[data-reader-block]").forEach((element) => element.remove());
-        clearIslands(root());
+        const blocks = container?.querySelectorAll("[data-reader-block]");
+        if (!wasActive && !blocks?.length && !container?.querySelector(`[${READER_ISLAND_ATTR}]`)) {
+            return;
+        }
+        blocks?.forEach((element) => element.remove());
+        clearIslands(container);
         snapshot.current = null;
         ranges.current.clear();
         const stack = histories.current.get(latest.current.docKey)?.undo;
         const last = stack?.[stack.length - 1];
         if (last) last.time = 0; // Done is a history boundary, not history deletion.
         setRevision((value) => value + 1);
+        if (activeInside && container) container.focus({ preventScroll: true });
     }
 
     function initialize(): boolean {
@@ -548,7 +557,14 @@ export function useReaderEditor(options: Options) {
 
     const shownKey = useRef(options.docKey);
     useLayoutEffect(() => {
-        if (shownKey.current !== options.docKey) { shownKey.current = options.docKey; pending.current = null; finish(); touch(); }
+        if (shownKey.current !== options.docKey) {
+            shownKey.current = options.docKey;
+            pending.current = null;
+            if (snapshot.current !== null || active.current !== null || ranges.current.size > 0) {
+                finish();
+                touch();
+            }
+        }
         if (pending.current && options.renderedContentRef.current === source() && options.enabled) {
             const position = pending.current;
             pending.current = null;

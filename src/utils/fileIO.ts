@@ -3,6 +3,8 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { errMessage } from "./errors";
 import { pathKey } from "./tabsModel";
 import { fileHistory } from "./fileHistory";
+import { IS_MOBILE } from "./platform";
+import { isAndroidCachePath, syncToSource, syncToSourceAvailable } from "./nativePicker";
 
 /**
  * Text-file I/O for documents, layered on the Rust read_file / save_file
@@ -24,6 +26,7 @@ import { fileHistory } from "./fileHistory";
  */
 
 const BOM = "﻿";
+const MAX_TRACKED_PATHS = 500;
 const bomPaths = new Set<string>();
 
 /** How a document is stored. Keep in step with TextEncoding in text_encoding.rs. */
@@ -46,9 +49,29 @@ function notifyEncodingChange(): void {
 
 function rememberEncoding(key: string, encoding: FileEncoding | undefined): void {
     if (encodings.get(key) === encoding) return;
-    if (encoding) encodings.set(key, encoding);
-    else encodings.delete(key);
+    if (encoding) {
+        encodings.delete(key);
+        encodings.set(key, encoding);
+        while (encodings.size > MAX_TRACKED_PATHS) {
+            const oldest = encodings.keys().next().value;
+            if (oldest !== undefined) encodings.delete(oldest);
+            else break;
+        }
+    } else {
+        encodings.delete(key);
+    }
     notifyEncodingChange();
+}
+
+function trackBom(key: string, hasBom: boolean): void {
+    bomPaths.delete(key);
+    if (!hasBom) return;
+    bomPaths.add(key);
+    while (bomPaths.size > MAX_TRACKED_PATHS) {
+        const oldest = bomPaths.values().next().value;
+        if (oldest !== undefined) bomPaths.delete(oldest);
+        else break;
+    }
 }
 
 /** Run `listener` whenever a remembered encoding changes. ENC-05. */
@@ -79,6 +102,11 @@ export function retargetEncodings(oldPath: string, newPath: string | null): void
         if (newKey !== null) encodings.set(newKey + key.slice(oldKey.length), encoding);
         changed = true;
     }
+    for (const key of [...bomPaths]) {
+        if (key !== oldKey && !key.startsWith(`${oldKey}/`)) continue;
+        bomPaths.delete(key);
+        if (newKey !== null) bomPaths.add(newKey + key.slice(oldKey.length));
+    }
     if (changed) notifyEncodingChange();
 }
 
@@ -87,20 +115,29 @@ export function hadBom(path: string): boolean {
     return bomPaths.has(pathKey(path));
 }
 
+export interface ReadOptions {
+    /** Record initial snapshot into local File History (disable for internal fallback probes). */
+    recordHistory?: boolean;
+}
+
 /** Read a document, BOM stripped (and remembered for the save side). */
 export async function readTextFile<T extends { content: string; path?: string; encoding?: FileEncoding }>(
     path: string,
+    opts?: ReadOptions,
 ): Promise<T> {
+    const recordHistory = opts?.recordHistory !== false;
     const data = await invoke<T>("read_file", { path });
-    if (data) rememberEncoding(pathKey(data.path ?? path), data.encoding);
+    const key = pathKey(data?.path ?? path);
+    if (data) rememberEncoding(key, data.encoding);
     if (data && typeof data.content === "string" && data.content.startsWith(BOM)) {
-        bomPaths.add(pathKey(data.path ?? path));
+        trackBom(key, true);
         const stripped = data.content.slice(BOM.length);
-        void fileHistory.record(path, stripped, "opened");
+        if (recordHistory) void fileHistory.record(path, stripped, "opened");
         return { ...data, content: stripped };
     }
-    bomPaths.delete(pathKey(path));
-    if (data && typeof data.content === "string") void fileHistory.record(path, data.content, "opened");
+    trackBom(pathKey(path), false);
+    if (key !== pathKey(path)) trackBom(key, false);
+    if (recordHistory && data && typeof data.content === "string") void fileHistory.record(path, data.content, "opened");
     return data;
 }
 
@@ -125,10 +162,27 @@ export function idleWriteToken(): number | null {
     return writesInFlight > 0 ? null : writeEpoch;
 }
 
-async function writeDocument(args: { path: string; content: string; encoding?: FileEncoding }): Promise<number> {
+async function writeDocument(
+    args: { path: string; content: string; encoding?: FileEncoding },
+    skipExternalSync = false,
+): Promise<number> {
     writesInFlight++;
     writeEpoch++;
     try {
+        // ANDR-02 (#305): imported SAF / Open-With / Downloads notes edit a
+        // cache copy because std::fs cannot write content:// URIs. Sync back to
+        // the original URI BEFORE updating the cache copy so a write failure or
+        // read-only source never clears isDirty or leaves cache ahead of disk.
+        if (!skipExternalSync && (IS_MOBILE || syncToSourceAvailable()) && isAndroidCachePath(args.path)) {
+            const synced = await syncToSource(args.path, args.content);
+            if (!synced.ok) {
+                throw new Error(
+                    synced.error && synced.error !== "not-available"
+                        ? synced.error
+                        : "Could not save back to the original file on this device. Use Save As to save a copy.",
+                );
+            }
+        }
         return await invoke<number>("save_file", args);
     } finally {
         writesInFlight--;
@@ -139,6 +193,8 @@ async function writeDocument(args: { path: string; content: string; encoding?: F
 export interface SaveOptions {
     /** A save nobody asked for (autosave): it must never open a dialog. */
     background?: boolean;
+    /** Skip Android URI write-back when the native Downloads bridge already wrote the target. */
+    skipExternalSync?: boolean;
 }
 
 /** save_file's refusal; pinned by a Rust test. ENC-04. */
@@ -192,12 +248,16 @@ async function convertToUtf8(path: string, content: string, refusal: RegExpExecA
  * the new mtime. A path never read here sends no encoding: save_file then keeps
  * whatever the file on disk uses.
  */
-export async function saveTextFile(path: string, content: string, { background = false }: SaveOptions = {}): Promise<number> {
+export async function saveTextFile(
+    path: string,
+    content: string,
+    { background = false, skipExternalSync = false }: SaveOptions = {},
+): Promise<number> {
     const out = hadBom(path) && !content.startsWith(BOM) ? BOM + content : content;
     const encoding = encodings.get(pathKey(path));
     let mtime: number;
     try {
-        mtime = await writeDocument({ path, content: out, ...(encoding ? { encoding } : {}) });
+        mtime = await writeDocument({ path, content: out, ...(encoding ? { encoding } : {}) }, skipExternalSync);
     } catch (error) {
         const refusal = UNREPRESENTABLE.exec(errMessage(error));
         if (!refusal) throw error;

@@ -21,10 +21,20 @@ export function collectDomMatches(
     root: HTMLElement,
     query: string,
     caseSensitive: boolean,
-    skip: readonly string[] = []
+    skip: readonly string[] = [],
+    regex = false,
 ): Range[] {
     const ranges: Range[] = [];
     if (!query) return ranges;
+
+    let re: RegExp | null = null;
+    if (regex) {
+        try {
+            re = new RegExp(query, caseSensitive ? "gm" : "gim");
+        } catch {
+            return ranges;
+        }
+    }
     const q = caseSensitive ? query : query.toLowerCase();
 
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -37,6 +47,21 @@ export function collectDomMatches(
     let node: Node | null;
     while ((node = walker.nextNode())) {
         const data = (node as Text).data;
+        if (re) {
+            re.lastIndex = 0;
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(data)) !== null) {
+                if (m[0].length > 0) {
+                    const r = new Range();
+                    r.setStart(node, m.index);
+                    r.setEnd(node, m.index + m[0].length);
+                    ranges.push(r);
+                    if (ranges.length >= MAX_DOM_MATCHES) return ranges;
+                }
+                if (m.index === re.lastIndex) re.lastIndex++;
+            }
+            continue;
+        }
         const text = caseSensitive ? data : data.toLowerCase();
         let i = text.indexOf(q);
         while (i !== -1) {

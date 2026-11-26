@@ -22,9 +22,12 @@ export function selectionFragment(range: Range, root: Element): HTMLElement {
     const start = range.commonAncestorContainer;
     let ancestor: Node | null = start.nodeType === Node.ELEMENT_NODE ? start : start.parentNode;
     while (ancestor && ancestor !== root && root.contains(ancestor)) {
-        const shell = ancestor.cloneNode(false);
-        shell.appendChild(content);
-        content = shell;
+        const el = ancestor as HTMLElement;
+        if (!el.classList?.contains("md-block") && !el.classList?.contains("md-whole")) {
+            const shell = ancestor.cloneNode(false);
+            shell.appendChild(content);
+            content = shell;
+        }
         ancestor = ancestor.parentNode;
     }
     const container = document.createElement("div");

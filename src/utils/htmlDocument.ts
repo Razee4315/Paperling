@@ -87,13 +87,15 @@ async function inlineLocalAssets(doc: Document, baseDir: string, assets: HtmlAss
     const sheets = [...doc.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"][href]')].slice(0, MAX_LOCAL_STYLESHEETS);
     await Promise.all(sheets.map(async (link) => {
         const rel = localAssetPath(link.getAttribute("href"));
-        if (!rel) return;
+        if (!rel || !/\.css$/i.test(rel)) return;
         try {
             const css = await assets.readText(baseDir, rel);
             if (css.length > budget) return;
             budget -= css.length;
             const style = doc.createElement("style");
-            style.textContent = css;
+            // Neutralize any literal `</style` sequence so HTML serialization of the
+            // srcdoc document cannot break out of the <style> element. SEC-05.
+            style.textContent = css.replace(/(<\/)(style)/gi, "\\3c /$2");
             link.replaceWith(style);
         } catch { /* a missing stylesheet leaves the page unstyled, as in a browser */ }
     }));

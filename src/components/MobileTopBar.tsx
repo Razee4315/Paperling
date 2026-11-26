@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useI18n } from "../i18n";
 
 interface MenuItem {
     id: string;
@@ -26,6 +27,7 @@ interface MobileTopBarProps {
  * fixed panels, which offset from the same variable, line up below it.
  */
 export function MobileTopBar({ fileName, isDirty, onOpenMenu, onOpenPalette }: MobileTopBarProps) {
+    const { t } = useI18n();
     return (
         <header
             className="shrink-0 flex items-center gap-1 bg-[var(--bg-titlebar)] border-b border-[var(--border)] px-1 no-select z-[60]"
@@ -37,7 +39,7 @@ export function MobileTopBar({ fileName, isDirty, onOpenMenu, onOpenPalette }: M
         >
             <button
                 onClick={onOpenMenu}
-                aria-label="Menu"
+                aria-label={t("mobileBar.menu")}
                 aria-haspopup="menu"
                 className="flex items-center justify-center w-11 h-11 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0"
             >
@@ -52,7 +54,7 @@ export function MobileTopBar({ fileName, isDirty, onOpenMenu, onOpenPalette }: M
                         {isDirty && (
                             <span
                                 className="w-2 h-2 rounded-full bg-[var(--status-unsaved)] shrink-0"
-                                aria-label="Unsaved changes"
+                                aria-label={t("mobileBar.unsavedChanges")}
                                 role="img"
                             />
                         )}
@@ -65,7 +67,7 @@ export function MobileTopBar({ fileName, isDirty, onOpenMenu, onOpenPalette }: M
 
             <button
                 onClick={onOpenPalette}
-                aria-label="Search commands and notes"
+                aria-label={t("mobileBar.paletteAria")}
                 className="flex items-center justify-center w-11 h-11 rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0"
             >
                 <span className="material-symbols-outlined text-[22px]">search</span>
@@ -79,6 +81,7 @@ export function MobileTopBar({ fileName, isDirty, onOpenMenu, onOpenPalette }: M
  * callbacks); positioned under the app bar, full-width, ≥44px rows.
  */
 export function MobileMenu({ open, items, onClose }: { open: boolean; items: MenuItem[]; onClose: () => void }) {
+    const { t } = useI18n();
     const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -103,7 +106,7 @@ export function MobileMenu({ open, items, onClose }: { open: boolean; items: Men
             <div
                 ref={ref}
                 role="menu"
-                aria-label="App menu"
+                aria-label={t("mobileBar.appMenu")}
                 className="absolute left-2 top-2 w-[min(300px,calc(100vw-1rem))] bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[var(--radius-lg)] shadow-2xl py-1.5 animate-fade-in-down overflow-y-auto max-h-[calc(100dvh-var(--mobile-topbar-h)-1rem)]"
                 onClick={(e) => e.stopPropagation()}
             >

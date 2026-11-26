@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
+import { useI18n, useSystemLocaleSync } from "./i18n";
 import { saveTextFile } from "./utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { save, ask, open } from "@tauri-apps/plugin-dialog";
@@ -14,7 +15,6 @@ import { MobileBottomNav } from "./components/MobileBottomNav";
 import { SaveAsNameModal, type SaveAsChoice } from "./components/SaveAsNameModal";
 import { ZenTopBar } from "./components/ZenTopBar";
 import { WelcomeScreen } from "./components/WelcomeScreen";
-import { CodeEditor } from "./components/CodeEditor";
 import { StatusBar } from "./components/StatusBar";
 import { ModeToggle, type ViewMode } from "./components/ModeToggle";
 import { ToastStack } from "./components/Toast";
@@ -31,7 +31,7 @@ import { useFileSession } from "./hooks/useFileSession";
 import { useEncodingLabel } from "./hooks/useEncodingLabel";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { IS_MOBILE, isTauri } from "./utils/platform";
-import { isDocumentPath, isHtmlPath } from "./utils/documentPaths";
+import { isDocumentPath, isHtmlPath, isUnsafeRelativePath } from "./utils/documentPaths";
 import { EDITOR_COMMAND_EVENT, type FoldCommandId, type TextCommandId } from "./utils/textCommands";
 import { writeRichClipboard } from "./utils/richClipboard";
 import { fileHistory } from "./utils/fileHistory";
@@ -39,7 +39,7 @@ import { useCustomCss } from "./hooks/useCustomCss";
 import { getWorkspaceDirectory, setWorkspaceDirectory } from "./utils/persistence";
 import { isTextDirection, type TextDirection } from "./utils/textDirection";
 import { joinNotesPath } from "./utils/mobileFiles";
-import { openSystemFilePicker, saveToDownloads, DOWNLOADS_SENTINEL } from "./utils/nativePicker";
+import { openSystemFilePicker, saveToDownloads, makeDownloadsSentinel, parseDownloadsSentinel } from "./utils/nativePicker";
 import { normalizeMarkdownFileName } from "./utils/mobileFiles";
 
 // === Lazy-loaded screens / dialogs ===
@@ -52,6 +52,12 @@ import { normalizeMarkdownFileName } from "./utils/mobileFiles";
 //
 // React.lazy expects a default export; our components are named exports, so
 // we adapt with the `.then(m => ({ default: m.X }))` shim.
+const CodeEditor = lazy(() =>
+    import("./components/CodeEditor").then((m) => ({ default: m.CodeEditor }))
+);
+const Tour = lazy(() =>
+    import("./components/Tour").then((m) => ({ default: m.Tour }))
+);
 const MarkdownPreview = lazy(() =>
     import("./components/MarkdownPreview").then((m) => ({ default: m.MarkdownPreview }))
 );
@@ -120,6 +126,7 @@ import {
   removeRecentFolder,
   getWordWrap,
   getCodeFolding,
+  getAutoCloseBrackets,
   setAIEnabled,
   setSavedViewMode,
   setSpellCheck,
@@ -129,17 +136,20 @@ import {
   setTypewriterMode,
   setWordWrap,
   setCodeFolding,
+  setAutoCloseBrackets,
   getZenMode,
   setZenMode,
   getReadableLineLength,
   setReadableLineLength,
   getTextDirection,
   setTextDirection,
+  getDirectionChordEnabled,
+  setDirectionChordEnabled,
 } from "./utils/persistence";
 import { getAutoSave, getOpenInReader } from "./utils/persistence";
 import { formatZoom } from "./utils/zoom";
 import { clearBufferBackups } from "./utils/bufferBackup";
-import { findAnchorLine, splitWikilinkTarget } from "./utils/wikilinkAnchor";
+import { findAnchorLine, matchOpenTabForWikilink, splitWikilinkTarget } from "./utils/wikilinkAnchor";
 import { resolveRelativePath } from "./utils/resolveRelativePath";
 import { dirOf, joinPath, lastUsedDirectory, suggestFileName } from "./utils/saveName";
 import { extractHeadings } from "./utils/outline";
@@ -153,12 +163,8 @@ import {
 } from "./utils/tabsModel";
 import { emptyNavHistory, navigateBack, navigateForward, recordNavigation, type NavEntry } from "./utils/navHistory";
 import { countSourceWords, countWords } from "./utils/documentStats";
-import { Tour } from "./components/Tour";
 import { FindBar, findSeedFromSelection } from "./components/FindBar";
 import { createPreviewFindController } from "./utils/previewFind";
-// The interactive feature guide, shipped as raw markdown so it opens as a real,
-// editable document (offered at the end of the welcome tour / from the palette).
-import tutorialMarkdown from "./assets/tutorial.md?raw";
 
 // Platform-aware AI shortcut hint. Windows uses Alt+J because WebView2 reserves
 // Ctrl+J for its Downloads UI before the page sees it; macOS shows ⌘J. (AI-02.)
@@ -187,6 +193,10 @@ const THEME_CHOICES: { id: Theme; label: string }[] = [
 ];
 
 function AppContent() {
+  // Subscribes this component (and everything under it) to the UI language, and
+  // re-resolves a "follow system" preference once the browser locale is readable.
+  const { t } = useI18n();
+  useSystemLocaleSync();
   const { theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom, font, fontSize, customFont } = useTheme();
   useCustomCss();
 
@@ -216,6 +226,7 @@ function AppContent() {
   const [toolbarVisible, setToolbarVisible] = usePersistedState<boolean>(getToolbarEnabled, setToolbarEnabled);
   const [wordWrapEnabled, setWordWrapEnabled] = usePersistedState<boolean>(getWordWrap, setWordWrap);
   const [codeFoldingEnabled, setCodeFoldingEnabled] = usePersistedState<boolean>(getCodeFolding, setCodeFolding);
+  const [autoCloseBracketsEnabled, setAutoCloseBracketsEnabled] = usePersistedState<boolean>(getAutoCloseBrackets, setAutoCloseBrackets);
   const [zenMode, setZenModeState] = usePersistedState<boolean>(getZenMode, setZenMode);
   // Live mirrors for the mount-once Settings event listener below, so the
   // Settings toggle routes through the same toggle (with view-mode
@@ -230,6 +241,10 @@ function AppContent() {
   const [readableLineLength, setReadableLineLengthState] = usePersistedState<boolean>(getReadableLineLength, setReadableLineLength);
   // Reading order for editor + preview (issue #216). BIDI-01.
   const [textDirection, setTextDirectionState] = usePersistedState<TextDirection>(getTextDirection, setTextDirection);
+  // Windows/Linux Ctrl+Right/Left Shift reading-order chord (#293, BIDI-04).
+  const [directionChordEnabled, setDirectionChordEnabledState] = usePersistedState<boolean>(getDirectionChordEnabled, setDirectionChordEnabled);
+  // Rebuilds command-palette shortcut hints after a rebind/disable (SHC-10/12).
+  const [keybindingsVersion, setKeybindingsVersion] = useState(0);
   // Optional vim modal editing (issue #119). Toggled in Settings → Editor.
   const [vimModeEnabled, setVimModeEnabled] = usePersistedState<boolean>(getVimMode, setVimMode);
   const [cursorPosition, setCursorPosition] = useState({ line: 1, col: 1 });
@@ -313,7 +328,7 @@ function AppContent() {
       })
       .catch((err) => {
         console.error("Could not resolve the notes folder:", err);
-        showToast(errMessage(err) || "Could not open the notes folder", "error");
+        showToast(errMessage(err) || t("toast.couldNotOpenNotesFolder"), "error");
       });
     return () => {
       cancelled = true;
@@ -346,8 +361,8 @@ function AppContent() {
       }
       if (choice.destination === "downloads") {
         // useFileSession owns the note content and performs the native
-        // MediaStore write; the sentinel just reports the chosen destination.
-        req.resolve(DOWNLOADS_SENTINEL);
+        // MediaStore write; encode the chosen filename in the sentinel.
+        req.resolve(makeDownloadsSentinel(choice.name));
         return;
       }
       if (!notesDir) {
@@ -385,8 +400,9 @@ function AppContent() {
   const promptForSavePath = useCallback(
     (defaultName: string | null, defaultDir?: string | null): Promise<string | null> => {
       if (IS_MOBILE) return mobilePromptSavePath(defaultName);
+      const html = isHtmlPath(defaultName);
       return save({
-        filters: [{ name: "Markdown", extensions: ["md"] }],
+        filters: [html ? { name: "HTML", extensions: ["html", "htm"] } : { name: "Markdown", extensions: ["md"] }],
         // Open the dialog in the relevant folder, not wherever the OS last
         // was. SAVE-05.
         defaultPath: defaultName && defaultDir ? joinPath(defaultDir, defaultName) : defaultName ?? undefined,
@@ -405,7 +421,7 @@ function AppContent() {
   const [savePulse, setSavePulse] = useState(0);
   const zenActiveRef = useRef(false);
   const handleManualSaved = useCallback(() => {
-    if (zenActiveRef.current || IS_MOBILE) showToast("Saved", "success");
+    if (zenActiveRef.current || IS_MOBILE) showToast(t("toast.saved"), "success");
     else setSavePulse((n) => n + 1);
   }, [showToast]);
 
@@ -435,6 +451,8 @@ function AppContent() {
     handleConflictKeepMine,
     handleConflictLoadFromDisk,
     collectDirtyTabs,
+    checkTabDiskChanged,
+    markTabSaved,
     isAutosaveParked,
     activateTab,
     cycleTab,
@@ -463,6 +481,8 @@ function AppContent() {
   });
 
   const encodingLabel = useEncodingLabel(filePath);
+  const liveContentRef = useRef(content);
+  liveContentRef.current = content;
 
   // On the phone there is no OS open panel (and its SAF result would be
   // unreadable anyway) — "open" means the in-app files browser, rooted at the
@@ -510,7 +530,7 @@ function AppContent() {
 
   // Export HTML content ref - captures from visible preview
   useEffect(() => {
-    const onDeviceError = (e: Event) => showToast((e as CustomEvent).detail?.message || "Could not open the selected file", "error");
+    const onDeviceError = (e: Event) => showToast((e as CustomEvent).detail?.message || t("toast.deviceFileOpenError"), "error");
     window.addEventListener("paperling:device-file-error", onDeviceError);
     return () => window.removeEventListener("paperling:device-file-error", onDeviceError);
   }, [showToast]);
@@ -647,24 +667,31 @@ function AppContent() {
   const [deferredWithSwap, flushDeferredPreview] = useDebouncedValue(contentWithSwap, previewDebounceMs);
   const deferredContent = deferredWithSwap.swap === docSwapId ? deferredWithSwap.content : content;
 
-  // Word/char counts feed the status bar — fine to lag a frame behind on huge
-  // docs, so they read deferred too. countSourceWords is the SAME pipeline the
-  // stats dialog uses (strips frontmatter/code, ignores markdown syntax), so
-  // the status bar and the dialog always agree. STATS-01.
-  const wordCount = useMemo(() => countSourceWords(deferredContent), [deferredContent]);
-  const charCount = deferredContent.length;
-  // Selection word count, when the user has a non-empty range highlighted.
-  // Reads LIVE `content` (not deferredContent) since the selection range and
-  // the underlying text must agree — sliding by 80ms would briefly count words
-  // from a stale buffer right after a fast edit. The slice is cheap regardless.
-  // Uses countWords (no frontmatter/code stripping): a selection inside a code
-  // block should still report what's selected.
+  const [previewExportSync, setPreviewExportSync] = useState(0);
+  const frozenPreviewContentRef = useRef(content);
+  const frozenPreviewSwapRef = useRef(docSwapId);
+  const lastExportSyncRef = useRef(previewExportSync);
+  if (
+    mode !== "code" ||
+    frozenPreviewSwapRef.current !== docSwapId ||
+    lastExportSyncRef.current !== previewExportSync
+  ) {
+    const syncForced = lastExportSyncRef.current !== previewExportSync;
+    frozenPreviewContentRef.current = mode === "preview" || syncForced ? content : deferredContent;
+    frozenPreviewSwapRef.current = docSwapId;
+    lastExportSyncRef.current = previewExportSync;
+  }
+  const previewDisplayContent = frozenPreviewContentRef.current;
+
+  // Word/char counts feed the status bar — skipped when hidden (mobile/zen).
+  const showStatusStats = !IS_MOBILE && !(zenMode && hasFile);
+  const wordCount = useMemo(() => (showStatusStats ? countSourceWords(deferredContent) : 0), [showStatusStats, deferredContent]);
+  const charCount = showStatusStats ? deferredContent.length : 0;
   const selectionLength = selectionRange.end - selectionRange.start;
   const selectionWordCount = useMemo(
-    () => (selectionLength > 0 ? countWords(content.slice(selectionRange.start, selectionRange.end)) : 0),
-    [content, selectionRange.start, selectionRange.end, selectionLength]
+    () => (showStatusStats && selectionLength > 0 ? countWords(content.slice(selectionRange.start, selectionRange.end)) : 0),
+    [showStatusStats, content, selectionRange.start, selectionRange.end, selectionLength]
   );
-  // Average adult reading speed for prose: ~200 wpm.
   const readingTimeMin = useMemo(() => wordCount / 200, [wordCount]);
 
   // Settings flags above persist themselves via usePersistedState; the matching
@@ -677,6 +704,7 @@ function AppContent() {
       ["paperling:toolbar-toggle", (e) => setToolbarVisible(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:wordwrap-toggle", (e) => setWordWrapEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:folding-toggle", (e) => setCodeFoldingEnabled(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:auto-close-brackets-toggle", (e) => setAutoCloseBracketsEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:spellcheck-toggle", (e) => setSpellCheckEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:live-preview-toggle", (e) => setLivePreviewEnabled(!!(e as CustomEvent).detail?.enabled)],
       ["paperling:vim-toggle", (e) => setVimModeEnabled(!!(e as CustomEvent).detail?.enabled)],
@@ -693,6 +721,8 @@ function AppContent() {
         const d = (e as CustomEvent).detail?.direction;
         if (isTextDirection(d)) setTextDirectionState(d);
       }],
+      ["paperling:direction-chord-toggle", (e) => setDirectionChordEnabledState(!!(e as CustomEvent).detail?.enabled)],
+      ["paperling:keybindings-changed", () => setKeybindingsVersion((v) => v + 1)],
       // Toasts from components without toast access (diagram export).
       ["paperling:notify", (e) => {
         const d = (e as CustomEvent).detail;
@@ -747,6 +777,7 @@ function AppContent() {
       // pull it in the moment the welcome screen has settled. The other
       // dialogs are tiny and aren't worth racing the network for.
       import("./components/MarkdownPreview").catch(() => {/* offline / cancelled */ });
+      import("./components/CodeEditor").catch(() => {/* offline / cancelled */ });
     }, { timeout: 1500 });
     return () => {
       const cancel = (window as unknown as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback;
@@ -820,44 +851,62 @@ function AppContent() {
   // changed on disk under unsaved edits, so auto-saving it would overwrite the
   // external version and closing would silently discard the buffer. EXT-03.
   const handleSaveAndCloseWindow = useCallback(async () => {
+    const dirtyTabs = collectDirtyTabs();
     // The active tab's own conflict dialog counts too: saving it would
     // overwrite the external version the dialog is asking about. CLOSE-02.
-    const parked = collectDirtyTabs().find(
-      (t) => isAutosaveParked(t.filePath) || (conflictPrompt != null && t.filePath === filePath),
+    const parked = dirtyTabs.find(
+      (t) => isAutosaveParked(t.filePath) || (conflictPrompt != null && samePath(t.filePath, filePath)),
     );
     if (parked) {
       showToast(
-        `"${parked.fileName}" changed on disk and has unsaved edits. Resolve the conflict before closing.`,
+        t("toast.conflictBeforeClose", { name: parked.fileName }),
         "error",
       );
       return;
     }
+    for (const dirty of dirtyTabs) {
+      if (dirty.filePath && (await checkTabDiskChanged(dirty.id)) !== null) {
+        showToast(t("toast.conflictBeforeClose", { name: dirty.fileName }), "error");
+        return;
+      }
+    }
     setShowUnsavedBeforeClose(false);
-    for (const t of collectDirtyTabs()) {
-      let path = t.filePath;
-      if (!path) {
-        const selected = await promptForSavePath(suggestFileName(t.content, t.fileName), lastUsedDirectory(getRecentFiles()));
+    // , not : the translation function is in scope here too.
+    for (const dirty of dirtyTabs) {
+      let path = dirty.filePath;
+      let viaDownloads = false;
+      if (path) {
+        if ((await checkTabDiskChanged(dirty.id)) !== null) {
+          showToast(t("toast.conflictBeforeClose", { name: dirty.fileName }), "error");
+          return;
+        }
+      } else {
+        const selected = await promptForSavePath(suggestFileName(dirty.content, dirty.fileName), lastUsedDirectory(getRecentFiles()));
         if (!selected) return; // cancelled a save-as → keep the app open
         path = selected;
       }
-      if (path === DOWNLOADS_SENTINEL) {
-        const cachePath = await saveToDownloads(normalizeMarkdownFileName(t.fileName), t.content);
+      const dlName = parseDownloadsSentinel(path);
+      if (dlName !== null) {
+        const chosenName = dlName || dirty.fileName;
+        const cachePath = await saveToDownloads(normalizeMarkdownFileName(chosenName), dirty.content);
         if (!cachePath.ok || !cachePath.path) {
-          showToast(cachePath.error || `Could not save ${t.fileName} to Downloads`, "error");
+          showToast(cachePath.error || t("toast.couldNotSaveNameToDownloads", { name: chosenName }), "error");
           return;
         }
         path = cachePath.path;
+        viaDownloads = true;
       }
       try {
-        await saveTextFile(path, t.content);
+        const mtime = await saveTextFile(path, dirty.content, { skipExternalSync: viaDownloads });
+        markTabSaved(dirty.id, path, dirty.content, mtime);
       } catch (err) {
         const msg = errMessage(err);
-        showToast(msg || `Failed to save ${t.fileName}`, "error");
+        showToast(msg || t("toast.failedToSaveName", { name: dirty.fileName }), "error");
         return; // don't close on a failed save — the user would lose the buffer
       }
     }
     forceCloseWindow();
-  }, [collectDirtyTabs, conflictPrompt, filePath, forceCloseWindow, isAutosaveParked, promptForSavePath, showToast]);
+  }, [checkTabDiskChanged, collectDirtyTabs, conflictPrompt, filePath, forceCloseWindow, isAutosaveParked, markTabSaved, promptForSavePath, showToast]);
 
   // "Save a copy" from the disk-conflict dialog: write the current buffer to a
   // NEW file the user picks, leaving the conflicted file and the pending choice
@@ -866,22 +915,24 @@ function AppContent() {
     const copyName = `${(fileName ?? "Untitled.md").replace(/\.md$/i, "")} (copy).md`;
     let selected = await promptForSavePath(copyName, dirOf(filePath));
     if (!selected) return;
-    if (selected === DOWNLOADS_SENTINEL) {
-      const res = await saveToDownloads(normalizeMarkdownFileName(copyName), content);
+    const text = liveContentRef.current;
+    const dlCopyName = parseDownloadsSentinel(selected);
+    if (dlCopyName !== null) {
+      const res = await saveToDownloads(normalizeMarkdownFileName(dlCopyName || copyName), text);
       if (!res.ok || !res.path) {
-        showToast(res.error || "Could not save the copy", "error");
+        showToast(res.error || t("toast.couldNotSaveCopy"), "error");
         return;
       }
-      showToast("Copy saved — the conflicted file is untouched", "success");
+      showToast(t("toast.copySavedConflict"), "success");
       return;
     }
     try {
-      await saveTextFile(selected, content);
-      showToast("Copy saved — the conflicted file is untouched", "success");
+      await saveTextFile(selected, text);
+      showToast(t("toast.copySavedConflict"), "success");
     } catch (err) {
-      showToast(errMessage(err) || "Could not save the copy", "error");
+      showToast(errMessage(err) || t("toast.couldNotSaveCopy"), "error");
     }
-  }, [content, fileName, promptForSavePath, showToast]);
+  }, [fileName, filePath, promptForSavePath, showToast]);
 
   const handleDiscardAndCloseWindow = useCallback(() => {
     setShowUnsavedBeforeClose(false);
@@ -903,23 +954,40 @@ function AppContent() {
       openWorkspace(directory);
     } else {
       removeRecentFolder(directory);
-      showToast("That folder is no longer there", "error");
+      showToast(t("toast.folderMissing"), "error");
     }
   }, [openWorkspace, showToast]);
   const handleOpenFolder = useCallback(async () => {
     try {
-      const directory = await open({ directory: true, multiple: false, title: "Open folder" });
+      const directory = await open({ directory: true, multiple: false, title: t("moreMenu.openFolderTitle") });
       if (typeof directory === "string") openWorkspace(directory);
-    } catch (error) { showToast(errMessage(error) || "Could not open folder", "error"); }
+    } catch (error) { showToast(errMessage(error) || t("toast.couldNotOpenFolder"), "error"); }
   }, [openWorkspace, showToast]);
+  const IMAGE_DROP_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
   const handleDroppedPath = useCallback(async (path: string) => {
     try {
       const info = await invoke<{ is_dir: boolean }>("get_file_info", { path });
       if (info.is_dir) openWorkspace(path);
       else if (isDocumentPath(path)) await loadFile(path);
-      else showToast("Open a folder or a Markdown/text file", "info");
-    } catch (error) { showToast(errMessage(error) || "Could not open the dropped item", "error"); }
-  }, [loadFile, openWorkspace, showToast]);
+      else if (IMAGE_DROP_RE.test(path)) {
+        if (!filePath || isHtmlPath(filePath)) {
+          showToast(t("toast.imageDropSaveFirst"), "info");
+          return;
+        }
+        const relPath = await invoke<string>("import_dropped_image", { mdFilePath: filePath, sourcePath: path });
+        const rawAlt = path.replace(/\\/g, "/").split("/").pop()?.replace(/\.[^.]+$/, "") || "image";
+        const alt = rawAlt.replace(/[[\]]/g, "") || "image";
+        const snippet = `![${alt}](${relPath})`;
+        const detail = { text: snippet, handled: false };
+        window.dispatchEvent(new CustomEvent("paperling:insert-text", { detail }));
+        if (!detail.handled) {
+          setContent((prev) => (prev ? (prev.endsWith("\n") ? `${prev}${snippet}\n` : `${prev}\n\n${snippet}\n`) : `${snippet}\n`));
+        }
+        showToast(t("toast.imageImported"), "success");
+      }
+      else showToast(t("toast.dropHintOpenable"), "info");
+    } catch (error) { showToast(errMessage(error) || t("toast.dropFailed"), "error"); }
+  }, [filePath, loadFile, openWorkspace, setContent, showToast]);
 
   useEffect(() => {
     let mounted = true;
@@ -959,14 +1027,10 @@ function AppContent() {
       await loadFile(path);
     } catch (err) {
       const msg = errMessage(err);
-      showToast(msg || "Could not create note", "error");
+      showToast(msg || t("toast.couldNotCreateNote"), "error");
     }
   }, [loadFile, showToast]);
 
-  // Live document text for callbacks that must keep a stable identity (the
-  // preview's link renderers are rebuilt whenever their handlers change).
-  const liveContentRef = useRef(content);
-  liveContentRef.current = content;
   // The text the preview DOM currently shows (reported after each commit).
   const renderedPreviewContentRef = useRef<string | null>(null);
   const handlePreviewRendered = useCallback((rendered: string) => {
@@ -1001,7 +1065,7 @@ function AppContent() {
       if (!anchor || text == null) return;
       const line = findAnchorLine(text, anchor);
       if (line == null) {
-        showToast(`No "${anchor}" in this note`, "info");
+        showToast(t("toast.noAnchor", { anchor }), "info");
         return;
       }
       requestAnimationFrame(() =>
@@ -1013,27 +1077,23 @@ function AppContent() {
       return;
     }
     if (!filePath) return;
-    const cleaned = file;
-    // Block traversal (`..`), path separators, drive letters, and absolute paths.
-    // Wikilinks should only reference siblings in the same folder.
-    if (
-      !cleaned ||
-      cleaned.includes("..") ||
-      cleaned.includes("/") ||
-      cleaned.includes("\\") ||
-      cleaned.includes("\0") ||
-      /^[a-zA-Z]:/.test(cleaned)
-    ) {
-      showToast(`Invalid wikilink target: [[${target}]]`, "error");
+    const cleaned = file.trim();
+    const cleanedSlash = cleaned.replace(/\\/g, "/");
+    // Block traversal (`..`), leading slashes, drive letters, and NUL bytes.
+    // Safe relative subfolder paths (`Projects/Roadmap`) are allowed and
+    // searched both relative to the note and across the open workspace. WIKI-02.
+    if (!cleaned || isUnsafeRelativePath(cleanedSlash)) {
+      showToast(t("toast.invalidWikilink", { target }), "error");
       return;
     }
     const lastSep = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
     const dir = lastSep > 0 ? filePath.slice(0, lastSep) : "";
     const sep = filePath.includes("\\") ? "\\" : "/";
+    const relLocal = cleanedSlash.replace(/\//g, sep);
     const candidates = [
-      `${dir}${sep}${cleaned}.md`,
-      `${dir}${sep}${cleaned}.markdown`,
-      `${dir}${sep}${cleaned}`,
+      `${dir}${sep}${relLocal}.md`,
+      `${dir}${sep}${relLocal}.markdown`,
+      `${dir}${sep}${relLocal}`,
     ];
     for (const c of candidates) {
       try {
@@ -1046,10 +1106,52 @@ function AppContent() {
       jumpTo(getOpenBuffer(c));
       return;
     }
+    // Search recursively within the active workspace (or note folder) so links
+    // like `[[Roadmap]]` or `[[Projects/Roadmap]]` resolve anywhere in the vault.
+    const workspaceRoot = workspaceDirectory ?? (dir || null);
+    if (workspaceRoot) {
+      try {
+        const notes = await invoke<{ name: string; path: string; is_dir: boolean }[]>(
+          "list_workspace_notes",
+          { root: workspaceRoot },
+        );
+        const want = cleanedSlash.toLowerCase();
+        const stripExt = (p: string) => p.replace(/\.(md|markdown)$/i, "");
+        const exact = notes.find((n) => {
+          const nl = n.name.toLowerCase();
+          return nl === want || stripExt(nl) === want;
+        });
+        const byBasename = exact ?? (!want.includes("/")
+          ? notes
+              .filter((n) => {
+                const base = (n.name.split("/").pop() ?? n.name).toLowerCase();
+                return base === want || stripExt(base) === want;
+              })
+              .sort((a, b) => a.name.length - b.name.length)[0]
+          : undefined);
+        if (byBasename) {
+          await loadFile(byBasename.path);
+          jumpTo(getOpenBuffer(byBasename.path));
+          return;
+        }
+      } catch {
+        // Ignore recursive lookup errors and fall back cleanly below.
+      }
+    }
+    const openTabPath = matchOpenTabForWikilink(tabs, cleanedSlash);
+    if (openTabPath) {
+      await loadFile(openTabPath);
+      jumpTo(getOpenBuffer(openTabPath));
+      return;
+    }
+    if (cleanedSlash.includes("/")) {
+      showToast(t("toast.couldNotOpenFile", { name: `${cleaned}.md` }), "info");
+      return;
+    }
     // Nothing matched — offer to create the note next to the current file, the
     // way Obsidian turns a dangling [[link]] into a new file. NAV-07.
     offerCreateNote(`${dir}${sep}${cleaned}.md`, `${cleaned}.md`);
-  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote, recordNav]);
+  }, [filePath, getOpenBuffer, loadFile, showToast, offerCreateNote, recordNav, workspaceDirectory, tabs]);
 
   // Standard relative markdown links — `[text](note.md)`, `[x](sub/note.md)`,
   // `[y](../other.md)` — open in-app like wikilinks (the preview only routes
@@ -1080,11 +1182,11 @@ function AppContent() {
       openUrl(link.target).catch((err) => console.error("Failed to open external URL:", err));
     } else if (link.kind === "relative") {
       if (/\.(md|markdown|txt)(#.*)?$/i.test(link.target)) void handleNavigateRelative(link.target);
-      else showToast("Only notes can be opened from the editor. Use Reader mode for other files.", "info");
+      else showToast(t("toast.notesOnly"), "info");
     } else {
       const text = liveContentRef.current;
       const line = findAnchorLine(text, link.target) ?? findAnchorLine(text, link.target.replace(/-/g, " "));
-      if (line == null) showToast(`No "${link.target}" heading in this note`, "info");
+      if (line == null) showToast(t("toast.noHeading", { target: link.target }), "info");
       else {
         recordNav();
         window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
@@ -1160,7 +1262,14 @@ function AppContent() {
     return lastSep > 0 ? filePath.slice(0, lastSep) : null;
   }, [filePath, workspaceDirectory]);
 
-  const handleOpenTutorial = useCallback(() => openTutorial(tutorialMarkdown), [openTutorial]);
+  const handleOpenTutorial = useCallback(async () => {
+    try {
+      const mod = await import("./assets/tutorial.md?raw");
+      openTutorial(mod.default);
+    } catch (err) {
+      showToast(errMessage(err) || t("toast.failedToOpenFile"), "error");
+    }
+  }, [openTutorial, showToast]);
 
   // "Replay the welcome tour" from Settings → About. The tour spotlights
   // editor chrome, so make sure a buffer exists before showing it. Never on
@@ -1297,6 +1406,8 @@ function AppContent() {
       req.resolve(null);
       return true;
     }
+    if (conflictPrompt) return true;
+    if (historyTarget) { setHistoryTarget(null); return true; }
     if (closeTabPrompt) { cancelCloseTab(); return true; }
     if (showUnsavedBeforeClose) { setShowUnsavedBeforeClose(false); return true; }
     if (showTour) { handleCloseTour(); return true; }
@@ -1343,9 +1454,9 @@ function AppContent() {
       setMode("preview");
       // Touch has no keyboard to advertise: point at the visible exit chip.
       showToast(IS_MOBILE
-        ? "Zen mode — tap Normal up top to go back"
+        ? t("toast.zenMobile")
         // The window controls live in the hidden top bar; say where. ZEN-04.
-        : `Zen mode — ${formatShortcut("toggleMode")} to edit, ${formatShortcut("zenMode")} to exit. Window controls: top edge`, "info");
+        : t("toast.zenDesktop", { edit: formatShortcut("toggleMode"), exit: formatShortcut("zenMode") }), "info");
     } else {
       const prev = preZenModeRef.current;
       preZenModeRef.current = null;
@@ -1397,7 +1508,7 @@ function AppContent() {
 
   // Handle image paste success
   const handleImagePaste = useCallback(() => {
-    showToast('Image pasted successfully!', 'success');
+    showToast(t("toast.imagePasted"), "success");
   }, [showToast]);
 
   // Handle error messages from child components
@@ -1420,13 +1531,24 @@ function AppContent() {
   // across renders. Inline arrows here would re-create the closures on every
   // App render and defeat any downstream memoization.
   const handleExportSuccess = useCallback(
-    (fmt: string) => showToast(`Exported as ${fmt}`, "success"),
+    (fmt: string) => showToast(t("toast.exportedAs", { format: fmt }), "success"),
     [showToast]
   );
   const handleExportError = useCallback(
-    (fmt: string) => showToast(`Failed to export ${fmt}`, "error"),
+    (fmt: string) => showToast(t("toast.exportFailed", { format: fmt }), "error"),
     [showToast]
   );
+
+  // Cycle document reading order: Auto → RTL → LTR → Auto (#293, BIDI-04).
+  const cycleTextDirection = useCallback(() => {
+    const order: TextDirection[] = ["auto", "rtl", "ltr"];
+    const next = order[(order.indexOf(textDirection) + 1) % order.length];
+    setTextDirectionState(next);
+    const key = next === "rtl" ? "toast.textDirectionRtl" : next === "ltr" ? "toast.textDirectionLtr" : "toast.textDirectionAuto";
+    showToast(t(key), "info");
+  }, [setTextDirectionState, showToast, textDirection]);
+
+  const openReplaceRef = useRef<() => void>(() => {});
 
   // App-wide keyboard shortcuts (window-level, mounted once). See the hook.
   useGlobalShortcuts({
@@ -1435,6 +1557,7 @@ function AppContent() {
     toggleFullscreen, toggleZen: handleToggleZen,
     zoomBy, resetZoom,
     toggleWordWrap: () => setWordWrapEnabled(!wordWrapEnabled),
+    cycleTextDirection,
     openCheatsheet: () => setShowCheatsheet(true),
     openPalette: () => { setPaletteSeed(undefined); setShowPalette(true); },
     openGotoLine: () => { setPaletteSeed(":"); setShowPalette(true); },
@@ -1442,6 +1565,7 @@ function AppContent() {
     // Ctrl+F in reader mode opens the preview find bar (the editor keymap
     // handles find in code/split mode, where the editor has focus). FIND-01.
     openPreviewFind: openPreviewFindBar,
+    openReplace: () => openReplaceRef.current(),
     openSearch: () => setShowSearch(true),
     closeActiveTab: () => { if (activeTabId) closeTab(activeTabId); },
     prevTab: () => cycleTab(-1),
@@ -1460,9 +1584,7 @@ function AppContent() {
   // (EXPORT-03).
   const getExportHtml = useCallback(async (): Promise<string> => {
     flushDeferredPreview();
-    // The preview renders in a transition, so on a long note "two frames"
-    // wasn't always enough and an export could miss the last edits. Wait
-    // until it reports the current text as rendered (bounded). EXPORT-07.
+    setPreviewExportSync((n) => n + 1);
     const deadline = Date.now() + 5000;
     while (renderedPreviewContentRef.current !== liveContentRef.current && Date.now() < deadline) {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 30));
@@ -1471,11 +1593,21 @@ function AppContent() {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
     if (previewRef.current) {
-      // A forced direction lives on .markdown-body itself, which innerHTML
-      // leaves out; carry it into the export so an RTL document stays RTL.
-      // ("auto" puts dir on the blocks, which innerHTML already includes.)
-      const html = previewRef.current.innerHTML;
-      return textDirection === "auto" ? html : `<div dir="${textDirection}">${html}</div>`;
+      const boxes = Array.from(previewRef.current.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+      const prevAttrs = boxes.map((box) => box.getAttribute("checked"));
+      for (const box of boxes) {
+        if (box.checked) box.setAttribute("checked", "");
+        else box.removeAttribute("checked");
+      }
+      try {
+        const html = previewRef.current.innerHTML;
+        return textDirection === "auto" ? html : `<div dir="${textDirection}">${html}</div>`;
+      } finally {
+        boxes.forEach((box, idx) => {
+          if (prevAttrs[idx] === null) box.removeAttribute("checked");
+          else box.setAttribute("checked", prevAttrs[idx]);
+        });
+      }
     }
     return "";
   }, [flushDeferredPreview, textDirection]);
@@ -1492,12 +1624,12 @@ function AppContent() {
   const handleExportHtml = useCallback(async () => {
     if (!fileName) return;
     if (isHtmlDoc) {
-      showToast("This file is already HTML", "info");
+      showToast(t("toast.alreadyHtml"), "info");
       return;
     }
     const raw = await getExportHtml();
     if (!raw) {
-      showToast("Nothing to export yet", "error");
+      showToast(t("exportMenu.nothing"), "error");
       return;
     }
     try {
@@ -1507,12 +1639,12 @@ function AppContent() {
       const fullHTML = generateHTML(cleaned, title, theme, font, fontSize, true, customFont);
       const res = await saveToDownloads(`${title}.html`, fullHTML, "text/html");
       if (!res.ok) {
-        showToast(res.error || "Could not export HTML", "error");
+        showToast(res.error || t("toast.couldNotExportHtml"), "error");
         return;
       }
-      showToast(`Exported "${title}.html" to Downloads`, "success");
+      showToast(t("toast.exportedHtmlToDownloads", { title }), "success");
     } catch (err) {
-      showToast(errMessage(err) || "Could not export HTML", "error");
+      showToast(errMessage(err) || t("toast.couldNotExportHtml"), "error");
     }
   }, [fileName, getExportHtml, isHtmlDoc, showToast, theme, font, fontSize, customFont]);
 
@@ -1521,19 +1653,19 @@ function AppContent() {
   const handleCopyDocument = useCallback(async (kind: "rich" | "html") => {
     const raw = await getExportHtml();
     if (!raw) {
-      showToast("Nothing to copy yet", "error");
+      showToast(t("toast.nothingToCopy"), "error");
       return;
     }
     try {
       const { prepareExportHtml } = await import("./utils/exportUtils");
       const cleaned = await prepareExportHtml(raw);
-      if (kind === "rich") await writeRichClipboard(cleaned, content);
+      if (kind === "rich") await writeRichClipboard(cleaned, liveContentRef.current);
       else await navigator.clipboard.writeText(cleaned);
-      showToast(kind === "rich" ? "Copied as rich text" : "Copied as HTML", "success");
+      showToast(t(kind === "rich" ? "toast.copiedRich" : "toast.copiedHtml"), "success");
     } catch (err) {
-      showToast(errMessage(err) || "Could not copy", "error");
+      showToast(errMessage(err) || t("toast.couldNotCopy"), "error");
     }
-  }, [content, getExportHtml, showToast]);
+  }, [getExportHtml, showToast]);
 
   // Print the RENDERED document (not the app window): the export pipeline's
   // standalone HTML — which already carries print CSS, KaTeX styles and
@@ -1542,36 +1674,22 @@ function AppContent() {
   // PRINT-01.
   const handlePrint = useCallback(async () => {
     if (isHtmlDoc) {
-      showToast("Printing isn't available for HTML files yet", "info");
+      showToast(t("toast.printingHtmlUnavailable"), "info");
       return;
     }
     const raw = await getExportHtml();
     if (!raw) {
-      showToast("Open the document in Reader or Split view to print it", "info");
+      showToast(t("toast.printNeedsReader"), "info");
       return;
     }
     try {
-      const { prepareExportHtml, generateHTML } = await import("./utils/exportUtils");
-      const cleaned = await prepareExportHtml(raw);
+      const { prepareExportHtml, generateHTML, printHtmlDocument } = await import("./utils/exportUtils");
+      const cleaned = await prepareExportHtml(raw, { lightDiagrams: true });
       const title = (fileName ?? "Untitled").replace(/\.(md|markdown)$/i, "");
       const html = generateHTML(cleaned, title, "light", font, fontSize, false, customFont);
-      const frame = document.createElement("iframe");
-      frame.setAttribute("aria-hidden", "true");
-      frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
-      document.body.appendChild(frame);
-      const cleanup = () => window.setTimeout(() => frame.remove(), 1000);
-      frame.onload = () => {
-        try {
-          frame.contentWindow?.focus();
-          frame.contentWindow?.print();
-        } catch {
-          showToast("Printing isn't available here — use Export → PDF instead", "error");
-        }
-        cleanup();
-      };
-      frame.srcdoc = html;
+      await printHtmlDocument(html);
     } catch (err) {
-      showToast(errMessage(err) || "Could not print", "error");
+      showToast(errMessage(err) || t("toast.couldNotPrint"), "error");
     }
   }, [customFont, fileName, font, fontSize, getExportHtml, isHtmlDoc, showToast]);
 
@@ -1581,7 +1699,7 @@ function AppContent() {
   useEffect(() => {
     if (shownZoomRef.current === zoom) return;
     shownZoomRef.current = zoom;
-    showToast(`Zoom ${formatZoom(zoom)}`, "info");
+    showToast(t("toast.zoomLevel", { zoom: formatZoom(zoom) }), "info");
   }, [zoom, showToast]);
 
   // Stable identities for the memoised TitleBar: inline arrows here made it
@@ -1610,6 +1728,7 @@ function AppContent() {
       window.dispatchEvent(new CustomEvent("paperling:open-replace"));
     }
   }, [mode, setMode]);
+  openReplaceRef.current = openReplace;
 
   // File history (HIST-01). A restore is an ordinary edit: it lands in the
   // buffer, undoable and unsaved. The text it replaces is kept first, so even
@@ -1617,21 +1736,21 @@ function AppContent() {
   const [historyTarget, setHistoryTarget] = useState<{ path: string; fileName: string } | null>(null);
   const openFileHistory = useCallback(() => {
     if (!filePath) {
-      showToast("Save the file first: history starts once it's on disk", "info");
+      showToast(t("toast.historyNeedsSave"), "info");
       return;
     }
     if (proposedDoc != null) {
-      showToast("Finish reviewing the AI changes first", "info");
+      showToast(t("toast.reviewAiFirst"), "info");
       return;
     }
     setHistoryTarget({ path: filePath, fileName: fileName ?? "Untitled.md" });
   }, [fileName, filePath, proposedDoc, showToast]);
   const handleRestoreVersion = useCallback((text: string) => {
-    if (filePath) void fileHistory.record(filePath, content, "before-restore");
+    if (filePath) void fileHistory.record(filePath, liveContentRef.current, "before-restore");
     handleContentChange(text);
     setHistoryTarget(null);
-    showToast("Version restored. Save to keep it, or undo to go back", "success");
-  }, [content, filePath, handleContentChange, showToast]);
+    showToast(t("toast.versionRestored"), "success");
+  }, [filePath, handleContentChange, showToast]);
 
   // Run an editor command from the palette. The caret lives in the editor, so
   // the Reader switches to it first, as "replace" does above. EDIT-01.
@@ -1646,13 +1765,14 @@ function AppContent() {
   // Build the command palette item list. Rebuilds on relevant state changes —
   // recent files, current file, current view mode, toggles.
   const paletteItems = useMemo<PaletteCommand[]>(() => {
+    if (!showPalette) return [];
     const items: PaletteCommand[] = [];
 
     // === File ===
     items.push({
       id: "file.new",
       label: "New file",
-      hint: formatShortcut("newFile"),
+      hint: formatShortcut("newFile") || undefined,
       section: "File",
       icon: "edit_note",
       run: handleNewFile,
@@ -1660,7 +1780,7 @@ function AppContent() {
     items.push({
       id: "file.open",
       label: IS_MOBILE ? "Browse notes…" : "Open file…",
-      hint: formatShortcut("openFile"),
+      hint: formatShortcut("openFile") || undefined,
       section: "File",
       icon: "folder_open",
       run: handleOpenFileAction,
@@ -1671,7 +1791,7 @@ function AppContent() {
       items.push({
         id: "file.save",
         label: "Save",
-        hint: formatShortcut("save"),
+        hint: formatShortcut("save") || undefined,
         section: "File",
         icon: "save",
         run: handleSaveFile,
@@ -1679,7 +1799,7 @@ function AppContent() {
       items.push({
         id: "file.saveas",
         label: "Save As…",
-        hint: formatShortcut("saveAs"),
+        hint: formatShortcut("saveAs") || undefined,
         section: "File",
         icon: "save_as",
         run: handleSaveAs,
@@ -1697,7 +1817,7 @@ function AppContent() {
           run: () => {
             revealItemInDir(filePath).catch((err) => {
               console.error("Reveal failed:", err);
-              showToast("Could not reveal file", "error");
+              showToast(t("toast.couldNotReveal"), "error");
             });
           },
         });
@@ -1710,8 +1830,8 @@ function AppContent() {
         keywords: "clipboard absolute",
         run: () => {
           navigator.clipboard.writeText(filePath).then(
-            () => showToast("File path copied", "success"),
-            () => showToast("Could not copy path", "error"),
+            () => showToast(t("toast.pathCopied"), "success"),
+            () => showToast(t("toast.couldNotCopyPath"), "error"),
           );
         },
       });
@@ -1738,7 +1858,7 @@ function AppContent() {
       items.push({
         id: "tab.close",
         label: "Close tab",
-        hint: formatShortcut("closeTab"),
+        hint: formatShortcut("closeTab") || undefined,
         section: "File",
         icon: "tab_close",
         keywords: "close current tab",
@@ -1751,7 +1871,7 @@ function AppContent() {
       items.push({
         id: "view.preview",
         label: "Switch to Reader mode",
-        hint: formatShortcut("toggleMode"),
+        hint: formatShortcut("toggleMode") || undefined,
         section: "View",
         icon: "visibility",
         run: () => setMode("preview"),
@@ -1764,9 +1884,9 @@ function AppContent() {
         run: () => setMode("code"),
       });
       items.push(
-        { id: "view.zoomIn", label: "Zoom in", hint: formatShortcut("zoomIn"), section: "View", icon: "zoom_in", keywords: "bigger larger text size", run: () => zoomBy(1) },
-        { id: "view.zoomOut", label: "Zoom out", hint: formatShortcut("zoomOut"), section: "View", icon: "zoom_out", keywords: "smaller text size", run: () => zoomBy(-1) },
-        { id: "view.zoomReset", label: "Reset zoom", hint: formatShortcut("zoomReset"), section: "View", icon: "search", keywords: "100% actual size text", run: resetZoom },
+        { id: "view.zoomIn", label: "Zoom in", hint: formatShortcut("zoomIn") || undefined, section: "View", icon: "zoom_in", keywords: "bigger larger text size", run: () => zoomBy(1) },
+        { id: "view.zoomOut", label: "Zoom out", hint: formatShortcut("zoomOut") || undefined, section: "View", icon: "zoom_out", keywords: "smaller text size", run: () => zoomBy(-1) },
+        { id: "view.zoomReset", label: "Reset zoom", hint: formatShortcut("zoomReset") || undefined, section: "View", icon: "search", keywords: "100% actual size text", run: resetZoom },
       );
       if (!isHtmlDoc) items.push({
         id: "edit.reader",
@@ -1801,7 +1921,7 @@ function AppContent() {
       items.push({
         id: "view.split",
         label: "Toggle Split view",
-        hint: formatShortcut("toggleSplit"),
+        hint: formatShortcut("toggleSplit") || undefined,
         section: "View",
         icon: "vertical_split",
         run: handleToggleSplit,
@@ -1809,16 +1929,25 @@ function AppContent() {
       items.push({
         id: "view.zen",
         label: zenMode ? "Exit Zen mode" : "Enter Zen mode",
-        hint: formatShortcut("zenMode"),
+        hint: formatShortcut("zenMode") || undefined,
         section: "View",
         icon: "self_improvement",
         keywords: "zen distraction free focus minimal reading",
         run: handleToggleZen,
       });
       items.push({
+        id: "view.textDirection",
+        label: `Switch text direction (${textDirection})`,
+        hint: formatShortcut("toggleTextDirection") || undefined,
+        section: "View",
+        icon: "format_textdirection_r_to_l",
+        keywords: "rtl ltr bidi text direction reading order right to left arabic hebrew persian urdu",
+        run: cycleTextDirection,
+      });
+      items.push({
         id: "view.explorer",
         label: "Toggle file explorer",
-        hint: formatShortcut("toggleFileExplorer"),
+        hint: formatShortcut("toggleFileExplorer") || undefined,
         section: "View",
         icon: "folder",
         run: handleToggleFileExplorer,
@@ -1826,7 +1955,7 @@ function AppContent() {
       items.push({
         id: "edit.find",
         label: "Find",
-        hint: formatShortcut("find"),
+        hint: formatShortcut("find") || undefined,
         section: "View",
         icon: "search",
         keywords: "find search in document text current file",
@@ -1835,7 +1964,7 @@ function AppContent() {
       items.push({
         id: "edit.replace",
         label: "Find and Replace",
-        hint: formatShortcut("replace"),
+        hint: formatShortcut("replace") || undefined,
         section: "View",
         icon: "find_replace",
         keywords: "replace substitute find and swap text",
@@ -1844,7 +1973,7 @@ function AppContent() {
       items.push({
         id: "search.files",
         label: "Search in files…",
-        hint: formatShortcut("searchInFolder"),
+        hint: formatShortcut("searchInFolder") || undefined,
         section: "View",
         icon: "search",
         keywords: "find across folder grep global content",
@@ -1853,7 +1982,7 @@ function AppContent() {
       items.push({
         id: "view.toc",
         label: "Toggle outline",
-        hint: formatShortcut("toggleTOC"),
+        hint: formatShortcut("toggleTOC") || undefined,
         section: "View",
         icon: "format_list_bulleted",
         run: handleToggleTOC,
@@ -1946,7 +2075,7 @@ function AppContent() {
     items.push({
       id: "settings.open",
       label: "Open Settings…",
-      hint: formatShortcut("settings"),
+      hint: formatShortcut("settings") || undefined,
       section: "Toggles",
       icon: "settings",
       run: () => setShowSettings(true),
@@ -2019,16 +2148,12 @@ function AppContent() {
 
     return items;
   }, [
-    // NB: deferredContent is intentionally NOT a dep here. Building static
-    // file/view/toggle/recent items doesn't depend on the document text, so
-    // letting `content` flow into this useMemo would rebuild every keystroke
-    // (post-debounce) for no reason. Headings are computed below in a
-    // separate hook that's gated on the palette actually being open.
+    showPalette,
     handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
     loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand, handleCopyDocument, openFileHistory, openRecentFolder,
     typewriterModeEnabled, toolbarVisible, aiEnabled, followSystem, setFollowSystem, zoomBy, resetZoom,
-    theme, setTheme, openFind, openReplace, zenMode, handleToggleZen,
+    theme, setTheme, openFind, openReplace, zenMode, handleToggleZen, textDirection, cycleTextDirection, keybindingsVersion,
   ]);
 
   // Heading items are recomputed only while the palette is actually open.
@@ -2062,14 +2187,15 @@ function AppContent() {
     return items;
   }, [showPalette, deferredContent]);
 
-  // Quick switcher: list the open file's folder when the palette opens, so any
-  // sibling note is a few keystrokes away (not just recents and tabs).
+  // Quick switcher: list workspace (or folder) notes recursively when the palette
+  // opens so nested notes across subfolders are a few keystrokes away. NAV-05.
   useEffect(() => {
     if (!showPalette || !currentDirectory) return;
     let cancelled = false;
-    invoke<{ name: string; path: string; is_dir: boolean }[]>("list_directory_files", { directory: currentDirectory })
+    invoke<{ name: string; path: string; is_dir: boolean }[]>("list_workspace_notes", { root: currentDirectory })
+      .catch(() => invoke<{ name: string; path: string; is_dir: boolean }[]>("list_directory_files", { directory: currentDirectory }))
       .then((entries) => {
-        if (!cancelled) setFolderFiles(entries.filter((e) => !e.is_dir));
+        if (!cancelled) setFolderFiles((entries ?? []).filter((e) => !e.is_dir));
       })
       .catch(() => { if (!cancelled) setFolderFiles([]); });
     return () => { cancelled = true; };
@@ -2083,17 +2209,17 @@ function AppContent() {
       .map((f) => ({
         id: `folder.${f.path}`,
         label: f.name,
-        section: "Files in this folder",
+        section: workspaceDirectory ? "Files in workspace" : "Files in this folder",
         icon: "description",
         keywords: "open file switch quick",
         run: () => loadFile(f.path),
       }));
-  }, [showPalette, folderFiles, filePath, loadFile]);
+  }, [showPalette, folderFiles, filePath, loadFile, workspaceDirectory]);
 
   // "Open tabs" palette section — jump to any open tab by name (only worthwhile
   // with more than one open). Uses the same folder disambiguation as the bar. TABS-11.
   const tabPaletteItems = useMemo<PaletteCommand[]>(() => {
-    if (tabs.length < 2) return [];
+    if (!showPalette || tabs.length < 2) return [];
     const resolved = tabs.map((t) => ({
       id: t.id,
       fileName: t.id === activeTabId ? (fileName ?? "Untitled.md") : t.fileName,
@@ -2108,7 +2234,7 @@ function AppContent() {
       keywords: "switch tab open file",
       run: () => activateTab(t.id),
     }));
-  }, [tabs, activeTabId, fileName, filePath, activateTab]);
+  }, [showPalette, tabs, activeTabId, fileName, filePath, activateTab]);
 
   // Concatenated list passed to the palette. Same `paletteItems` shape as
   // before so the CommandPalette component sees no API change. Reference
@@ -2202,7 +2328,7 @@ function AppContent() {
                 // SAF picker for any .md on the phone (Downloads, Drive…),
                 // not just the notes folder the in-app browser can see.
                 if (!openSystemFilePicker()) {
-                  showToast("System file picker isn't available in this build", "error");
+                  showToast(t("explorer.pickerUnavailable"), "error");
                 }
               } },
             ...(hasFile
@@ -2351,35 +2477,39 @@ function AppContent() {
                 minWidth: 0,
               }}
             >
-              <CodeEditor
-                content={content}
-                docSwapId={docSwapId}
-                docKey={activeTabId}
-                onOpenLink={handleEditorOpenLink}
-                onChange={handleContentChange}
-                onCursorChange={handleCursorChange}
-                onSelectionChange={handleSelectionChange}
-                onImagePaste={handleImagePaste}
-                onError={handleError}
-                onNotice={handleNotice}
-                filePath={filePath}
-                onScrollFraction={onCodeScrollFraction}
-                registerScroller={registerCodeScroller}
-                typewriterMode={typewriterModeEnabled}
-                // On mobile the toolbar is the ONLY formatting surface (no
-                // Ctrl+B, no menu row) so it is always on and cannot be hidden.
-                showToolbar={IS_MOBILE || toolbarVisible}
-                wordWrap={wordWrapEnabled}
-                folding={codeFoldingEnabled && !IS_MOBILE}
-                spellCheck={spellCheckEnabled}
-                livePreview={livePreviewEnabled && !isHtmlDoc}
-                vimMode={vimModeEnabled}
-                readableLineLength={readableLineLength}
-                textDirection={textDirection}
-                aiConfig={aiConfig}
-                reviewDoc={proposedDoc}
-                onReviewResolve={handleReviewResolve}
-              />
+              <Suspense fallback={null}>
+                <CodeEditor
+                  content={content}
+                  docSwapId={docSwapId}
+                  docKey={activeTabId}
+                  onOpenLink={handleEditorOpenLink}
+                  onChange={handleContentChange}
+                  onCursorChange={handleCursorChange}
+                  onSelectionChange={handleSelectionChange}
+                  onImagePaste={handleImagePaste}
+                  onError={handleError}
+                  onNotice={handleNotice}
+                  filePath={filePath}
+                  onScrollFraction={onCodeScrollFraction}
+                  registerScroller={registerCodeScroller}
+                  typewriterMode={typewriterModeEnabled}
+                  // On mobile the toolbar is the ONLY formatting surface (no
+                  // Ctrl+B, no menu row) so it is always on and cannot be hidden.
+                  showToolbar={IS_MOBILE || toolbarVisible}
+                  wordWrap={wordWrapEnabled}
+                  folding={codeFoldingEnabled && !IS_MOBILE}
+                  spellCheck={spellCheckEnabled}
+                  autoCloseBrackets={autoCloseBracketsEnabled}
+                  livePreview={livePreviewEnabled && !isHtmlDoc}
+                  vimMode={vimModeEnabled}
+                  readableLineLength={readableLineLength}
+                  textDirection={textDirection}
+                  directionChordEnabled={directionChordEnabled}
+                  aiConfig={aiConfig}
+                  reviewDoc={proposedDoc}
+                  onReviewResolve={handleReviewResolve}
+                />
+              </Suspense>
             </div>
 
             {mode === "split" && (
@@ -2396,22 +2526,16 @@ function AppContent() {
                 minWidth: 0,
               }}
             >
-              {/* MarkdownPreview is lazy-loaded — its react-markdown +
-                  remark-gfm + rehype-highlight stack is ~250 kB and
-                  doesn't need to ship with the welcome screen. The
-                  fallback is invisible since the parent column already
-                  has a background; a brief flash on first render is
-                  preferable to a spinner that pre-empts the layout. */}
               <Suspense fallback={null}>
                 {isHtmlDoc ? (
                   <HtmlPreview
-                    content={mode === "preview" ? content : deferredContent}
+                    content={previewDisplayContent}
                     fileName={fileName || ""}
                     filePath={filePath}
                   />
                 ) : (
                 <MarkdownPreview
-                  content={mode === "preview" ? content : deferredContent}
+                  content={previewDisplayContent}
                   liveContent={mode === "preview" ? content : undefined}
                   allowReaderEditing={mode === "preview"}
                   docKey={activeTabId}
@@ -2569,7 +2693,7 @@ function AppContent() {
             onPathChanged={(oldPath, newPath) => {
               const affected = retargetPaths(oldPath, newPath);
               if (newPath === null && affected > 0) {
-                showToast("An open tab's file was deleted — its unsaved text stays open; saving will ask where", "info");
+                showToast(t("toast.openTabDeleted"), "info");
               }
             }}
             onNotify={showToast}
@@ -2699,7 +2823,9 @@ function AppContent() {
       {/* First-run welcome tour. Gated on hasFile because every spotlight
           target (editor panes, mode toggle) only exists with an open buffer. */}
       {showTour && hasFile && !booting && !zenActive && (
-        <Tour onClose={handleCloseTour} onOpenTutorial={handleOpenTutorial} />
+        <Suspense fallback={null}>
+          <Tour onClose={handleCloseTour} onOpenTutorial={handleOpenTutorial} />
+        </Suspense>
       )}
 
       {/* Tab right-click menu. TABS-12. */}
@@ -2726,14 +2852,14 @@ function AppContent() {
               { label: "Close to the right", icon: "keyboard_tab", disabled: !hasRight, onClick: () => handleTabMenuAction("closeRight", tabMenu.id) },
               {
                 label: "Copy path", icon: "content_copy", dividerBefore: true, disabled: !menuPath,
-                onClick: () => { if (menuPath) navigator.clipboard.writeText(menuPath).then(() => showToast("File path copied", "success"), () => showToast("Could not copy path", "error")); },
+                onClick: () => { if (menuPath) navigator.clipboard.writeText(menuPath).then(() => showToast(t("toast.pathCopied"), "success"), () => showToast(t("toast.couldNotCopyPath"), "error")); },
               },
               // "Reveal in folder" opens the OS file manager — desktop only.
               ...(!IS_MOBILE
                 ? [
                     {
                       label: "Reveal in folder", icon: "folder_open", disabled: !menuPath,
-                      onClick: () => { if (menuPath) revealItemInDir(menuPath).catch(() => showToast("Could not reveal file", "error")); },
+                      onClick: () => { if (menuPath) revealItemInDir(menuPath).catch(() => showToast(t("toast.couldNotReveal"), "error")); },
                     },
                   ]
                 : []),

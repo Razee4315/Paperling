@@ -80,12 +80,23 @@ describe("stripRemoteDiagramImages (MMV-09)", () => {
         ["an <img> with mermaid's entity quotes", `A["<img src=#quot;${remote}#quot;/>"]`],
         ["an <img> with HTML entity quotes", `A["<img src=&quot;${remote}&quot;/>"]`],
         ["a CSS url()", `%%{init: {"themeCSS": ".node { fill: url(${remote}); }"}}%%`],
+        ["a CSS @import", `%%{init: {"themeCSS": "@import '${remote}'; .node { color: red; }"}}%%`],
+        ["an xlink:href", `A["<image xlink:href='${remote}'/>"]`],
         ["a protocol-relative url", `A@{ img: "//evil.example/beacon.png" }`],
         ["upper case", `A["<IMG SRC='HTTPS://EVIL.EXAMPLE/B.PNG'/>"]`],
     ])("removes the url from %s", (_name, code) => {
         const out = stripRemoteDiagramImages(code);
         expect(out.toLowerCase()).not.toContain("evil.example");
-        expect(out).toContain("data:image/gif");
+        if (!code.includes("@import")) expect(out).toContain("data:image/gif");
+    });
+
+    it("strips remote <img> inside <foreignObject> and remote url() in style when remote images are off", () => {
+        const out = sanitizeDiagramSvg(
+            `<svg><foreignObject><div style="background-image:url(https://evil.example/a.png)"><img src="https://evil.example/b.png"/></div></foreignObject></svg>`,
+            { allowRemoteImages: false },
+        );
+        expect(out.toLowerCase()).not.toContain("evil.example");
+        expect(out.toLowerCase()).not.toContain("<img");
     });
 
     it("keeps the quotes balanced so the diagram still parses", () => {

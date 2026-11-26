@@ -4,15 +4,18 @@ import { useTheme, Theme, FontFamily, FontSize } from '../context/ThemeContext';
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
 import { formatZoom, ZOOM_LEVELS } from '../utils/zoom';
 import { formatShortcut } from '../config/keybindings';
+import { useI18n, type TKey } from '../i18n';
 
-const themes: { id: Theme; name: string; colors: [string, string] }[] = [
-    { id: 'light', name: 'Light', colors: ['#ffffff', '#f4f2ee'] },
-    { id: 'paper', name: 'Paper', colors: ['#f5f0e6', '#ebe5d8'] },
-    { id: 'graphite', name: 'Graphite', colors: ['#1c1917', '#262220'] },
-    { id: 'dark', name: 'Dark', colors: ['#0a0a0a', '#141414'] },
-    { id: 'nord', name: 'Nord', colors: ['#2e3440', '#3b4252'] },
-    { id: 'midnight', name: 'Midnight', colors: ['#0f172a', '#1e293b'] },
-    { id: 'dracula', name: 'Dracula', colors: ['#282a36', '#44475a'] },
+// Theme and size names come from the dictionary (I18N-01), the same entries
+// the full settings modal reads, so the two surfaces can never disagree.
+const themes: { id: Theme; nameKey: TKey; colors: [string, string] }[] = [
+    { id: 'light', nameKey: 'settings.themeLight', colors: ['#ffffff', '#f4f2ee'] },
+    { id: 'paper', nameKey: 'settings.themePaper', colors: ['#f5f0e6', '#ebe5d8'] },
+    { id: 'graphite', nameKey: 'settings.themeGraphite', colors: ['#1c1917', '#262220'] },
+    { id: 'dark', nameKey: 'settings.themeDark', colors: ['#0a0a0a', '#141414'] },
+    { id: 'nord', nameKey: 'settings.themeNord', colors: ['#2e3440', '#3b4252'] },
+    { id: 'midnight', nameKey: 'settings.themeMidnight', colors: ['#0f172a', '#1e293b'] },
+    { id: 'dracula', nameKey: 'settings.themeDracula', colors: ['#282a36', '#44475a'] },
 ];
 
 const fonts: { id: FontFamily; name: string }[] = [
@@ -24,11 +27,11 @@ const fonts: { id: FontFamily; name: string }[] = [
     { id: 'custom', name: 'A font on this computer…' },
 ];
 
-const fontSizes: { id: FontSize; name: string; label: string }[] = [
-    { id: 'small', name: 'S', label: 'Small' },
-    { id: 'medium', name: 'M', label: 'Medium' },
-    { id: 'large', name: 'L', label: 'Large' },
-    { id: 'xlarge', name: 'XL', label: 'Extra large' },
+const fontSizes: { id: FontSize; name: string; labelKey: TKey }[] = [
+    { id: 'small', name: 'S', labelKey: 'settings.fontSizeSmall' },
+    { id: 'medium', name: 'M', labelKey: 'settings.fontSizeMedium' },
+    { id: 'large', name: 'L', labelKey: 'settings.fontSizeLarge' },
+    { id: 'xlarge', name: 'XL', labelKey: 'settings.fontSizeXlarge' },
 ];
 
 const sectionTitle = "text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider";
@@ -65,6 +68,7 @@ function Swatch({ name, colors, selected, onSelect, title }: { name: string; col
  * row — and a link to the full settings.
  */
 export function SettingsMenu() {
+    const { t } = useI18n();
     const [isOpen, setIsOpen] = useState(false);
     const { theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom, font, setFont, customFont, setCustomFont, fontSize, setFontSize } = useTheme();
     // Lazily-discovered installed font families for the custom-font input
@@ -105,12 +109,12 @@ export function SettingsMenu() {
             {/* Settings Button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                aria-label="Settings"
+                aria-label={t("settings.title")}
                 data-tour="settings"
                 aria-expanded={isOpen}
                 aria-haspopup="true"
                 className={`chrome-btn flex items-center justify-center w-9 h-8 ${isOpen ? "chrome-btn-on" : ""}`}
-                title="Settings"
+                title={t("settings.title")}
             >
                 <span className="material-symbols-outlined text-[18px]">settings</span>
             </button>
@@ -120,22 +124,22 @@ export function SettingsMenu() {
                 ties); the max-height lets the menu scroll on short screens
                 instead of running underneath it. */}
             {isOpen && (
-                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label="Settings" className="absolute right-0 top-full mt-2 w-72 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-2xl overflow-y-auto max-h-[calc(100vh-5rem)] z-[70] animate-fade-in-down">
+                <div ref={panelRef} onKeyDown={onMenuKeyDown} role="menu" aria-label={t("settings.title")} className="absolute right-0 top-full mt-2 w-72 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-2xl overflow-y-auto max-h-[calc(100vh-5rem)] z-[70] animate-fade-in-down">
                     {/* Theme */}
                     <div className="px-4 pt-4 pb-3">
-                        <div className={`${sectionTitle} mb-2`}>Theme</div>
+                        <div className={`${sectionTitle} mb-2`}>{t("settings.theme")}</div>
                         <div className="grid grid-cols-4 gap-x-1 gap-y-1">
                             {/* THEME-01: follows the OS light/dark setting. */}
-                            <Swatch name="System" colors={['#f5f0e6', '#1c1917']} selected={followSystem} onSelect={() => setFollowSystem(true)} title="Match the system's light or dark setting" />
-                            {themes.map((t) => (
-                                <Swatch key={t.id} name={t.name} colors={t.colors} selected={!followSystem && theme === t.id} onSelect={() => setTheme(t.id)} />
+                            <Swatch name={t("settings.themeSystem")} colors={['#f5f0e6', '#1c1917']} selected={followSystem} onSelect={() => setFollowSystem(true)} title={t("settings.themeSystemHint")} />
+                            {themes.map((th) => (
+                                <Swatch key={th.id} name={t(th.nameKey)} colors={th.colors} selected={!followSystem && theme === th.id} onSelect={() => setTheme(th.id)} />
                             ))}
                         </div>
                     </div>
 
                     {/* Font: one picker instead of a six-row list. */}
                     <div className="px-4 py-3 border-t border-[var(--border)]">
-                        <label htmlFor="paperling-font-select" className={`${sectionTitle} block mb-2`}>Font</label>
+                        <label htmlFor="paperling-font-select" className={`${sectionTitle} block mb-2`}>{t("settings.font")}</label>
                         <div className="relative">
                             <select
                                 id="paperling-font-select"
@@ -147,7 +151,7 @@ export function SettingsMenu() {
                                 }}
                                 className="w-full appearance-none pl-3 pr-9 h-9 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] outline-none focus:border-[var(--accent)] cursor-pointer"
                             >
-                                {fonts.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                                {fonts.map((f) => <option key={f.id} value={f.id}>{f.id === 'custom' ? t("settingsMenu.fontOnThisComputer") : f.name}</option>)}
                             </select>
                             <span className="material-symbols-outlined text-[18px] text-[var(--text-secondary)] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true">expand_more</span>
                         </div>
@@ -161,8 +165,8 @@ export function SettingsMenu() {
                                     onFocus={hydrateFontSuggestions}
                                     onChange={(e) => setCustomFont(e.target.value)}
                                     onBlur={() => setCustomFont(customFont.trim())}
-                                    placeholder="e.g. Atkinson Hyperlegible"
-                                    aria-label="Custom system font family"
+                                    placeholder={t("settings.fontCustomPlaceholder")}
+                                    aria-label={t("settings.fontCustomAria")}
                                     className="w-full mt-2 px-3 h-9 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
                                 />
                                 <datalist id="paperling-installed-fonts-menu">
@@ -174,15 +178,15 @@ export function SettingsMenu() {
 
                     {/* Text size: preset and zoom on one line each, same control shape. */}
                     <div className="px-4 py-3 border-t border-[var(--border)]">
-                        <div className={`${sectionTitle} mb-2`}>Text size</div>
-                        <div className="flex p-0.5 rounded-lg bg-[var(--bg-input)] border border-[var(--border)]" role="group" aria-label="Font size">
+                        <div className={`${sectionTitle} mb-2`}>{t("settingsMenu.textSize")}</div>
+                        <div className="flex p-0.5 rounded-lg bg-[var(--bg-input)] border border-[var(--border)]" role="group" aria-label={t("settings.fontSize")}>
                             {fontSizes.map((s) => (
                                 <button
                                     key={s.id}
                                     onClick={() => setFontSize(s.id)}
                                     aria-pressed={fontSize === s.id}
-                                    aria-label={s.label}
-                                    title={s.label}
+                                    aria-label={t(s.labelKey)}
+                                    title={t(s.labelKey)}
                                     className={`flex-1 h-7 rounded-md text-xs transition-colors ${fontSize === s.id
                                         ? 'bg-[var(--accent)] text-[var(--accent-text)] font-semibold shadow-sm'
                                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -194,20 +198,20 @@ export function SettingsMenu() {
                         </div>
                         {/* Zoom (ZOOM-01): the mouse path for Ctrl +/-. Multiplies the size above. */}
                         <div className="flex items-center mt-2.5">
-                            <span className="text-sm text-[var(--text-secondary)] flex-1">Zoom</span>
+                            <span className="text-sm text-[var(--text-secondary)] flex-1">{t("settingsMenu.zoom")}</span>
                             <button
                                 onClick={() => zoomBy(-1)}
                                 disabled={zoom <= ZOOM_LEVELS[0]}
-                                aria-label="Zoom out"
-                                title={`Zoom out (${formatShortcut('zoomOut')})`}
+                                aria-label={t("shortcuts.item.zoomOut")}
+                                title={`${t("shortcuts.item.zoomOut")} (${formatShortcut('zoomOut')})`}
                                 className="chrome-btn w-7 h-7 flex items-center justify-center disabled:opacity-40"
                             >
                                 <span className="material-symbols-outlined text-[18px]">remove</span>
                             </button>
                             <button
                                 onClick={resetZoom}
-                                aria-label={`Zoom ${formatZoom(zoom)}. Reset to 100%`}
-                                title={`Reset zoom (${formatShortcut('zoomReset')})`}
+                                aria-label={t("settingsMenu.zoomResetAria", { zoom: formatZoom(zoom) })}
+                                title={`${t("shortcuts.item.zoomReset")} (${formatShortcut('zoomReset')})`}
                                 className="chrome-btn min-w-[3.25rem] h-7 px-1.5 text-sm tabular-nums !text-[var(--text-primary)]"
                             >
                                 {formatZoom(zoom)}
@@ -215,8 +219,8 @@ export function SettingsMenu() {
                             <button
                                 onClick={() => zoomBy(1)}
                                 disabled={zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
-                                aria-label="Zoom in"
-                                title={`Zoom in (${formatShortcut('zoomIn')})`}
+                                aria-label={t("shortcuts.item.zoomIn")}
+                                title={`${t("shortcuts.item.zoomIn")} (${formatShortcut('zoomIn')})`}
                                 className="chrome-btn w-7 h-7 flex items-center justify-center disabled:opacity-40"
                             >
                                 <span className="material-symbols-outlined text-[18px]">add</span>
@@ -231,7 +235,7 @@ export function SettingsMenu() {
                             className="w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
                         >
                             <span className="material-symbols-outlined text-[18px] text-[var(--text-secondary)]">tune</span>
-                            <span className="flex-1 text-left">All settings</span>
+                            <span className="flex-1 text-left">{t("settingsMenu.allSettings")}</span>
                             <kbd className="text-[11px] font-mono text-[var(--text-muted)]">{formatShortcut('settings')}</kbd>
                         </button>
                     </div>

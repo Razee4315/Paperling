@@ -5,8 +5,9 @@ mod text_encoding;
 
 use commands::{
     create_folder, exit_app, find_backlinks, get_ai_key, get_file_info, get_incoming_file,
-    get_notes_dir, list_directory_files, read_file, read_image_file, rename_path, save_file,
-    save_image, search_files, set_ai_key, trash_path, write_export_file,
+    get_notes_dir, import_dropped_image, list_directory_files, list_workspace_notes, read_file,
+    read_image_file, rename_path, save_file, save_image, search_files, set_ai_key, trash_path,
+    write_export_file,
 };
 use std::sync::Mutex;
 // Both traits are only exercised by the desktop single-instance closure and
@@ -88,7 +89,10 @@ fn take_launch_file(launch: &mut LaunchFile) -> Option<String> {
 /// path can't slip between the stash and the pull.
 #[cfg(target_os = "macos")]
 fn open_os_file(app: &tauri::AppHandle, path: String) {
-    let forward = stash_unless_pulled(&mut app.state::<CliFile>().0.lock().unwrap(), path);
+    let forward = stash_unless_pulled(
+        &mut app.state::<CliFile>().0.lock().unwrap_or_else(|e| e.into_inner()),
+        path,
+    );
     let Some(path) = forward else { return };
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
@@ -106,7 +110,7 @@ fn open_os_file(app: &tauri::AppHandle, path: String) {
 /// `take()` so a webview reload doesn't re-open it.
 #[tauri::command]
 fn get_cli_file(state: tauri::State<CliFile>) -> Option<String> {
-    take_launch_file(&mut state.0.lock().unwrap())
+    take_launch_file(&mut state.0.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -219,6 +223,8 @@ pub fn run() {
             rename_path,
             trash_path,
             save_image,
+            import_dropped_image,
+            list_workspace_notes,
             read_image_file,
             get_ai_key,
             set_ai_key,

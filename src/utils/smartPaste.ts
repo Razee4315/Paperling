@@ -38,10 +38,12 @@ export function pasteUrlAutolink(state: EditorState, pasted: string): EditorResu
 export function pasteTsvAsTable(state: EditorState, pasted: string): EditorResult | null {
     if (!pasted.includes("\t")) return null;
     const rows = pasted.replace(/\r\n/g, "\n").split("\n").filter((r) => r.length > 0);
-    if (rows.length < 1) return null;
+    if (rows.length < 2) return null;
     const cells = rows.map((r) => r.split("\t"));
     const cols = Math.max(...cells.map((r) => r.length));
     if (cols < 2) return null;
+    // Leading-tab code indentation puts an empty cell in column 0 of every line.
+    if (cells.every((r) => r[0] === "")) return null;
 
     // Pad short rows so every row has the same number of columns
     const padded = cells.map((r) => {

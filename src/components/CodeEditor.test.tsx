@@ -7,6 +7,7 @@
 // --selection-bg to win.
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { render, waitFor, cleanup } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
 import { CodeEditor } from "./CodeEditor";
 import { installCodeMirrorDomPolyfills } from "../test/codemirrorDom";
 
@@ -80,5 +81,99 @@ describe("per-tab editor state (TABS-20)", () => {
         const { undo } = await import("@codemirror/commands");
         expect(undo(view)).toBe(true);
         expect(view.state.doc.toString()).toBe("disk v1");
+    });
+});
+
+// EDIT-04 (#313): auto-closing brackets and quotes can be disabled cleanly,
+// including live toggling and switching back to a cached tab.
+describe("auto-close brackets (#313, EDIT-04)", () => {
+    const viewOf = (container: HTMLElement) =>
+        (container.querySelector(".cm-content") as unknown as { cmTile?: { view: EditorView } }).cmTile!.view;
+
+    function typeChar(view: EditorView, ch: string) {
+        const pos = view.state.selection.main.head;
+        for (const handler of view.state.facet(EditorView.inputHandler)) {
+            if (handler(view, pos, pos, ch, () => view.state.doc.toString())) return;
+        }
+        view.dispatch({ changes: { from: pos, to: pos, insert: ch }, selection: { anchor: pos + ch.length }, userEvent: "input.type" });
+    }
+
+    it("auto-inserts closing pairs when enabled and inserts only the typed char when disabled", async () => {
+        const noop = () => {};
+        const { container, rerender } = render(<CodeEditor content="" autoCloseBrackets={true} onChange={noop} />);
+        await waitFor(() => expect(container.querySelector(".cm-content")).toBeTruthy());
+        const view = viewOf(container);
+
+        for (const [open, expected] of [["\"", "\"\""], ["(", "()"], ["[", "[]"], ["{", "{}"]] as const) {
+            view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "" }, selection: { anchor: 0 } });
+            typeChar(view, open);
+            expect(view.state.doc.toString()).toBe(expected);
+        }
+
+        // Turning the setting off reconfigures the open editor immediately.
+        rerender(<CodeEditor content="" autoCloseBrackets={false} onChange={noop} />);
+        for (const open of ["\"", "(", "[", "{"] as const) {
+            view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "" }, selection: { anchor: 0 } });
+            typeChar(view, open);
+            expect(view.state.doc.toString()).toBe(open);
+        }
+
+        // Delete-pair keymap is also removed when disabled, and restored when re-enabled.
+        const { deleteBracketPair } = await import("@codemirror/autocomplete");
+        rerender(<CodeEditor content="" autoCloseBrackets={true} onChange={noop} />);
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "()" }, selection: { anchor: 1 } });
+        expect(deleteBracketPair(view)).toBe(true);
+        expect(view.state.doc.toString()).toBe("");
+    });
+
+    it("applies the live autoCloseBrackets setting when restoring a cached tab", async () => {
+        const noop = () => {};
+        const { container, rerender } = render(
+            <CodeEditor content="tab a" docKey="a" docSwapId={1} autoCloseBrackets={true} onChange={noop} />,
+        );
+        await waitFor(() => expect(container.querySelector(".cm-content")).toBeTruthy());
+        const view = viewOf(container);
+
+        rerender(<CodeEditor content="tab b" docKey="b" docSwapId={2} autoCloseBrackets={false} onChange={noop} />);
+        rerender(<CodeEditor content="tab a" docKey="a" docSwapId={3} autoCloseBrackets={false} onChange={noop} />);
+
+        view.dispatch({ selection: { anchor: 5 } });
+        typeChar(view, "\"");
+        expect(view.state.doc.toString()).toBe("tab a\"");
+    });
+});
+
+describe("direction chord toggle (#293, BIDI-04)", () => {
+    function fireChord(target: Element, shiftLocation: 1 | 2) {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Control", location: 1, ctrlKey: true, shiftKey: false, bubbles: true }));
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", location: shiftLocation, ctrlKey: true, shiftKey: true, bubbles: true }));
+        target.dispatchEvent(new KeyboardEvent("keyup", { key: "Shift", location: shiftLocation, ctrlKey: true, shiftKey: false, bubbles: true }));
+    }
+
+    it("switches direction on Ctrl+Right/Left Shift only when directionChordEnabled is true", async () => {
+        const events: string[] = [];
+        const onDir = (e: Event) => events.push((e as CustomEvent).detail?.direction);
+        window.addEventListener("paperling:text-direction-change", onDir);
+        try {
+            const { container, rerender } = render(
+                <CodeEditor content="hello" textDirection="auto" directionChordEnabled={false} onChange={() => {}} />,
+            );
+            await waitFor(() => expect(container.querySelector(".cm-content")).toBeTruthy());
+            const contentEl = container.querySelector(".cm-content")!;
+
+            fireChord(contentEl, 2);
+            expect(events).toEqual([]);
+
+            rerender(<CodeEditor content="hello" textDirection="auto" directionChordEnabled={true} onChange={() => {}} />);
+            fireChord(contentEl, 2);
+            expect(events).toEqual(["rtl"]);
+
+            rerender(<CodeEditor content="hello" textDirection="rtl" directionChordEnabled={true} onChange={() => {}} />);
+            fireChord(contentEl, 1);
+            expect(events).toEqual(["rtl", "auto"]);
+        } finally {
+            window.removeEventListener("paperling:text-direction-change", onDir);
+            localStorage.clear();
+        }
     });
 });

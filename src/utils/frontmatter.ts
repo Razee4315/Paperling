@@ -16,16 +16,21 @@ export interface FrontmatterResult {
     body: string;
     /** Parsed key-value map. Empty object if no frontmatter present. */
     data: Record<string, FrontmatterValue>;
+    /** Keys whose YAML structure is nested/multiline and read-only in the card. */
+    complexKeys?: string[];
     /** True if the source started with a valid `---\n...\n---\n` block. */
     hasFrontmatter: boolean;
 }
 
-const FM_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+const FM_REGEX = /^---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)(?:\r?\n|$)/;
 
 const stripQuotes = (s: string): string => {
     const t = s.trim();
-    if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-        return t.slice(1, -1);
+    if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
+        return t.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    }
+    if (t.startsWith("'") && t.endsWith("'") && t.length >= 2) {
+        return t.slice(1, -1).replace(/''/g, "'");
     }
     return t;
 };
@@ -42,18 +47,55 @@ const coerceScalar = (raw: string): string | number | boolean => {
 const parseInlineArray = (raw: string): string[] => {
     const inner = raw.trim().slice(1, -1); // remove [ ]
     if (!inner.trim()) return [];
-    return inner.split(",").map((s) => stripQuotes(s.trim()));
+    const items: string[] = [];
+    let cur = "";
+    let quote: '"' | "'" | null = null;
+    for (let i = 0; i < inner.length; i++) {
+        const ch = inner[i];
+        if (quote) {
+            if (ch === "\\" && quote === '"' && i + 1 < inner.length) {
+                cur += ch + inner[i + 1];
+                i++;
+                continue;
+            }
+            if (ch === quote) quote = null;
+            cur += ch;
+        } else if (ch === '"' || ch === "'") {
+            quote = ch;
+            cur += ch;
+        } else if (ch === ",") {
+            items.push(stripQuotes(cur.trim()));
+            cur = "";
+        } else {
+            cur += ch;
+        }
+    }
+    if (cur.trim() || items.length > 0) items.push(stripQuotes(cur.trim()));
+    return items.filter((s) => s.length > 0);
 };
+
+function looksLikeYamlFrontmatter(yaml: string): boolean {
+    let sawKey = false;
+    for (const line of yaml.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        if (/^[A-Za-z0-9_.-]+\s*:/.test(line)) { sawKey = true; continue; }
+        if (/^\s+/.test(line) || trimmed.startsWith("- ")) continue;
+        return false;
+    }
+    return sawKey;
+}
 
 export function parseFrontmatter(source: string): FrontmatterResult {
     const match = source.match(FM_REGEX);
-    if (!match) {
+    if (!match || !looksLikeYamlFrontmatter(match[1])) {
         return { body: source, data: {}, hasFrontmatter: false };
     }
 
     const yaml = match[1];
     const body = source.slice(match[0].length);
     const data: Record<string, string | number | boolean | string[]> = {};
+    const complexKeys: string[] = [];
 
     const lines = yaml.split(/\r?\n/);
     let i = 0;
@@ -61,6 +103,10 @@ export function parseFrontmatter(source: string): FrontmatterResult {
         const line = lines[i];
         const trimmed = line.trim();
         if (!trimmed || trimmed.startsWith("#")) {
+            i++;
+            continue;
+        }
+        if (/^\s+/.test(line)) {
             i++;
             continue;
         }
@@ -74,6 +120,20 @@ export function parseFrontmatter(source: string): FrontmatterResult {
         const key = trimmed.slice(0, colonIdx).trim();
         const value = trimmed.slice(colonIdx + 1).trim();
 
+        // Multiline block scalars (> or |): preserve verbatim and mark read-only.
+        if (value === "|" || value === ">" || value === "|-" || value === ">-") {
+            const parts: string[] = [];
+            let j = i + 1;
+            while (j < lines.length && (/^\s+/.test(lines[j]) || lines[j].trim() === "")) {
+                if (lines[j].trim() !== "") parts.push(lines[j].trim());
+                j++;
+            }
+            data[key] = parts.join(" ");
+            complexKeys.push(key);
+            i = j;
+            continue;
+        }
+
         // Inline array: tags: [a, b, c]
         if (value.startsWith("[") && value.endsWith("]")) {
             data[key] = parseInlineArray(value);
@@ -81,20 +141,31 @@ export function parseFrontmatter(source: string): FrontmatterResult {
             continue;
         }
 
-        // Block array: next non-empty lines start with "- "
+        // Block array or nested map: scan indented lines beneath `key:`
         if (value === "") {
             const items: string[] = [];
+            let nested = false;
             let j = i + 1;
             while (j < lines.length) {
                 const next = lines[j];
                 const ntrim = next.trim();
                 if (!ntrim) { j++; continue; }
-                if (next.startsWith("  - ") || next.startsWith("- ")) {
+                if (ntrim.startsWith("#")) { nested = true; j++; continue; }
+                if (/^\s*-\s*/.test(next)) {
                     items.push(stripQuotes(ntrim.replace(/^-\s*/, "")));
+                    j++;
+                } else if (/^\s+/.test(next)) {
+                    nested = true;
                     j++;
                 } else {
                     break;
                 }
+            }
+            if (nested) {
+                data[key] = items.length > 0 ? items : "";
+                complexKeys.push(key);
+                i = j;
+                continue;
             }
             if (items.length > 0) {
                 data[key] = items;
@@ -107,25 +178,75 @@ export function parseFrontmatter(source: string): FrontmatterResult {
         i++;
     }
 
-    return { body, data, hasFrontmatter: true };
+    return { body, data, complexKeys, hasFrontmatter: true };
 }
 
-const formatScalar = (v: string | number | boolean): string => {
+const formatScalar = (v: string | number | boolean, inArray = false): string => {
     if (typeof v === "boolean") return v ? "true" : "false";
-    if (typeof v === "number") return String(v);
-    // Quote strings only if they contain colon, special chars, or look like a number/bool
-    if (/^(true|false|\d+(\.\d+)?)$/.test(v) || /[:#&*!|>'"]/.test(v) || v.includes("\n")) {
-        return `"${v.replace(/"/g, '\\"')}"`;
+    if (typeof v === "number") return Number.isFinite(v) ? String(v) : "0";
+    if (
+        /^(true|false|-?\d+(\.\d+)?)$/.test(v) ||
+        /[:#&*!|>'"]/.test(v) ||
+        v.includes("\n") ||
+        (inArray && /[,\[\]]/.test(v))
+    ) {
+        return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
     }
     return v;
 };
 
 const formatValue = (v: FrontmatterValue): string => {
     if (Array.isArray(v)) {
-        return `[${v.map((s) => formatScalar(s)).join(", ")}]`;
+        return `[${v.map((s) => formatScalar(s, true)).join(", ")}]`;
     }
     return formatScalar(v);
 };
+
+/**
+ * Lossless update of a single frontmatter key inside `source`, preserving all
+ * comments, formatting, nested maps, and multiline values elsewhere in the YAML
+ * block. Falls back to appending cleanly or serializing if absent.
+ */
+export function updateFrontmatterKey(source: string, key: string, value: FrontmatterValue): string {
+    const match = source.match(FM_REGEX);
+    if (!match) return serializeFrontmatter({ [key]: value }, source);
+    const eol = source.includes("\r\n") ? "\r\n" : "\n";
+    const fullHeader = match[0];
+    const rest = source.slice(fullHeader.length);
+    const closingMatch = fullHeader.match(/\r?\n(---|\.\.\.)(?:\r?\n)?$/);
+    const closer = closingMatch?.[1] ?? "---";
+    const lines = match[1].split(/\r?\n/);
+
+    let i = 0;
+    while (i < lines.length) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith("#") && !/^\s+/.test(line)) {
+            const colonIdx = trimmed.indexOf(":");
+            if (colonIdx !== -1 && trimmed.slice(0, colonIdx).trim() === key) {
+                let end = i + 1;
+                while (end < lines.length) {
+                    const next = lines[end];
+                    const ntrim = next.trim();
+                    if (!ntrim || ntrim.startsWith("#") || /^\s+/.test(next) || /^\s*-\s*/.test(next)) {
+                        end++;
+                    } else {
+                        break;
+                    }
+                }
+                const replacementLine = `${key}: ${formatValue(value)}`;
+                const updatedLines = [...lines.slice(0, i), replacementLine, ...lines.slice(end)];
+                const tailEol = fullHeader.endsWith("\n") ? eol : "";
+                return `---${eol}${updatedLines.join(eol)}${eol}${closer}${tailEol}${rest}`;
+            }
+        }
+        i++;
+    }
+
+    const updatedLines = [...lines, `${key}: ${formatValue(value)}`];
+    const tailEol = fullHeader.endsWith("\n") ? eol : "";
+    return `---${eol}${updatedLines.join(eol)}${eol}${closer}${tailEol}${rest}`;
+}
 
 /** Serialize a parsed frontmatter map back into a `---` block + the body. */
 export function serializeFrontmatter(data: Record<string, FrontmatterValue>, body: string): string {

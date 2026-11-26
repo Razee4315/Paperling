@@ -137,4 +137,18 @@ describe("runAIAction request handling", () => {
         mockAiFetch.mockRejectedValue(new DOMException("The operation was aborted.", "AbortError"));
         await expect(runAIAction("rewrite", "x", cfg())).rejects.toMatchObject({ name: "AbortError" });
     });
+
+    it("supports explain and custom translate target language", async () => {
+        mockAiFetch.mockImplementation(async (_endpoint, _key, body, opts) => {
+            const parsed = JSON.parse(body);
+            opts.onStatus?.(200);
+            return {
+                status: 200,
+                body: JSON.stringify({ choices: [{ message: { content: parsed.messages[0].content } }] }),
+            };
+        });
+        expect(await runAIAction("explain", "foo", cfg())).toContain("Explain the user's text");
+        expect(await runAIAction("translate", "foo", cfg())).toContain("to English");
+        expect(await runAIAction("translate", "foo", cfg(), undefined, undefined, "Español")).toContain("to Español");
+    });
 });

@@ -73,18 +73,13 @@ function parseAlign(cell: string): Align {
 /** Parse the lines of a table block (header, separator, body...) into a model
  *  with a rectangular shape (every row padded/truncated to the header count). */
 export function parseTable(lines: string[]): TableModel {
-    const headers = splitRow(lines[0] ?? "");
-    const n = headers.length;
-    const aligns: Align[] = [];
-    const sepCells = splitRow(lines[1] ?? "");
-    for (let i = 0; i < n; i++) aligns.push(parseAlign(sepCells[i] ?? ""));
-    const rows: string[][] = [];
-    for (let i = 2; i < lines.length; i++) {
-        const cells = splitRow(lines[i]);
-        const row: string[] = [];
-        for (let c = 0; c < n; c++) row.push(cells[c] ?? "");
-        rows.push(row);
-    }
+    const rawHeaders = splitRow(lines[0] ?? "");
+    const rawSep = splitRow(lines[1] ?? "");
+    const rawRows = lines.slice(2).map((line) => splitRow(line));
+    const n = Math.max(rawHeaders.length, ...rawRows.map((r) => r.length));
+    const headers = Array.from({ length: n }, (_, i) => rawHeaders[i] ?? "");
+    const aligns: Align[] = Array.from({ length: n }, (_, i) => parseAlign(rawSep[i] ?? ""));
+    const rows = rawRows.map((cells) => Array.from({ length: n }, (_, c) => cells[c] ?? ""));
     return { headers, aligns, rows };
 }
 
@@ -132,9 +127,11 @@ export function locateCell(region: TableRegion, pos: number): { lineIndex: numbe
     const lineStart = nthLineStart(region.text, lineIndex);
     const localPos = Math.max(0, local - lineStart);
     const line = nthLine(region.text, lineIndex);
-    // column = number of pipes before the local position, minus the leading pipe
+    // column = number of unescaped pipes before the local position, minus the leading pipe
     let pipes = 0;
-    for (let i = 0; i < line.length && i < localPos; i++) if (line[i] === "|") pipes++;
+    for (let i = 0; i < line.length && i < localPos; i++) {
+        if (line[i] === "|" && line[i - 1] !== "\\") pipes++;
+    }
     const n = region.model.headers.length;
     const colIndex = clamp(pipes - 1, 0, Math.max(0, n - 1));
     return { lineIndex, colIndex };

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react
 import { useDropdownKeyboard } from '../hooks/useDropdownKeyboard';
 import { formatShortcut } from '../config/keybindings';
 import { getRecentFiles, type RecentFile } from '../utils/persistence';
+import { useI18n } from '../i18n';
 
 interface MoreMenuProps {
     onOpenFolder?: () => void;
@@ -43,6 +44,7 @@ export function MoreMenu({
     onSaveAs,
     onPrint,
 }: MoreMenuProps) {
+    const { t } = useI18n();
     const [isOpen, setIsOpen] = useState(false);
     const [isRecentOpen, setIsRecentOpen] = useState(false);
     const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
@@ -236,11 +238,11 @@ export function MoreMenu({
     };
 
     const findAndOutputItems: MoreMenuItem[] = [
-        { label: 'Find', icon: 'search', shortcut: formatShortcut('find'), action: onFind },
-        { label: 'Find and Replace', icon: 'find_replace', shortcut: formatShortcut('replace'), action: onReplace },
-        { label: 'Find in Files…', icon: 'manage_search', shortcut: formatShortcut('searchInFolder'), action: onFindInFiles },
-        ...(onSaveAs ? [{ label: 'Save As…', icon: 'save_as', shortcut: formatShortcut('saveAs'), action: onSaveAs, dividerBefore: true }] : []),
-        ...(onPrint ? [{ label: 'Print…', icon: 'print', action: onPrint, dividerBefore: !onSaveAs }] : []),
+        { label: t('moreMenu.find'), icon: 'search', shortcut: formatShortcut('find'), action: onFind },
+        { label: t('moreMenu.findReplace'), icon: 'find_replace', shortcut: formatShortcut('replace'), action: onReplace },
+        { label: t('moreMenu.findInFiles'), icon: 'manage_search', shortcut: formatShortcut('searchInFolder'), action: onFindInFiles },
+        ...(onSaveAs ? [{ label: t('moreMenu.saveAs'), icon: 'save_as', shortcut: formatShortcut('saveAs'), action: onSaveAs, dividerBefore: true }] : []),
+        ...(onPrint ? [{ label: t('moreMenu.print'), icon: 'print', action: onPrint, dividerBefore: !onSaveAs }] : []),
     ];
 
     return (
@@ -254,11 +256,11 @@ export function MoreMenu({
                     }
                     setIsOpen(next);
                 }}
-                aria-label="Options"
+                aria-label={t('moreMenu.options')}
                 aria-expanded={isOpen}
                 aria-haspopup="true"
                 className="chrome-btn flex items-center justify-center w-8 h-8"
-                title="Options: open folder, recent files, find, save as, print"
+                title={t('moreMenu.optionsTitle')}
             >
                 <span className="material-symbols-outlined text-[18px]">more_horiz</span>
             </button>
@@ -268,7 +270,7 @@ export function MoreMenu({
                     ref={panelRef}
                     onKeyDown={handleMenuKeyDown}
                     role="menu"
-                    aria-label="Options"
+                    aria-label={t('moreMenu.options')}
                     className="absolute right-0 top-full mt-1 w-60 p-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-xl z-[70] animate-fade-in-down"
                 >
                     {onOpenFolder && (
@@ -281,7 +283,7 @@ export function MoreMenu({
                             <span className="material-symbols-outlined text-[18px] w-5 text-center text-[var(--text-secondary)]" aria-hidden="true">
                                 folder_open
                             </span>
-                            <span className="flex-1">Open folder…</span>
+                            <span className="flex-1">{t('moreMenu.openFolder')}</span>
                         </button>
                     )}
 
@@ -308,7 +310,7 @@ export function MoreMenu({
                             <span className="material-symbols-outlined text-[18px] w-5 text-center text-[var(--text-secondary)]" aria-hidden="true">
                                 history
                             </span>
-                            <span className="flex-1">Recent</span>
+                            <span className="flex-1">{t('moreMenu.recent')}</span>
                             <span className="material-symbols-outlined text-[16px] text-[var(--text-muted)]" aria-hidden="true">
                                 {submenuSide === 'left' ? 'chevron_left' : 'chevron_right'}
                             </span>
@@ -320,7 +322,7 @@ export function MoreMenu({
                                 ref={submenuRef}
                                 role="menu"
                                 tabIndex={-1}
-                                aria-label="Recent files"
+                                aria-label={t('moreMenu.recentFiles')}
                                 onKeyDown={handleSubmenuKeyDown}
                                 onMouseEnter={clearCloseTimer}
                                 onMouseLeave={handleRecentMouseLeave}
@@ -329,7 +331,7 @@ export function MoreMenu({
                             >
                                 {recentFiles.length === 0 ? (
                                     <div className="px-3 py-3 text-xs text-[var(--text-muted)] italic text-center">
-                                        No recent files
+                                        {t('moreMenu.noRecentFiles')}
                                     </div>
                                 ) : (
                                     recentFiles.map((file) => (

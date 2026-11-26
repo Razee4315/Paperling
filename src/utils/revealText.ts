@@ -12,7 +12,7 @@
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // What markdown can put between two rendered words.
-const GAP = "[\\s*_~`=\\[\\]()!#>|:-]*";
+const GAP = "[\\s*_~`=\\[\\]()!#>|:\\^-]*";
 
 export function locateText(doc: string, startLine: number, text: string, maxLines = 80): { from: number; to: number } | null {
     const wanted = text.split("\n")[0].replace(/\s+/g, " ").trim();

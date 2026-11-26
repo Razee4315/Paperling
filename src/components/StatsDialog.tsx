@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { computeStats } from "../utils/documentStats";
 import { attachFocusTrap } from "../utils/focusTrap";
 import iconClock from "../assets/mascot/icon-clock.png";
+import { useI18n } from "../i18n";
 
 interface StatsDialogProps {
     isOpen: boolean;
@@ -9,16 +10,18 @@ interface StatsDialogProps {
     onClose: () => void;
 }
 
-const formatReadingTime = (min: number): string => {
-    if (min < 1) return "< 1 min";
-    if (min < 60) return `${Math.round(min)} min`;
+const formatReadingTime = (min: number, t: ReturnType<typeof useI18n>["t"]): string => {
+    if (min < 1) return t("stats.readingTimeLessThanMin");
+    if (min < 60) return t("stats.readingTimeMin", { min: Math.round(min) });
     const hours = Math.floor(min / 60);
     const rem = Math.round(min % 60);
-    return rem === 0 ? `${hours}h` : `${hours}h ${rem}m`;
+    return rem === 0 ? t("stats.readingTimeHours", { hours }) : t("stats.readingTimeHoursMin", { hours, min: rem });
 };
 
 export function StatsDialog({ isOpen, content, onClose }: StatsDialogProps) {
+    const { t } = useI18n();
     const dialogRef = useRef<HTMLDivElement>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
 
     const stats = useMemo(() => (isOpen ? computeStats(content) : null), [isOpen, content]);
 
@@ -32,6 +35,7 @@ export function StatsDialog({ isOpen, content, onClose }: StatsDialogProps) {
         };
         document.addEventListener("keydown", onKey);
         const detach = attachFocusTrap(dialogRef.current);
+        closeButtonRef.current?.focus();
         return () => {
             document.removeEventListener("keydown", onKey);
             detach();
@@ -41,21 +45,21 @@ export function StatsDialog({ isOpen, content, onClose }: StatsDialogProps) {
     if (!isOpen || !stats) return null;
 
     const rows: Array<[string, string]> = [
-        ["Words", stats.words.toLocaleString()],
-        ["Characters", stats.chars.toLocaleString()],
-        ["Characters (no spaces)", stats.charsNoSpaces.toLocaleString()],
-        ["Sentences", stats.sentences.toLocaleString()],
-        ["Paragraphs", stats.paragraphs.toLocaleString()],
-        ["Lines", stats.lines.toLocaleString()],
-        ["Headings", stats.headings.toLocaleString()],
-        ["Links", stats.links.toLocaleString()],
-        ["Images", stats.images.toLocaleString()],
-        ["Code blocks", stats.codeBlocks.toLocaleString()],
-        ["Reading time", formatReadingTime(stats.readingTimeMin)],
+        [t("stats.words"), stats.words.toLocaleString()],
+        [t("stats.characters"), stats.chars.toLocaleString()],
+        [t("stats.charactersNoSpaces"), stats.charsNoSpaces.toLocaleString()],
+        [t("stats.sentences"), stats.sentences.toLocaleString()],
+        [t("stats.paragraphs"), stats.paragraphs.toLocaleString()],
+        [t("stats.lines"), stats.lines.toLocaleString()],
+        [t("stats.headings"), stats.headings.toLocaleString()],
+        [t("stats.links"), stats.links.toLocaleString()],
+        [t("stats.images"), stats.images.toLocaleString()],
+        [t("stats.codeBlocks"), stats.codeBlocks.toLocaleString()],
+        [t("stats.readingTime"), formatReadingTime(stats.readingTimeMin, t)],
     ];
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Document statistics">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" role="dialog" aria-modal="true" aria-label={t("stats.title")}>
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
             <div
                 ref={dialogRef}
@@ -64,12 +68,13 @@ export function StatsDialog({ isOpen, content, onClose }: StatsDialogProps) {
                 <header className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)]">
                     <div className="flex items-center gap-3">
                         <img src={iconClock} alt="" aria-hidden="true" draggable={false} className="w-8 h-8 object-contain select-none" />
-                        <h2 className="text-base font-semibold text-[var(--text-primary)]">Document statistics</h2>
+                        <h2 className="text-base font-semibold text-[var(--text-primary)]">{t("stats.title")}</h2>
                     </div>
                     <button
+                        ref={closeButtonRef}
                         type="button"
                         onClick={onClose}
-                        aria-label="Close statistics"
+                        aria-label={t("stats.close")}
                         className="w-7 h-7 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center transition-colors"
                     >
                         <span className="material-symbols-outlined text-[18px]">close</span>
@@ -84,7 +89,7 @@ export function StatsDialog({ isOpen, content, onClose }: StatsDialogProps) {
                     ))}
                 </dl>
                 <footer className="px-5 py-2 text-[11px] text-[var(--text-muted)] border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
-                    Reading time assumes ~200 words per minute. Word and sentence counts exclude code blocks, frontmatter, and Markdown syntax.
+                    {t("stats.footnote")}
                 </footer>
             </div>
         </div>

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { memo, useState, useRef, useEffect, useCallback } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -59,7 +59,8 @@ interface UIMessage {
 //    of relying on the webview's default navigation.
 // Module scope keeps the renderers' identity stable so streamed deltas never
 // remount the whole markdown tree.
-const AI_REMOTE_IMAGE_RE = /^https?:/i;
+const AI_REMOTE_IMAGE_RE = /^(?:https?:)?\/\//i;
+const AI_SAFE_DATA_IMAGE_RE = /^data:image\/(?:png|jpe?g|gif|webp|bmp);base64,[A-Za-z0-9+/=]+$/i;
 
 function AiMarkdownImage({ src, alt }: React.ImgHTMLAttributes<HTMLImageElement>) {
     const [allowed, setAllowed] = useState(getRemoteImages);
@@ -69,14 +70,20 @@ function AiMarkdownImage({ src, alt }: React.ImgHTMLAttributes<HTMLImageElement>
         return () => window.removeEventListener("paperling:remote-images-toggle", onToggle);
     }, []);
     if (typeof src !== "string" || src === "") return null;
-    if (AI_REMOTE_IMAGE_RE.test(src) && !allowed) {
-        return (
-            <span className="inline-flex items-center px-2 py-1 text-xs border border-[var(--border-subtle)] rounded-lg text-[var(--text-muted)]">
-                Remote image blocked — enable "Load remote images" in Settings
-            </span>
-        );
+    if (AI_REMOTE_IMAGE_RE.test(src)) {
+        if (!allowed) {
+            return (
+                <span className="inline-flex items-center px-2 py-1 text-xs border border-[var(--border-subtle)] rounded-lg text-[var(--text-muted)]">
+                    Remote image blocked — enable "Load remote images" in Settings
+                </span>
+            );
+        }
+        return <img src={src} alt={alt || ""} loading="lazy" className="max-w-full h-auto rounded" />;
     }
-    return <img src={src} alt={alt || ""} loading="lazy" className="max-w-full h-auto rounded" />;
+    if (AI_SAFE_DATA_IMAGE_RE.test(src)) {
+        return <img src={src} alt={alt || ""} loading="lazy" className="max-w-full h-auto rounded" />;
+    }
+    return null;
 }
 
 const AI_MARKDOWN_COMPONENTS = {
@@ -102,7 +109,69 @@ const AI_MARKDOWN_COMPONENTS = {
 // (Settings → AI, default 8), read live per send — the document itself is
 // attached only to the latest turn inside buildAskMessages.
 
-export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConfig, onProposeEdit, onDiscardEdit, docKey, width, onWidthChange, maxWidth }: AIPanelProps) {
+const ChatMessageRow = memo(function ChatMessageRow({
+    m,
+    i,
+    busy,
+    copied,
+    canRegenerate,
+    onEdit,
+    onRegenerate,
+    onCopy,
+}: {
+    m: UIMessage;
+    i: number;
+    busy: boolean;
+    copied: boolean;
+    canRegenerate: boolean;
+    onEdit: (idx: number) => void;
+    onRegenerate: (text: string, idx: number) => void;
+    onCopy: (idx: number, content: string) => void;
+}) {
+    return (
+        <div className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+            {m.role === "user" ? (
+                <div className="max-w-[85%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-text)] text-sm whitespace-pre-wrap break-words">
+                    {m.content}
+                    <div className="flex gap-2 mt-1 text-xs">
+                        <button disabled={busy} onClick={() => onEdit(i)} aria-label={`Edit message ${i + 1}`} className="underline disabled:opacity-40">Edit</button>
+                        {canRegenerate && <button disabled={busy} onClick={() => onRegenerate(m.content, i)} aria-label="Regenerate reply" className="underline disabled:opacity-40">Regenerate</button>}
+                    </div>
+                </div>
+            ) : (
+                <div className="max-w-[92%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm w-full">
+                    {m.content ? (
+                        <>
+                            <div className="markdown-body !text-sm [&_*]:!text-sm [&_h1]:!text-base [&_h2]:!text-sm [&_pre]:!text-xs">
+                                <Markdown remarkPlugins={[remarkGfm]} components={AI_MARKDOWN_COMPONENTS}>{m.content}</Markdown>
+                            </div>
+                            {!busy && (
+                                <div className="flex justify-end mt-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => onCopy(i, m.content)}
+                                        aria-label={`Copy reply ${i + 1}`}
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                                    >
+                                        <span className="material-symbols-outlined text-[13px]">{copied ? "check" : "content_copy"}</span>
+                                        <span>{copied ? "Copied" : "Copy"}</span>
+                                    </button>
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <span className="inline-flex gap-1 text-[var(--text-muted)]">
+                            <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                            Thinking…
+                        </span>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+});
+
+function AIPanelImpl({ isOpen, onClose, note, fileName, selectionText, aiConfig, onProposeEdit, onDiscardEdit, docKey, width, onWidthChange, maxWidth }: AIPanelProps) {
     // Stored chats (#111). Closing the panel unmounts it, so message state used
     // to die with it. Read the saved history once, then resume the most recent
     // chat, which makes close/reopen and app restarts non-destructive.
@@ -126,7 +195,9 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
     const abortRef = useRef<AbortController | null>(null);
     const replacementTranscriptRef = useRef<UIMessage[] | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const stickToBottomRef = useRef(true);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
     const [editingIndex, setEditingIndex] = useState<number | null>(null);
     const savedDraftRef = useRef("");
     const [replyReview, setReplyReview] = useState<{ text: string; note: string; docKey: string | null | undefined } | null>(null);
@@ -135,6 +206,16 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
 
     const configured = !!aiConfig.endpoint && !!aiConfig.model;
 
+    // Auto-grow the composer (also when reopened with an existing draft).
+    const AI_INPUT_MAX_PX = 168;
+    const resizeComposer = useCallback(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.style.height = "auto";
+        el.style.height = Math.min(el.scrollHeight, AI_INPUT_MAX_PX) + "px";
+        el.style.overflowY = el.scrollHeight > AI_INPUT_MAX_PX ? "auto" : "hidden";
+    }, []);
+
     // On open, the textarea has just remounted (closing renders null): restore
     // any draft from the state mirror into the uncontrolled DOM node, then focus.
     useEffect(() => {
@@ -142,26 +223,41 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
         const el = inputRef.current;
         if (el) {
             el.value = inputDraftRef.current;
+            resizeComposer();
             el.focus();
         }
-    }, [isOpen]);
+    }, [isOpen, resizeComposer]);
     useEffect(() => {
         const el = scrollRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
+        if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
     }, [messages]);
-    useEffect(() => () => { abortRef.current?.abort(); abortRef.current = null; }, []);
+    useEffect(() => { resizeComposer(); }, [input, resizeComposer]);
 
-    // Auto-grow the composer as the user types more lines (up to a max, then
-    // scroll). Without this the single-row textarea just scrolls internally and
-    // hides earlier lines. Reset to one row when cleared.
-    const AI_INPUT_MAX_PX = 168;
-    useEffect(() => {
-        const el = inputRef.current;
-        if (!el) return;
-        el.style.height = "auto";
-        el.style.height = Math.min(el.scrollHeight, AI_INPUT_MAX_PX) + "px";
-        el.style.overflowY = el.scrollHeight > AI_INPUT_MAX_PX ? "auto" : "hidden";
-    }, [input]);
+    /** Write one chat into the stored history without changing updatedAt when unchanged. */
+    const commitSession = useCallback((id: string, msgs: UIMessage[]) => {
+        if (!msgs.length) return;
+        const existing = sessionsRef.current.find((s) => s.id === id);
+        const unchanged = existing && JSON.stringify(existing.messages) === JSON.stringify(msgs);
+        const next = upsertSession(sessionsRef.current, {
+            id,
+            title: deriveTitle(msgs),
+            updatedAt: unchanged ? existing.updatedAt : Date.now(),
+            messages: msgs,
+        });
+        sessionsRef.current = next;
+        setSessions(next);
+        setChatSessions(next);
+    }, []);
+
+    const latestTranscriptRef = useRef({ sessionId, messages, commitSession });
+    latestTranscriptRef.current = { sessionId, messages, commitSession };
+    useEffect(() => () => {
+        const cur = latestTranscriptRef.current;
+        const snapshot = replacementTranscriptRef.current ?? cur.messages;
+        if (snapshot.length > 0) cur.commitSession(cur.sessionId, snapshot);
+        abortRef.current?.abort();
+        abortRef.current = null;
+    }, []);
 
     const send = useCallback(async (retry?: { text: string; history: UIMessage[] }) => {
         const text = (retry?.text ?? input).trim();
@@ -203,6 +299,7 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
 
         const withUser: UIMessage[] = [...prior, { role: "user", content: text }, { role: "assistant", content: "" }];
         const assistantIdx = withUser.length - 1;
+        stickToBottomRef.current = true;
         setMessages(withUser);
         setBusy(true);
 
@@ -300,18 +397,12 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
         if (inputRef.current) inputRef.current.value = savedDraftRef.current;
     };
 
-    /** Write one chat into the stored history. Empty chats are not stored. */
-    const commitSession = useCallback((id: string, msgs: UIMessage[]) => {
-        if (!msgs.length) return;
-        const next = upsertSession(sessionsRef.current, {
-            id,
-            title: deriveTitle(msgs),
-            updatedAt: Date.now(),
-            messages: msgs,
-        });
-        sessionsRef.current = next;
-        setSessions(next);
-        setChatSessions(next);
+    // Reset stick-to-bottom when starting a send so new replies follow automatically.
+    const copyReply = useCallback((idx: number, content: string) => {
+        void navigator.clipboard?.writeText(content).then(() => {
+            setCopiedIdx(idx);
+            window.setTimeout(() => setCopiedIdx((c) => (c === idx ? null : c)), 1400);
+        }).catch(() => { /* clipboard unavailable */ });
     }, []);
 
     // Save the active chat once it settles. Gated on `busy` so a streaming reply
@@ -378,6 +469,18 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
             document.removeEventListener("keydown", onKey, true);
         };
     }, [historyOpen]);
+
+    useEffect(() => {
+        if (!isOpen || historyOpen) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                e.preventDefault();
+                onClose();
+            }
+        };
+        document.addEventListener("keydown", onKey);
+        return () => document.removeEventListener("keydown", onKey);
+    }, [isOpen, historyOpen, onClose]);
 
     if (!isOpen) return null;
 
@@ -504,7 +607,14 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
             </div>
 
             {/* Messages */}
-            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
+            <div
+                ref={scrollRef}
+                onScroll={(e) => {
+                    const el = e.currentTarget;
+                    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+                }}
+                className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3"
+            >
                 {!configured ? (
                     <div className="flex flex-col items-center justify-center h-full text-center gap-3 text-sm text-[var(--text-secondary)]">
                         <span className="material-symbols-outlined text-[32px] opacity-40">key</span>
@@ -536,30 +646,17 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                     </div>
                 ) : (
                     messages.map((m, i) => (
-                        <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                            {m.role === "user" ? (
-                                <div className="max-w-[85%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-text)] text-sm whitespace-pre-wrap break-words">
-                                    {m.content}
-                                    <div className="flex gap-2 mt-1 text-xs">
-                                        <button disabled={busy} onClick={() => editMessage(i)} aria-label={`Edit message ${i + 1}`} className="underline disabled:opacity-40">Edit</button>
-                                        {!messages.slice(i + 1).some((next) => next.role === "user") && <button disabled={busy} onClick={() => void send({ text: m.content, history: messages.slice(0, i) })} aria-label="Regenerate reply" className="underline disabled:opacity-40">Regenerate</button>}
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="max-w-[92%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm w-full">
-                                    {m.content ? (
-                                        <div className="markdown-body !text-sm [&_*]:!text-sm [&_h1]:!text-base [&_h2]:!text-sm [&_pre]:!text-xs">
-                                            <Markdown remarkPlugins={[remarkGfm]} components={AI_MARKDOWN_COMPONENTS}>{m.content}</Markdown>
-                                        </div>
-                                    ) : (
-                                        <span className="inline-flex gap-1 text-[var(--text-muted)]">
-                                            <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
-                                            Thinking…
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                        <ChatMessageRow
+                            key={i}
+                            m={m}
+                            i={i}
+                            busy={busy}
+                            copied={copiedIdx === i}
+                            canRegenerate={m.role === "user" && !messages.slice(i + 1).some((next) => next.role === "user")}
+                            onEdit={editMessage}
+                            onRegenerate={(text, idx) => void send({ text, history: messages.slice(0, idx) })}
+                            onCopy={copyReply}
+                        />
                     ))
                 )}
                 {error && (
@@ -619,3 +716,5 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
         </aside>
     );
 }
+
+export const AIPanel = memo(AIPanelImpl);

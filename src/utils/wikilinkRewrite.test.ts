@@ -53,4 +53,22 @@ describe("rewriteWikilinksOutsideCode (NAV-08)", () => {
             "```\n[[a]]\n```\ntext [b](wikilink:b)\n```\n[[c]]\n```",
         );
     });
+
+    it("parses Obsidian image embed dimensions only on ![[...]] embeds", () => {
+        expect(rewriteWikilinksOutsideCode("![[photo.png|300]]")).toBe(
+            "![photo.png](wikilink:photo.png#w=300)",
+        );
+        expect(rewriteWikilinksOutsideCode("![[photo.png|300x200]]")).toBe(
+            "![photo.png](wikilink:photo.png#w=300&h=200)",
+        );
+        expect(rewriteWikilinksOutsideCode("![[photo.png|My caption|400x250]]")).toBe(
+            "![My caption](wikilink:photo.png#w=400&h=250)",
+        );
+        expect(rewriteWikilinksOutsideCode("![[photo.png|99999]]")).toBe(
+            "![99999](wikilink:photo.png)",
+        );
+        expect(rewriteWikilinksOutsideCode("[[Note|300]]")).toBe(
+            "[300](wikilink:Note)",
+        );
+    });
 });

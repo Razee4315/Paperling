@@ -89,6 +89,20 @@ describe("buildHtmlDocument (#295)", () => {
         const out = await buildHtmlDocument(`<link rel="stylesheet" href="a.css"><img src="a.png">`, { baseDir: "/site", allowRemoteImages: true, assets });
         expect(parse(out).querySelector("img")?.getAttribute("src")).toBe("a.png");
     });
+
+    it("ignores non-css stylesheets and escapes </style breakout attempts (SEC-05)", async () => {
+        const assets: HtmlAssetReader = {
+            readImage: vi.fn(),
+            readText: vi.fn(async () => `body { content: "</style><img src=x>"; }`),
+        };
+        const out = await buildHtmlDocument(
+            `<link rel="stylesheet" href="secret.txt"><link rel="stylesheet" href="theme.css">`,
+            { baseDir: "/site", allowRemoteImages: true, assets },
+        );
+        expect(assets.readText).toHaveBeenCalledTimes(1);
+        expect(assets.readText).toHaveBeenCalledWith("/site", "theme.css");
+        expect(out.toLowerCase()).not.toContain("</style><img");
+    });
 });
 
 describe("localAssetPath", () => {

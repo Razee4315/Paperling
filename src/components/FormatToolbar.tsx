@@ -1,6 +1,7 @@
 import type { EditorResult, EditorState } from "../utils/editorActions";
 import { formatShortcut, aiShortcutLabel } from "../config/keybindings";
-import { wrapSelection, insertLink } from "../utils/editorActions";
+import { wrapSelection, insertLink, toggleLinePrefix } from "../utils/editorActions";
+import { useI18n } from "../i18n";
 
 interface FormatToolbarProps {
     /** Returns the current editor text + selection, or null if not mounted. */
@@ -39,6 +40,7 @@ function ToolButton({ icon, title, onClick }: ToolButtonProps) {
 const Sep = () => <div className="w-px h-5 bg-[var(--border)] mx-0.5" />;
 
 export function FormatToolbar({ getState, apply, insert, onAIAssist }: FormatToolbarProps) {
+    const { t } = useI18n();
     const wrap = (left: string, right: string, ph: string) => () => {
         const st = getState();
         if (!st) return;
@@ -55,8 +57,7 @@ export function FormatToolbar({ getState, apply, insert, onAIAssist }: FormatToo
         const st = getState();
         if (!st) return;
         const pos = st.selStart;
-        const before = st.text.slice(0, pos);
-        const ls = before.lastIndexOf("\n") + 1;
+        const ls = pos <= 0 ? 0 : st.text.lastIndexOf("\n", pos - 1) + 1;
         const lineEnd = st.text.indexOf("\n", pos);
         const end = lineEnd === -1 ? st.text.length : lineEnd;
         const line = st.text.slice(ls, end);
@@ -73,19 +74,7 @@ export function FormatToolbar({ getState, apply, insert, onAIAssist }: FormatToo
     const block = (prefix: string) => () => {
         const st = getState();
         if (!st) return;
-        const pos = st.selStart;
-        const before = st.text.slice(0, pos);
-        const ls = before.lastIndexOf("\n") + 1;
-        const lineEnd = st.text.indexOf("\n", pos);
-        const end = lineEnd === -1 ? st.text.length : lineEnd;
-        const line = st.text.slice(ls, end);
-        const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
-        const delta = newLine.length - line.length;
-        apply({
-            text: st.text.slice(0, ls) + newLine + st.text.slice(end),
-            selStart: pos + delta,
-            selEnd: pos + delta,
-        });
+        apply(toggleLinePrefix(st, prefix));
     };
 
     const codeBlock = () => {
@@ -110,34 +99,38 @@ export function FormatToolbar({ getState, apply, insert, onAIAssist }: FormatToo
     };
 
     const insertHr = () => insert("\n\n---\n\n");
+    const boldSc = formatShortcut("bold");
+    const italicSc = formatShortcut("italic");
+    const quoteSc = formatShortcut("blockquote");
+    const linkSc = formatShortcut("link");
 
     return (
         // `.format-toolbar` becomes a horizontal scroll strip with ≥40px
         // buttons under html.mobile (15 buttons can't fit 360px; wrapping
         // would eat the editor).
         <div className="format-toolbar flex items-center gap-0.5 px-2 h-9 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] no-select shrink-0">
-            <ToolButton icon="format_h1" title="Heading 1" onClick={heading(1)} />
-            <ToolButton icon="format_h2" title="Heading 2" onClick={heading(2)} />
-            <ToolButton icon="format_h3" title="Heading 3" onClick={heading(3)} />
+            <ToolButton icon="format_h1" title={t("formatToolbar.heading1")} onClick={heading(1)} />
+            <ToolButton icon="format_h2" title={t("formatToolbar.heading2")} onClick={heading(2)} />
+            <ToolButton icon="format_h3" title={t("formatToolbar.heading3")} onClick={heading(3)} />
             <Sep />
-            <ToolButton icon="format_bold" title={`Bold (${formatShortcut("bold")})`} onClick={wrap("**", "**", "bold")} />
-            <ToolButton icon="format_italic" title={`Italic (${formatShortcut("italic")})`} onClick={wrap("*", "*", "italic")} />
-            <ToolButton icon="strikethrough_s" title="Strikethrough" onClick={wrap("~~", "~~", "text")} />
-            <ToolButton icon="code" title="Inline code" onClick={wrap("`", "`", "code")} />
+            <ToolButton icon="format_bold" title={boldSc ? t("formatToolbar.boldTitle", { shortcut: boldSc }) : t("shortcuts.item.bold")} onClick={wrap("**", "**", "bold")} />
+            <ToolButton icon="format_italic" title={italicSc ? t("formatToolbar.italicTitle", { shortcut: italicSc }) : t("shortcuts.item.italic")} onClick={wrap("*", "*", "italic")} />
+            <ToolButton icon="strikethrough_s" title={t("formatToolbar.strikethrough")} onClick={wrap("~~", "~~", "text")} />
+            <ToolButton icon="code" title={t("formatToolbar.inlineCode")} onClick={wrap("`", "`", "code")} />
             <Sep />
-            <ToolButton icon="format_list_bulleted" title="Bullet list" onClick={block("- ")} />
-            <ToolButton icon="format_list_numbered" title="Numbered list" onClick={block("1. ")} />
-            <ToolButton icon="check_box" title="Task list" onClick={block("- [ ] ")} />
-            <ToolButton icon="format_quote" title={`Blockquote (${formatShortcut("blockquote")})`} onClick={block("> ")} />
+            <ToolButton icon="format_list_bulleted" title={t("formatToolbar.bulletList")} onClick={block("- ")} />
+            <ToolButton icon="format_list_numbered" title={t("formatToolbar.numberedList")} onClick={block("1. ")} />
+            <ToolButton icon="check_box" title={t("formatToolbar.taskList")} onClick={block("- [ ] ")} />
+            <ToolButton icon="format_quote" title={quoteSc ? t("formatToolbar.blockquoteTitle", { shortcut: quoteSc }) : t("shortcuts.item.blockquote")} onClick={block("> ")} />
             <Sep />
-            <ToolButton icon="link" title={`Link (${formatShortcut("link")})`} onClick={link} />
-            <ToolButton icon="data_object" title="Code block" onClick={codeBlock} />
-            <ToolButton icon="table_chart" title="Insert table" onClick={insertTable} />
-            <ToolButton icon="horizontal_rule" title="Horizontal rule" onClick={insertHr} />
+            <ToolButton icon="link" title={linkSc ? t("formatToolbar.linkTitle", { shortcut: linkSc }) : t("shortcuts.item.link")} onClick={link} />
+            <ToolButton icon="data_object" title={t("formatToolbar.codeBlock")} onClick={codeBlock} />
+            <ToolButton icon="table_chart" title={t("formatToolbar.insertTable")} onClick={insertTable} />
+            <ToolButton icon="horizontal_rule" title={t("formatToolbar.horizontalRule")} onClick={insertHr} />
             {onAIAssist && (
                 <>
                     <Sep />
-                    <ToolButton icon="auto_awesome" title={`AI assist (${aiShortcutLabel})`} onClick={onAIAssist} />
+                    <ToolButton icon="auto_awesome" title={t("formatToolbar.aiAssistTitle", { shortcut: aiShortcutLabel })} onClick={onAIAssist} />
                 </>
             )}
         </div>

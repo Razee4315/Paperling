@@ -3,6 +3,7 @@ import { readTextFile, saveTextFile } from "../utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { attachFocusTrap } from "../utils/focusTrap";
 import { errMessage } from "../utils/errors";
+import { useI18n } from "../i18n";
 
 interface SearchMatch {
     line: number;
@@ -80,6 +81,7 @@ interface FlatItem {
 }
 
 export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpenBuffer, setOpenBuffer, initialQuery, onNotify }: GlobalSearchProps) {
+    const { t } = useI18n();
     const [query, setQuery] = useState("");
     const [replacement, setReplacement] = useState("");
     const [confirmPending, setConfirmPending] = useState(false);
@@ -97,6 +99,8 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
     const panelRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const reqIdRef = useRef(0);
+    const settledKeyRef = useRef("");
+    const searchKey = `${query.trim()}\u0000${caseSensitive}\u0000${wholeWord}`;
 
     // Flat list of every match, in render order, for arrow-key navigation.
     const flat = useMemo<FlatItem[]>(
@@ -134,19 +138,23 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
     // responses (a slow early query resolving after a faster later one).
     useEffect(() => {
         if (!isOpen) return;
+        setConfirmPending(false);
         const q = query.trim();
         if (!q || !directory) {
+            settledKeyRef.current = "";
             setResults([]);
             setLoading(false);
             setError(null);
             return;
         }
         const id = ++reqIdRef.current;
+        const keyForReq = `${q}\u0000${caseSensitive}\u0000${wholeWord}`;
         setLoading(true);
         const handle = window.setTimeout(() => {
             invoke<FileResult[]>("search_files", { directory, query: q, caseSensitive, wholeWord })
                 .then((res) => {
                     if (reqIdRef.current !== id) return;
+                    settledKeyRef.current = keyForReq;
                     setResults(res);
                     setError(null);
                     setActive(0);
@@ -154,7 +162,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                 .catch((err) => {
                     if (reqIdRef.current !== id) return;
                     setResults([]);
-                    setError(typeof err === "string" ? err : "Search failed");
+                    setError(typeof err === "string" ? err : t("search.searchFailed"));
                 })
                 .finally(() => {
                     if (reqIdRef.current === id) setLoading(false);
@@ -186,6 +194,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
     // file goes through read_file/save_file so the atomic-write and EOL
     // handling applies. Each file's before/after is kept for "Undo replace".
     const runReplaceAll = async () => {
+        if (loading || settledKeyRef.current !== searchKey) return;
         setReplacing(true);
         let totalReplaced = 0;
         const undo: ReplaceUndoEntry[] = [];
@@ -220,7 +229,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
         } catch (err) {
             // Files rewritten before the failure can still be undone.
             if (undo.length > 0) setUndoEntries(undo);
-            onNotify?.(errMessage(err) || "Replace failed", "error");
+            onNotify?.(errMessage(err) || t("search.replaceFailed"), "error");
         } finally {
             setReplacing(false);
             setConfirmPending(false);
@@ -251,20 +260,21 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                 restored += 1;
             }
             onNotify?.(
-                `Undid the replace in ${restored} file${restored === 1 ? "" : "s"}` +
-                    (skipped > 0 ? ` — ${skipped} changed since and ${skipped === 1 ? "was" : "were"} left as is` : ""),
+                t("search.undoneIn", { count: restored }) +
+                    (skipped > 0 ? t("search.undoneSkipped", { count: skipped }) : ""),
                 skipped > 0 ? "info" : "success",
             );
             setUndoEntries(null);
             await refreshResults();
         } catch (err) {
-            onNotify?.(errMessage(err) || "Undo failed", "error");
+            onNotify?.(errMessage(err) || t("search.undoFailed"), "error");
         } finally {
             setReplacing(false);
         }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
         if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => Math.min(i + 1, Math.max(0, totalMatches - 1))); }
         else if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)); }
@@ -273,7 +283,7 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
             // opening a search result.
             if ((e.target as HTMLElement).dataset.replaceInput !== undefined) {
                 e.preventDefault();
-                if (replacing || replacement === query.trim()) return;
+                if (replacing || loading || settledKeyRef.current !== searchKey || replacement === query.trim()) return;
                 if (confirmPending) void runReplaceAll();
                 else setConfirmPending(true);
                 return;
@@ -296,7 +306,8 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
             <div
                 ref={panelRef}
                 role="dialog"
-                aria-label="Search in files"
+                aria-modal="true"
+                aria-label={t("search.ariaLabel")}
                 onKeyDown={handleKeyDown}
                 className="w-[min(680px,92vw)] max-h-[70vh] flex flex-col bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden"
             >
@@ -307,14 +318,14 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                         ref={inputRef}
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
-                        placeholder={directory ? "Search across files in this folder…" : "Open a file first to search its folder"}
+                        placeholder={directory ? t("search.placeholderFolder") : t("search.placeholderNoFolder")}
                         disabled={!directory}
                         className="flex-1 bg-transparent outline-none text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
                     />
                     <button
                         onClick={() => setCaseSensitive((v) => !v)}
                         aria-pressed={caseSensitive}
-                        title="Match case"
+                        title={t("search.matchCase")}
                         className={`flex items-center justify-center w-7 h-7 rounded-md text-xs font-semibold transition-colors ${caseSensitive ? "bg-[var(--accent)] text-[var(--accent-text)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"}`}
                     >
                         Aa
@@ -322,13 +333,13 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                     <button
                         onClick={() => setWholeWord((v) => !v)}
                         aria-pressed={wholeWord}
-                        title="Match whole word"
-                        aria-label="Match whole word"
+                        title={t("search.matchWholeWord")}
+                        aria-label={t("search.matchWholeWord")}
                         className={`flex items-center justify-center w-7 h-7 rounded-md text-xs font-semibold underline underline-offset-2 transition-colors ${wholeWord ? "bg-[var(--accent)] text-[var(--accent-text)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"}`}
                     >
                         ab
                     </button>
-                    <button onClick={onClose} aria-label="Close search" className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]">
+                    <button onClick={onClose} aria-label={t("search.close")} className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]">
                         <span className="material-symbols-outlined text-[18px]">close</span>
                     </button>
                 </div>
@@ -339,38 +350,38 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                         <input
                             value={replacement}
                             onChange={(e) => { setReplacement(e.target.value); setConfirmPending(false); }}
-                            placeholder="Replace with… (leave empty to delete)"
-                            aria-label="Replace across files"
+                            placeholder={t("search.replacePlaceholder")}
+                            aria-label={t("search.replaceAria")}
                             data-replace-input=""
                             className="flex-1 bg-transparent outline-none text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
                         />
                         {confirmPending ? (
                             <>
                                 <span className="text-[11px] text-[var(--text-secondary)] whitespace-nowrap">
-                                    {replacement ? "Rewrite" : "Delete matches in"} {results.length} file{results.length === 1 ? "" : "s"}?
+                                    {replacement ? t("search.rewrite", { count: results.length }) : t("search.deleteMatches", { count: results.length })}
                                 </span>
                                 <button
                                     onClick={runReplaceAll}
                                     disabled={replacing}
                                     className="px-2 py-1 text-xs rounded bg-[var(--accent)] text-[var(--accent-text)] disabled:opacity-40 whitespace-nowrap"
                                 >
-                                    {replacing ? "Replacing…" : "Confirm"}
+                                    {replacing ? t("search.replacing") : t("search.confirm")}
                                 </button>
                                 <button
                                     onClick={() => setConfirmPending(false)}
                                     className="px-2 py-1 text-xs rounded border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] whitespace-nowrap"
                                 >
-                                    Cancel
+                                    {t("common.cancel")}
                                 </button>
                             </>
                         ) : (
                             <button
                                 onClick={() => setConfirmPending(true)}
                                 disabled={replacing || replacement === query.trim()}
-                                title={replacement === query.trim() ? "Replacement equals the search" : undefined}
+                                title={replacement === query.trim() ? t("search.replacementEquals") : undefined}
                                 className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 whitespace-nowrap"
                             >
-                                Replace all in files…
+                                {t("search.replaceAll")}
                             </button>
                         )}
                     </div>
@@ -378,18 +389,18 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
 
                 {results.length >= SEARCH_MAX_RESULTS && (
                     <div className="px-4 py-1.5 text-[11px] text-[var(--text-secondary)] border-b border-[var(--border)] bg-[var(--bg-hover)]" role="note">
-                        Showing the first {SEARCH_MAX_RESULTS} files — results are capped, so a replace won't reach every file. Narrow the search to be sure.
+                        {t("search.capped", { max: SEARCH_MAX_RESULTS })}
                     </div>
                 )}
                 {undoEntries && (
                     <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] text-[var(--text-secondary)] border-b border-[var(--border)]">
-                        <span className="flex-1">Replaced in {undoEntries.length} file{undoEntries.length === 1 ? "" : "s"}.</span>
+                        <span className="flex-1">{t("search.replacedIn", { count: undoEntries.length })}</span>
                         <button
                             onClick={runUndoReplace}
                             disabled={replacing}
                             className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-40"
                         >
-                            Undo replace
+                            {t("search.undoReplace")}
                         </button>
                     </div>
                 )}
@@ -399,15 +410,15 @@ export function GlobalSearch({ isOpen, directory, onClose, onOpenResult, getOpen
                     {error ? (
                         <div className="p-6 text-sm text-[var(--danger)]" role="alert">{error}</div>
                     ) : !query.trim() ? (
-                        <div className="p-6 text-sm text-[var(--text-muted)]">Type to search every note (.md, .txt) in this folder and its subfolders.</div>
+                        <div className="p-6 text-sm text-[var(--text-muted)]">{t("search.hint")}</div>
                     ) : loading && results.length === 0 ? (
-                        <div className="p-6 text-sm text-[var(--text-secondary)]">Searching…</div>
+                        <div className="p-6 text-sm text-[var(--text-secondary)]">{t("search.searching")}</div>
                     ) : totalMatches === 0 ? (
-                        <div className="p-6 text-sm text-[var(--text-secondary)]">No matches.</div>
+                        <div className="p-6 text-sm text-[var(--text-secondary)]">{t("search.noMatches")}</div>
                     ) : (
                         <div className="py-2">
                             <div className="px-4 pb-2 text-xs text-[var(--text-muted)]">
-                                {totalMatches} match{totalMatches === 1 ? "" : "es"} in {results.length} file{results.length === 1 ? "" : "s"}
+                                {t("search.matchesIn", { matches: totalMatches, files: results.length })}
                             </div>
                             {results.map((file) => (
                                 <div key={file.path} className="mb-1">

@@ -1,4 +1,5 @@
 import type { ViewMode } from "./ModeToggle";
+import { useI18n } from "../i18n";
 
 interface MobileBottomNavProps {
     hasFile: boolean;
@@ -29,20 +30,21 @@ interface NavButton {
  * is open (html.kb-open) so it never sits behind the IME.
  */
 export function MobileBottomNav({ hasFile, mode, onSetMode, onOpenFiles, onToggleOutline, outlineOpen }: MobileBottomNavProps) {
+    const { t } = useI18n();
     const buttons: NavButton[] = [
-        { id: "files", icon: "folder_open", label: "Files", onSelect: onOpenFiles },
+        { id: "files", icon: "folder_open", label: t("mobileNav.files"), onSelect: onOpenFiles },
         // The desktop outline toggle lives in the status bar, which the phone
         // doesn't have — give it a nav slot (feedback round 2: there was no
         // reachable way to open the table of contents on a phone).
         ...(onToggleOutline
-            ? [{ id: "outline", icon: "format_list_bulleted", label: "Outline", active: outlineOpen, onSelect: onToggleOutline }]
+            ? [{ id: "outline", icon: "format_list_bulleted", label: t("mobileNav.outline"), active: outlineOpen, onSelect: onToggleOutline }]
             : []),
         ...(hasFile
             ? [
                   {
                       id: "mode",
                       icon: mode === "preview" ? "edit" : "visibility",
-                      label: mode === "preview" ? "Edit" : "Read",
+                      label: mode === "preview" ? t("mobileNav.edit") : t("mobileNav.read"),
                       active: mode === "preview",
                       onSelect: () => onSetMode(mode === "preview" ? "code" : "preview"),
                   },
@@ -52,7 +54,7 @@ export function MobileBottomNav({ hasFile, mode, onSetMode, onOpenFiles, onToggl
 
     return (
         <nav
-            aria-label="Main"
+            aria-label={t("mobileNav.ariaLabel")}
             // In-flow at the bottom of the flex-column shell (like the desktop
             // StatusBar it replaces) — content never hides behind it, and the
             // kb-open display:none simply reflows the editor taller.

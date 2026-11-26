@@ -96,6 +96,12 @@ async fn detect_file_eol(path: &str) -> Eol {
 /// A file that won't decode was not readable as text anyway, so it stays plain
 /// UTF-8, which is what every save did before encodings were tracked. ENC-03.
 async fn detect_file_encoding(path: &str) -> TextEncoding {
+    if tokio::fs::metadata(path)
+        .await
+        .is_ok_and(|meta| meta.len() > MAX_TEXT_FILE_BYTES)
+    {
+        return TextEncoding::Utf8;
+    }
     match tokio::fs::read(path).await {
         Ok(bytes) => decode_text(bytes).map_or(TextEncoding::Utf8, |(_, encoding)| encoding),
         Err(_) => TextEncoding::Utf8,
@@ -258,6 +264,10 @@ async fn write_export_file_inner(path: String, data: Vec<u8>) -> Result<(), Comm
         )));
     }
 
+    let path = resolve_save_target(&path).await;
+    #[cfg(unix)]
+    let target_exists = PathBuf::from(&path).exists();
+
     // Atomic write, same scheme as `save_file`: temp file in the target's
     // directory (so the rename never crosses a filesystem boundary), fsync
     // before the rename, no temp left behind on failure. A crash mid-export
@@ -276,6 +286,10 @@ async fn write_export_file_inner(path: String, data: Vec<u8>) -> Result<(), Comm
             let _ = tokio::fs::remove_file(&tmp).await;
             return Err(CommandError::WriteError(e.to_string()));
         }
+    }
+    #[cfg(unix)]
+    if target_exists {
+        copy_permissions(&path, &tmp).await;
     }
     if let Err(e) = tokio::fs::rename(&tmp, &path).await {
         let _ = tokio::fs::remove_file(&tmp).await;
@@ -591,6 +605,90 @@ pub async fn list_directory_files(
     Ok(entries)
 }
 
+/// Walk a workspace folder recursively for openable notes so Quick Switcher and
+/// workspace wikilinks work across subfolders (NAV-05 / WIKI-02). Hidden dirs,
+/// dependency caches, and symlinks are skipped, and depth/count are bounded.
+fn list_workspace_notes_inner(root: &std::path::Path) -> Result<Vec<FileEntry>, CommandError> {
+    const MAX_DEPTH: usize = 8;
+    const MAX_NOTES: usize = 2000;
+
+    if !root.exists() {
+        return Err(CommandError::FileNotFound(
+            root.to_string_lossy().into_owned(),
+        ));
+    }
+    if !root.is_dir() {
+        return Err(CommandError::ReadError(
+            "Path is not a directory".to_string(),
+        ));
+    }
+
+    let mut entries: Vec<FileEntry> = Vec::new();
+    let mut stack: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
+
+    while let Some((dir, depth)) = stack.pop() {
+        if entries.len() >= MAX_NOTES {
+            break;
+        }
+        let Ok(read_dir) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in read_dir.flatten() {
+            if entries.len() >= MAX_NOTES {
+                break;
+            }
+            let Ok(ft) = entry.file_type() else {
+                continue;
+            };
+            if ft.is_symlink() {
+                continue;
+            }
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if name.starts_with('.') || name == "node_modules" || name == "target" {
+                continue;
+            }
+            if ft.is_dir() {
+                if depth < MAX_DEPTH {
+                    stack.push((path, depth + 1));
+                }
+                continue;
+            }
+            if ft.is_file() && is_note_file(&path) {
+                let Ok(rel) = path.strip_prefix(root) else {
+                    continue;
+                };
+                entries.push(FileEntry {
+                    name: rel.to_string_lossy().replace('\\', "/"),
+                    path: path.to_string_lossy().into_owned(),
+                    is_dir: false,
+                });
+            }
+        }
+    }
+
+    entries.sort_by_key(|a| a.name.to_lowercase());
+    Ok(entries)
+}
+
+/// Recursive note listing for Quick Switcher and workspace wikilink lookup.
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
+#[tauri::command]
+pub async fn list_workspace_notes(
+    app: tauri::AppHandle,
+    root: String,
+) -> Result<Vec<FileEntry>, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    ensure_mobile_path_allowed(&app, std::path::Path::new(&root))
+        .map_err(CommandError::ReadError)?;
+
+    tokio::task::spawn_blocking(move || list_workspace_notes_inner(std::path::Path::new(&root)))
+        .await
+        .map_err(|e| CommandError::ReadError(e.to_string()))?
+}
+
 // ===== Explorer file management (FILES-01) =====
 //
 // Create folder / rename / delete for the file explorer. Names are validated
@@ -683,9 +781,23 @@ async fn rename_path_inner(path: String, new_name: String) -> Result<String, Com
     if !same_entry && tokio::fs::symlink_metadata(&target).await.is_ok() {
         return Err(CommandError::WriteError(format!("\"{}\" already exists", new_name)));
     }
-    tokio::fs::rename(&source, &target)
-        .await
-        .map_err(|e| CommandError::WriteError(e.to_string()))?;
+    // Two-step temp swap when only casing changes so case-insensitive filesystems
+    // (Windows NTFS, macOS APFS) reliably update the directory entry casing. RUST-01.
+    let case_only = same_entry && source.file_name() != Some(std::ffi::OsStr::new(&new_name));
+    if case_only {
+        let stage = PathBuf::from(unique_temp_path(&path, "paperling-rename-tmp"));
+        tokio::fs::rename(&source, &stage)
+            .await
+            .map_err(|e| CommandError::WriteError(e.to_string()))?;
+        if let Err(e) = tokio::fs::rename(&stage, &target).await {
+            let _ = tokio::fs::rename(&stage, &source).await;
+            return Err(CommandError::WriteError(e.to_string()));
+        }
+    } else {
+        tokio::fs::rename(&source, &target)
+            .await
+            .map_err(|e| CommandError::WriteError(e.to_string()))?;
+    }
     Ok(target.to_string_lossy().into_owned())
 }
 
@@ -894,6 +1006,9 @@ fn search_markdown_tree(root: PathBuf, query: &str, case_sensitive: bool, whole_
                 Ok(t) => t,
                 Err(_) => continue,
             };
+            if file_type.is_symlink() {
+                continue;
+            }
             if file_type.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if name.starts_with('.') || name == "node_modules" || name == "target" {
@@ -1006,6 +1121,9 @@ fn find_backlinks_in_tree(root: PathBuf, target: PathBuf) -> Vec<FileSearchResul
                 Ok(file_type) => file_type,
                 Err(_) => continue,
             };
+            if file_type.is_symlink() {
+                continue;
+            }
             if file_type.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if name.starts_with('.') || name == "node_modules" || name == "target" {
@@ -1269,13 +1387,170 @@ pub async fn save_image(
     // Full path for the image (basename only, no traversal possible).
     let image_path = images_dir.join(&safe_name);
 
-    // Write the image data
-    tokio::fs::write(&image_path, &image_data)
-        .await
-        .map_err(|e| CommandError::WriteError(format!("Failed to write image: {}", e)))?;
+    // Atomic write via sibling temp file + sync + rename. RUST-04.
+    write_image_atomically(&image_path, &image_data).await?;
 
     // Return relative path for markdown (./images/filename.png)
     Ok(format!("./images/{}", safe_name))
+}
+
+async fn write_image_atomically(
+    image_path: &std::path::Path,
+    image_data: &[u8],
+) -> Result<(), CommandError> {
+    let tmp = PathBuf::from(unique_temp_path(
+        &image_path.to_string_lossy(),
+        "paperling-img-tmp",
+    ));
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut f = tokio::fs::File::create(&tmp)
+            .await
+            .map_err(|e| CommandError::WriteError(format!("Failed to write image: {e}")))?;
+        if let Err(e) = f.write_all(image_data).await {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(CommandError::WriteError(format!(
+                "Failed to write image: {e}"
+            )));
+        }
+        if let Err(e) = f.sync_all().await {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(CommandError::WriteError(format!(
+                "Failed to write image: {e}"
+            )));
+        }
+    }
+    if let Err(e) = tokio::fs::rename(&tmp, image_path).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(CommandError::WriteError(format!(
+            "Failed to write image: {e}"
+        )));
+    }
+    Ok(())
+}
+
+async fn import_dropped_image_inner(
+    md_file_path: &str,
+    source_path: &str,
+) -> Result<String, CommandError> {
+    let src_path = std::path::Path::new(source_path);
+    validate_image_extension(src_path)?;
+
+    let meta = tokio::fs::metadata(src_path)
+        .await
+        .map_err(|e| CommandError::ReadError(e.to_string()))?;
+    if !meta.is_file() {
+        return Err(CommandError::WriteError(
+            "Dropped item is not a file".to_string(),
+        ));
+    }
+    if meta.len() > MAX_IMAGE_BYTES as u64 {
+        return Err(CommandError::TooLarge(format!(
+            "Image is {} MB; maximum is {} MB",
+            meta.len() / (1024 * 1024),
+            MAX_IMAGE_BYTES / (1024 * 1024),
+        )));
+    }
+
+    let image_data = tokio::fs::read(src_path)
+        .await
+        .map_err(|e| CommandError::ReadError(e.to_string()))?;
+    if image_data.len() > MAX_IMAGE_BYTES {
+        return Err(CommandError::TooLarge(format!(
+            "Image is {} MB; maximum is {} MB",
+            image_data.len() / (1024 * 1024),
+            MAX_IMAGE_BYTES / (1024 * 1024),
+        )));
+    }
+
+    let ext = src_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_else(|| "png".to_string());
+    let raw_stem = src_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let mut stem = String::with_capacity(raw_stem.len());
+    let mut prev_dash = false;
+    for ch in raw_stem.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+            stem.push(ch);
+            prev_dash = false;
+        } else if !prev_dash {
+            stem.push('-');
+            prev_dash = true;
+        }
+    }
+    let truncated: String = stem.trim_matches(['-', '.']).chars().take(80).collect();
+    let trimmed = truncated.trim_matches(['-', '.']);
+    let clean_stem = if trimmed.is_empty() { "image" } else { trimmed };
+
+    let md_path = PathBuf::from(md_file_path);
+    let parent_dir = md_path
+        .parent()
+        .ok_or_else(|| CommandError::WriteError("Cannot determine parent directory".to_string()))?;
+    let images_dir = parent_dir.join("images");
+    if !images_dir.exists() {
+        tokio::fs::create_dir_all(&images_dir).await.map_err(|e| {
+            CommandError::WriteError(format!("Failed to create images directory: {e}"))
+        })?;
+    }
+
+    let mut chosen = None;
+    for idx in 0..=1000usize {
+        let candidate = if idx == 0 {
+            format!("{clean_stem}.{ext}")
+        } else {
+            format!("{clean_stem}-{idx}.{ext}")
+        };
+        let safe = sanitize_image_name(&candidate)?;
+        if !images_dir.join(&safe).exists() {
+            chosen = Some(safe);
+            break;
+        }
+    }
+    let safe_name = chosen.ok_or_else(|| {
+        CommandError::WriteError("Too many identically named images in ./images".to_string())
+    })?;
+    let image_path = images_dir.join(&safe_name);
+    write_image_atomically(&image_path, &image_data).await?;
+    Ok(format!("./images/{safe_name}"))
+}
+
+/// Copy a dropped external image into `./images/` beside the active note
+/// without overwriting existing images, returning `./images/<name>`. IMG-06.
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(unused_variables))]
+#[tauri::command]
+pub async fn import_dropped_image(
+    app: tauri::AppHandle,
+    md_file_path: String,
+    source_path: String,
+) -> Result<String, CommandError> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        ensure_mobile_path_allowed(&app, std::path::Path::new(&md_file_path))
+            .map_err(CommandError::WriteError)?;
+        ensure_mobile_path_allowed(&app, std::path::Path::new(&source_path))
+            .map_err(CommandError::ReadError)?;
+    }
+    import_dropped_image_inner(&md_file_path, &source_path).await
+}
+
+fn validate_image_extension(path: &std::path::Path) -> Result<(), CommandError> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !ALLOWED_IMAGE_EXTS.contains(&ext.as_str()) {
+        return Err(CommandError::ReadError(format!(
+            "Unsupported image extension '.{}'",
+            ext
+        )));
+    }
+    Ok(())
 }
 
 /// Reject a relative image path that tries to escape the document folder or name
@@ -1336,9 +1611,15 @@ pub async fn read_image_file(
     ensure_mobile_path_allowed(&app, std::path::Path::new(&base_dir))
         .map_err(CommandError::ReadError)?;
 
-    validate_rel_path(&rel_path)?;
-    let base = PathBuf::from(&base_dir);
-    let full = base.join(&rel_path);
+    let data = read_image_file_inner(&base_dir, &rel_path).await?;
+    Ok(Response::new(data))
+}
+
+async fn read_image_file_inner(base_dir: &str, rel_path: &str) -> Result<Vec<u8>, CommandError> {
+    validate_rel_path(rel_path)?;
+    validate_image_extension(std::path::Path::new(rel_path))?;
+    let base = PathBuf::from(base_dir);
+    let full = base.join(rel_path);
 
     let metadata = tokio::fs::metadata(&full)
         .await
@@ -1365,10 +1646,9 @@ pub async fn read_image_file(
         ));
     }
 
-    let data = tokio::fs::read(&canon_full)
+    tokio::fs::read(&canon_full)
         .await
-        .map_err(|e| CommandError::ReadError(e.to_string()))?;
-    Ok(Response::new(data))
+        .map_err(|e| CommandError::ReadError(e.to_string()))
 }
 
 // ===== AI API key — OS keychain (SECURITY-01) =====
@@ -1456,9 +1736,31 @@ pub fn set_ai_key(app: tauri::AppHandle, key: String) -> Result<(), String> {
     }
     // Atomic write (SAVE-02 discipline): a kill mid-write must never leave a
     // truncated secret file — temp + rename keeps the previous key readable.
-    let tmp = path.with_extension("paperling-tmp");
-    std::fs::write(&tmp, &key).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    let tmp = PathBuf::from(unique_temp_path(&path.to_string_lossy(), "paperling-tmp"));
+    let write_res = (|| -> std::io::Result<()> {
+        use std::io::Write as _;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&tmp)?;
+            f.write_all(key.as_bytes())?;
+            f.sync_all()?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&tmp, &key)?;
+        }
+        std::fs::rename(&tmp, &path)
+    })();
+    if let Err(e) = write_res {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    Ok(())
 }
 
 // ===== "Open with" handoff (Android intent → frontend) =====
@@ -1599,7 +1901,8 @@ pub fn exit_app() {
 mod tests {
     use super::{
         apply_eol, contains_whole_word, create_folder_inner, find_backlinks_in_tree,
-        read_file_inner, rename_path_inner, sanitize_image_name, save_file_inner,
+        import_dropped_image_inner, list_workspace_notes_inner, read_file_inner,
+        read_image_file_inner, rename_path_inner, sanitize_image_name, save_file_inner,
         search_markdown_tree, trash_path_inner, unique_temp_path, validate_entry_name,
         validate_rel_path, write_export_file_inner, Eol,
     };
@@ -2186,6 +2489,98 @@ mod tests {
             let path = dir.join("out.docx").to_string_lossy().to_string();
             write_export_file_inner(path.clone(), Vec::new()).await.unwrap();
             assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn rename_updates_casing_and_read_image_checks_extension() {
+        tauri::async_runtime::block_on(async {
+            let dir = std::env::temp_dir()
+                .join(format!("paperling-rust-hardening-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+
+            let lower = dir.join("case.md");
+            std::fs::write(&lower, "casing").unwrap();
+            let upper = rename_path_inner(lower.to_string_lossy().into_owned(), "Case.md".into())
+                .await
+                .unwrap();
+            assert_eq!(
+                std::path::Path::new(&upper)
+                    .file_name()
+                    .and_then(|n| n.to_str()),
+                Some("Case.md")
+            );
+            assert_eq!(std::fs::read_to_string(&upper).unwrap(), "casing");
+
+            std::fs::write(dir.join("note.txt"), "secret").unwrap();
+            std::fs::write(dir.join("pic.png"), [0x89, b'P', b'N', b'G']).unwrap();
+            let base = dir.to_string_lossy().into_owned();
+            assert!(read_image_file_inner(&base, "note.txt").await.is_err());
+            assert_eq!(
+                read_image_file_inner(&base, "pic.png").await.unwrap(),
+                vec![0x89, b'P', b'N', b'G']
+            );
+
+            std::fs::remove_dir_all(&dir).ok();
+        });
+    }
+
+    #[test]
+    fn list_workspace_notes_walks_nested_notes_and_skips_hidden() {
+        let dir = std::env::temp_dir()
+            .join(format!("paperling-ws-notes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Projects/Deep")).unwrap();
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::create_dir_all(dir.join("node_modules/pkg")).unwrap();
+
+        std::fs::write(dir.join("Welcome.md"), "# Welcome").unwrap();
+        std::fs::write(dir.join("Projects/Roadmap.markdown"), "# Roadmap").unwrap();
+        std::fs::write(dir.join("Projects/Deep/notes.txt"), "text note").unwrap();
+        std::fs::write(dir.join("Projects/pic.png"), [1u8, 2, 3]).unwrap();
+        std::fs::write(dir.join(".git/secret.md"), "hidden").unwrap();
+        std::fs::write(dir.join("node_modules/pkg/readme.md"), "ignored").unwrap();
+
+        let entries = list_workspace_notes_inner(&dir).unwrap();
+        let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["Projects/Deep/notes.txt", "Projects/Roadmap.markdown", "Welcome.md"]
+        );
+        assert!(entries.iter().all(|e| !e.is_dir));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn import_dropped_image_copies_without_clobbering_and_rejects_bad_ext() {
+        tauri::async_runtime::block_on(async {
+            let dir = std::env::temp_dir()
+                .join(format!("paperling-drop-img-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("note_dir")).unwrap();
+            let note = dir.join("note_dir/note.md");
+            std::fs::write(&note, "# Note").unwrap();
+
+            let src_clean = dir.join("my photo (1).png");
+            let bytes = vec![0x89u8, b'P', b'N', b'G', 0x0D, 0x0A];
+            std::fs::write(&src_clean, &bytes).unwrap();
+
+            let note_s = note.to_string_lossy().into_owned();
+            let src_s = src_clean.to_string_lossy().into_owned();
+            let first = import_dropped_image_inner(&note_s, &src_s).await.unwrap();
+            let second = import_dropped_image_inner(&note_s, &src_s).await.unwrap();
+            assert_eq!(first, "./images/my-photo-1.png");
+            assert_eq!(second, "./images/my-photo-1-1.png");
+            assert_eq!(std::fs::read(dir.join("note_dir/images/my-photo-1.png")).unwrap(), bytes);
+            assert_eq!(std::fs::read(dir.join("note_dir/images/my-photo-1-1.png")).unwrap(), bytes);
+
+            let exe = dir.join("bad.exe");
+            std::fs::write(&exe, b"MZ").unwrap();
+            assert!(import_dropped_image_inner(&note_s, &exe.to_string_lossy()).await.is_err());
+
             std::fs::remove_dir_all(&dir).ok();
         });
     }

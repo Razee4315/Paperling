@@ -28,9 +28,14 @@ import DOMPurify from "dompurify";
 const BLANK_IMAGE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const QUOTE = `["']|#quot;|#34;|&quot;|&#34;`;
 const REMOTE_IMAGE_REF = new RegExp(
-    `(\\bimg\\s*:\\s*|\\bsrc\\s*=\\s*|url\\(\\s*)(${QUOTE})?(?:https?:)?//(?:(?!${QUOTE})[^\\s<>)])+`,
+    `(\\bimg\\s*:\\s*|\\b(?:src|(?:xlink:)?href)\\s*=\\s*|url\\(\\s*)(${QUOTE})?(?:https?:)?//(?:(?!${QUOTE})[^\\s<>)])+`,
     "gi",
 );
+const REMOTE_CSS_IMPORT = new RegExp(
+    `@import\\s+(?:url\\(\\s*)?(?:${QUOTE})?(?:https?:)?//[^;}\\n]+;?`,
+    "gi",
+);
+const REMOTE_CSS_URL = /url\(\s*(["']?)\s*(?:https?:)?\/\/[^)]+\)/gi;
 
 /**
  * Blanks remote image references in diagram SOURCE. sanitizeDiagramSvg can't
@@ -40,7 +45,9 @@ const REMOTE_IMAGE_REF = new RegExp(
  * the source must not carry the URL at all. MMV-09.
  */
 export function stripRemoteDiagramImages(code: string): string {
-    return code.replace(REMOTE_IMAGE_REF, (_match, prefix: string, quote = "") => `${prefix}${quote}${BLANK_IMAGE}`);
+    return code
+        .replace(REMOTE_CSS_IMPORT, "")
+        .replace(REMOTE_IMAGE_REF, (_match, prefix: string, quote = "") => `${prefix}${quote}${BLANK_IMAGE}`);
 }
 
 export function sanitizeDiagramSvg(svg: string, opts: { allowRemoteImages?: boolean } = {}): string {
@@ -48,9 +55,16 @@ export function sanitizeDiagramSvg(svg: string, opts: { allowRemoteImages?: bool
     if (!allowRemoteImages) {
         const dropRemoteImage = (node: Node) => {
             const el = node as Element;
-            if (el.tagName?.toLowerCase() !== "image") return;
-            const href = el.getAttribute("href") ?? el.getAttribute("xlink:href");
-            if (href && !/^(#|data:image\/)/i.test(href)) el.remove();
+            if (el.nodeType !== 1) return;
+            const style = el.getAttribute?.("style");
+            if (style && REMOTE_CSS_URL.test(style)) {
+                REMOTE_CSS_URL.lastIndex = 0;
+                el.setAttribute("style", style.replace(REMOTE_CSS_URL, `url("${BLANK_IMAGE}")`));
+            }
+            const tag = el.tagName?.toLowerCase();
+            if (tag !== "image" && tag !== "img") return;
+            const ref = el.getAttribute("src") ?? el.getAttribute("href") ?? el.getAttribute("xlink:href");
+            if (ref && !/^(#|data:image\/)/i.test(ref)) el.remove();
         };
         DOMPurify.addHook("afterSanitizeAttributes", dropRemoteImage);
         try {

@@ -40,4 +40,8 @@ describe("pasteTsvAsTable", () => {
     it("returns null for a single column", () => {
         expect(pasteTsvAsTable(st("", 0), "onlyonecol")).toBeNull();
     });
+    it("ignores single tab-indented code lines and multi-line leading-tab indentation", () => {
+        expect(pasteTsvAsTable(st("", 0), "\treturn x;")).toBeNull();
+        expect(pasteTsvAsTable(st("", 0), "\tif (ok) {\n\t\treturn;\n")).toBeNull();
+    });
 });

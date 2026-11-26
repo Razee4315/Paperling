@@ -41,6 +41,8 @@ export interface HistoryBackend {
     put(snapshot: Snapshot): Promise<void>;
     remove(ids: number[]): Promise<void>;
     removeOlderThan(time: number): Promise<void>;
+    /** Optional global snapshot cap cleanup across all keys. */
+    pruneGlobal?: (maxTotal: number) => Promise<void>;
     clear(): Promise<void>;
 }
 
@@ -50,6 +52,7 @@ export interface HistoryBackend {
  *  version every five minutes instead of one ever-replaced entry. */
 export const COALESCE_MS = 5 * 60 * 1000;
 export const MAX_SNAPSHOTS_PER_FILE = 40;
+export const MAX_TOTAL_SNAPSHOTS = 1000;
 /** Larger documents are skipped rather than truncated: half a version restored
  *  as if whole is worse than none. Same limit as crash recovery, in spirit. */
 export const MAX_SNAPSHOT_CHARS = 2_000_000;
@@ -88,6 +91,7 @@ export function createFileHistory(backend: () => HistoryBackend | null) {
         if (!pruned) {
             pruned = true;
             await store.removeOlderThan(now - MAX_AGE_MS);
+            await store.pruneGlobal?.(MAX_TOTAL_SNAPSHOTS);
         }
     };
 
@@ -161,6 +165,20 @@ function indexedDbBackend(): HistoryBackend {
                 cursor.onsuccess = () => {
                     if (!cursor.result) return;
                     cursor.result.delete();
+                    cursor.result.continue();
+                };
+            });
+        },
+        pruneGlobal: async (maxTotal) => {
+            const total = (await run<number>("readonly", (store) => store.count())) ?? 0;
+            let toDelete = total - maxTotal;
+            if (toDelete <= 0) return;
+            await run("readwrite", (store) => {
+                const cursor = store.index("savedAt").openCursor(null, "next");
+                cursor.onsuccess = () => {
+                    if (!cursor.result || toDelete <= 0) return;
+                    cursor.result.delete();
+                    toDelete -= 1;
                     cursor.result.continue();
                 };
             });

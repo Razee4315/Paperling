@@ -28,6 +28,8 @@ const MAX_BUFFERS = 20;
 /** Per-buffer cap (~1MB of text). Larger buffers are skipped, not truncated:
  *  half a document restored as if whole is worse than not restored. */
 const MAX_BUFFER_CHARS = 1_000_000;
+/** Global budget across all backed-up tabs so multiple large drafts don't fill localStorage quota. */
+const MAX_TOTAL_BACKUP_CHARS = 3_000_000;
 
 export function loadBufferBackups(): BufferBackup[] {
   try {
@@ -60,9 +62,28 @@ function tryWrite(list: BufferBackup[]): boolean {
 
 export function saveBufferBackups(backups: BufferBackup[]): void {
   try {
-    const usable = backups
+    const eligible = backups
       .filter((b) => b.content.length <= MAX_BUFFER_CHARS)
       .slice(0, MAX_BUFFERS);
+    // Keep within MAX_TOTAL_BACKUP_CHARS, preferring smaller documents so more
+    // distinct notes survive when multiple multi-hundred-KB buffers are dirty.
+    let usable = eligible;
+    const totalChars = usable.reduce((sum, b) => sum + b.content.length + b.originalContent.length, 0);
+    if (totalChars > MAX_TOTAL_BACKUP_CHARS) {
+      const sorted = [...eligible].sort(
+        (a, b) => (a.content.length + a.originalContent.length) - (b.content.length + b.originalContent.length),
+      );
+      const picked: BufferBackup[] = [];
+      let budget = 0;
+      for (const b of sorted) {
+        const size = b.content.length + b.originalContent.length;
+        if (budget + size <= MAX_TOTAL_BACKUP_CHARS) {
+          picked.push(b);
+          budget += size;
+        }
+      }
+      usable = picked;
+    }
     if (usable.length === 0) {
       localStorage.removeItem(KEY);
       return;

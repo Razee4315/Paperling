@@ -44,6 +44,8 @@ export function createPreviewFindController(
         }
     };
 
+const READER_FIND_SKIP = ["button", ".material-symbols-outlined", "[role='toolbar']", ".katex-mathml"] as const;
+
     return {
         supportsReplace: false,
         supportsRegex: false,
@@ -51,7 +53,7 @@ export function createPreviewFindController(
 
         search(query: string, opts: FindOpts): FindResult {
             const root = rootRef.current;
-            ranges = root ? collectDomMatches(root, query.trim(), opts.caseSensitive) : [];
+            ranges = root && query ? collectDomMatches(root, query, opts.caseSensitive, READER_FIND_SKIP) : [];
             const reg = cssHighlights();
             const H = HighlightCtor();
             if (reg) {
@@ -68,7 +70,13 @@ export function createPreviewFindController(
             const reg = cssHighlights();
             const H = HighlightCtor();
             if (reg && H) reg.set(HIGHLIGHT_ACTIVE, new H(r));
-            r.startContainer.parentElement?.scrollIntoView({ block: "center", behavior: "auto" });
+            let el = r.startContainer.parentElement;
+            let details = el?.closest<HTMLDetailsElement>("details");
+            while (details) {
+                if (!details.open) details.open = true;
+                details = details.parentElement?.closest<HTMLDetailsElement>("details") ?? null;
+            }
+            el?.scrollIntoView({ block: "center", behavior: "auto" });
         },
 
         clear,

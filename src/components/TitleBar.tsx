@@ -7,6 +7,7 @@ import { MoreMenu } from "./MoreMenu";
 import { formatShortcut } from "../config/keybindings";
 import { getAIIconAnimation } from "../utils/persistence";
 import { MAC_LIGHTS_INSET, MAC_WINDOW } from "../utils/platform";
+import { useI18n } from "../i18n";
 
 interface TitleBarProps {
     fileName?: string;
@@ -38,6 +39,7 @@ interface TitleBarProps {
 }
 
 function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, onOpenRecent, onNewFile, getExportHtml, canExport = true, onCopyDocument, onExportSuccess, onExportError, onToggleAI, aiActive, isFullscreen, onToggleFullscreen, onFind, onReplace, onFindInFiles, onSave, onSaveAs, onPrint }: TitleBarProps) {
+    const { t } = useI18n();
     // Whether the AI button's icon shimmers. Some users prefer it plain (#111).
     // Held locally and refreshed from the Settings event rather than threaded
     // down from App, since nothing else on the way needs to know about it.
@@ -125,6 +127,10 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
 
     const parentFolder = getPathBreadcrumb();
     const hasFile = !!fileName;
+    const openShortcut = formatShortcut("openFile");
+    const newShortcut = formatShortcut("newFile");
+    const saveShortcut = formatShortcut("save");
+    const fullscreenShortcut = formatShortcut("fullscreen");
 
     return (
         <>
@@ -149,8 +155,8 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                         <span className="text-[var(--text-primary)] font-semibold tracking-tight truncate max-w-[28vw]">
                             {fileName || "Paperling"}
                         </span>
-                        {!fileName && (
-                            <span className="text-[var(--text-muted)] text-xs ml-1 hidden sm:inline">— drop a .md file or {formatShortcut("openFile")}</span>
+                        {!fileName && openShortcut && (
+                            <span className="text-[var(--text-muted)] text-xs ml-1 hidden sm:inline">{t("titleBar.dropHint")}{openShortcut}</span>
                         )}
                         {/* Always laid out, only shown when dirty: appearing
                             and disappearing it pushed the whole toolbar
@@ -161,7 +167,7 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                                 aria-hidden={!isDirty}
                                 className={`text-[var(--status-unsaved)] ml-1 italic text-xs whitespace-nowrap ${isDirty ? "" : "invisible"}`}
                             >
-                                — Edited
+                                {t("titleBar.edited")}
                             </span>
                         )}
                     </div>
@@ -175,22 +181,22 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                             {onNewFile && (
                                 <button
                                     onClick={onNewFile}
-                                    aria-label="New file"
+                                    aria-label={t("titleBar.newFile")}
                                     className="chrome-btn flex items-center gap-1 px-2 h-8 text-xs"
-                                    title={`New File (${formatShortcut("newFile")})`}
+                                    title={newShortcut ? t("titleBar.newFileTitle", { shortcut: newShortcut }) : t("titleBar.newFile")}
                                 >
                                     <span className="material-symbols-outlined text-[16px]">edit_note</span>
-                                    <span className="hidden sm:inline">New</span>
+                                    <span className="hidden sm:inline">{t("titleBar.newLabel")}</span>
                                 </button>
                             )}
                             <button
                                 onClick={onOpenFile}
-                                aria-label="Open file"
+                                aria-label={t("titleBar.openFile")}
                                 className="chrome-btn flex items-center gap-1 px-2 h-8 text-xs"
-                                title={`Open File (${formatShortcut("openFile")})`}
+                                title={openShortcut ? t("titleBar.openFileTitle", { shortcut: openShortcut }) : t("titleBar.openFile")}
                             >
                                 <span className="material-symbols-outlined text-[16px]">folder_open</span>
-                                <span className="hidden sm:inline">Open</span>
+                                <span className="hidden sm:inline">{t("titleBar.openLabel")}</span>
                             </button>
                             {onSave && (
                                 // Stays in the layout and only dims when there is
@@ -198,12 +204,12 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                                 <button
                                     onClick={onSave}
                                     disabled={!isDirty}
-                                    aria-label="Save"
+                                    aria-label={t("titleBar.saveLabel")}
                                     className={`chrome-btn flex items-center gap-1 px-2 h-8 text-xs ${isDirty ? "!text-[var(--text-primary)]" : "!text-[var(--text-muted)] cursor-default"}`}
-                                    title={isDirty ? `Save (${formatShortcut("save")})` : "All changes saved"}
+                                    title={isDirty ? (saveShortcut ? t("titleBar.saveTitle", { shortcut: saveShortcut }) : t("titleBar.saveLabel")) : t("titleBar.allSaved")}
                                 >
                                     <span className="material-symbols-outlined text-[16px]">save</span>
-                                    <span className="hidden sm:inline">Save</span>
+                                    <span className="hidden sm:inline">{t("titleBar.saveLabel")}</span>
                                 </button>
                             )}
                             {canExport && (
@@ -221,9 +227,9 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                             {onToggleAI && (
                                 <button
                                     onClick={onToggleAI}
-                                    aria-label="AI assistant"
+                                    aria-label={t("titleBar.aiAssistant")}
                                     aria-pressed={aiActive}
-                                    title="AI assistant"
+                                    title={t("titleBar.aiAssistant")}
                                     className={`chrome-btn flex items-center gap-1 px-2.5 h-8 text-xs font-semibold tracking-wide ${aiActive ? "chrome-btn-on !text-[var(--accent)]" : ""}`}
                                 >
                                     <span className={`material-symbols-outlined text-[15px]${aiIconAnimated ? " ai-shimmer" : ""}`} aria-hidden="true">auto_awesome</span>
@@ -248,22 +254,22 @@ function TitleBarImpl({ fileName, isDirty, filePath, onOpenFile, onOpenFolder, o
                             <div className="w-[1px] h-4 bg-[var(--border)] mx-1"></div>
                             <button
                                 onClick={handleMinimize}
-                                aria-label="Minimize"
+                                aria-label={t("titleBar.minimize")}
                                 className="chrome-btn flex items-center justify-center w-9 h-8"
                             >
                                 <span className="material-symbols-outlined text-[18px]">remove</span>
                             </button>
                             <button
                                 onClick={handleMaximize}
-                                aria-label={isFullscreen ? "Exit fullscreen" : "Maximize"}
-                                title={isFullscreen ? `Exit fullscreen (${formatShortcut("fullscreen")})` : "Maximize"}
+                                aria-label={isFullscreen ? t("titleBar.exitFullscreen") : t("titleBar.maximize")}
+                                title={isFullscreen ? (fullscreenShortcut ? t("titleBar.exitFullscreenTitle", { shortcut: fullscreenShortcut }) : t("titleBar.exitFullscreen")) : t("titleBar.maximize")}
                                 className="chrome-btn flex items-center justify-center w-9 h-8"
                             >
                                 <span className="material-symbols-outlined text-[16px]">{isFullscreen ? "fullscreen_exit" : "crop_square"}</span>
                             </button>
                             <button
                                 onClick={handleCloseClick}
-                                aria-label="Close"
+                                aria-label={t("titleBar.close")}
                                 className="chrome-btn chrome-btn-danger flex items-center justify-center w-9 h-8"
                             >
                                 <span className="material-symbols-outlined text-[18px]">close</span>
