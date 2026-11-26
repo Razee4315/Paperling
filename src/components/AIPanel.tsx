@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { memo, useState, useRef, useEffect, useCallback } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -109,7 +109,69 @@ const AI_MARKDOWN_COMPONENTS = {
 // (Settings → AI, default 8), read live per send — the document itself is
 // attached only to the latest turn inside buildAskMessages.
 
-export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConfig, onProposeEdit, onDiscardEdit, docKey, width, onWidthChange, maxWidth }: AIPanelProps) {
+const ChatMessageRow = memo(function ChatMessageRow({
+    m,
+    i,
+    busy,
+    copied,
+    canRegenerate,
+    onEdit,
+    onRegenerate,
+    onCopy,
+}: {
+    m: UIMessage;
+    i: number;
+    busy: boolean;
+    copied: boolean;
+    canRegenerate: boolean;
+    onEdit: (idx: number) => void;
+    onRegenerate: (text: string, idx: number) => void;
+    onCopy: (idx: number, content: string) => void;
+}) {
+    return (
+        <div className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+            {m.role === "user" ? (
+                <div className="max-w-[85%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-text)] text-sm whitespace-pre-wrap break-words">
+                    {m.content}
+                    <div className="flex gap-2 mt-1 text-xs">
+                        <button disabled={busy} onClick={() => onEdit(i)} aria-label={`Edit message ${i + 1}`} className="underline disabled:opacity-40">Edit</button>
+                        {canRegenerate && <button disabled={busy} onClick={() => onRegenerate(m.content, i)} aria-label="Regenerate reply" className="underline disabled:opacity-40">Regenerate</button>}
+                    </div>
+                </div>
+            ) : (
+                <div className="max-w-[92%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm w-full">
+                    {m.content ? (
+                        <>
+                            <div className="markdown-body !text-sm [&_*]:!text-sm [&_h1]:!text-base [&_h2]:!text-sm [&_pre]:!text-xs">
+                                <Markdown remarkPlugins={[remarkGfm]} components={AI_MARKDOWN_COMPONENTS}>{m.content}</Markdown>
+                            </div>
+                            {!busy && (
+                                <div className="flex justify-end mt-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => onCopy(i, m.content)}
+                                        aria-label={`Copy reply ${i + 1}`}
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                                    >
+                                        <span className="material-symbols-outlined text-[13px]">{copied ? "check" : "content_copy"}</span>
+                                        <span>{copied ? "Copied" : "Copy"}</span>
+                                    </button>
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <span className="inline-flex gap-1 text-[var(--text-muted)]">
+                            <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                            Thinking…
+                        </span>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+});
+
+function AIPanelImpl({ isOpen, onClose, note, fileName, selectionText, aiConfig, onProposeEdit, onDiscardEdit, docKey, width, onWidthChange, maxWidth }: AIPanelProps) {
     // Stored chats (#111). Closing the panel unmounts it, so message state used
     // to die with it. Read the saved history once, then resume the most recent
     // chat, which makes close/reopen and app restarts non-destructive.
@@ -584,45 +646,17 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
                     </div>
                 ) : (
                     messages.map((m, i) => (
-                        <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                            {m.role === "user" ? (
-                                <div className="max-w-[85%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-text)] text-sm whitespace-pre-wrap break-words">
-                                    {m.content}
-                                    <div className="flex gap-2 mt-1 text-xs">
-                                        <button disabled={busy} onClick={() => editMessage(i)} aria-label={`Edit message ${i + 1}`} className="underline disabled:opacity-40">Edit</button>
-                                        {!messages.slice(i + 1).some((next) => next.role === "user") && <button disabled={busy} onClick={() => void send({ text: m.content, history: messages.slice(0, i) })} aria-label="Regenerate reply" className="underline disabled:opacity-40">Regenerate</button>}
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="max-w-[92%] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm w-full">
-                                    {m.content ? (
-                                        <>
-                                            <div className="markdown-body !text-sm [&_*]:!text-sm [&_h1]:!text-base [&_h2]:!text-sm [&_pre]:!text-xs">
-                                                <Markdown remarkPlugins={[remarkGfm]} components={AI_MARKDOWN_COMPONENTS}>{m.content}</Markdown>
-                                            </div>
-                                            {!busy && (
-                                                <div className="flex justify-end mt-1">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => copyReply(i, m.content)}
-                                                        aria-label={`Copy reply ${i + 1}`}
-                                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-                                                    >
-                                                        <span className="material-symbols-outlined text-[13px]">{copiedIdx === i ? "check" : "content_copy"}</span>
-                                                        <span>{copiedIdx === i ? "Copied" : "Copy"}</span>
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </>
-                                    ) : (
-                                        <span className="inline-flex gap-1 text-[var(--text-muted)]">
-                                            <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
-                                            Thinking…
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                        <ChatMessageRow
+                            key={i}
+                            m={m}
+                            i={i}
+                            busy={busy}
+                            copied={copiedIdx === i}
+                            canRegenerate={m.role === "user" && !messages.slice(i + 1).some((next) => next.role === "user")}
+                            onEdit={editMessage}
+                            onRegenerate={(text, idx) => void send({ text, history: messages.slice(0, idx) })}
+                            onCopy={copyReply}
+                        />
                     ))
                 )}
                 {error && (
@@ -682,3 +716,5 @@ export function AIPanel({ isOpen, onClose, note, fileName, selectionText, aiConf
         </aside>
     );
 }
+
+export const AIPanel = memo(AIPanelImpl);

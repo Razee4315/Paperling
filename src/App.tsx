@@ -15,7 +15,6 @@ import { MobileBottomNav } from "./components/MobileBottomNav";
 import { SaveAsNameModal, type SaveAsChoice } from "./components/SaveAsNameModal";
 import { ZenTopBar } from "./components/ZenTopBar";
 import { WelcomeScreen } from "./components/WelcomeScreen";
-import { CodeEditor } from "./components/CodeEditor";
 import { StatusBar } from "./components/StatusBar";
 import { ModeToggle, type ViewMode } from "./components/ModeToggle";
 import { ToastStack } from "./components/Toast";
@@ -53,6 +52,12 @@ import { normalizeMarkdownFileName } from "./utils/mobileFiles";
 //
 // React.lazy expects a default export; our components are named exports, so
 // we adapt with the `.then(m => ({ default: m.X }))` shim.
+const CodeEditor = lazy(() =>
+    import("./components/CodeEditor").then((m) => ({ default: m.CodeEditor }))
+);
+const Tour = lazy(() =>
+    import("./components/Tour").then((m) => ({ default: m.Tour }))
+);
 const MarkdownPreview = lazy(() =>
     import("./components/MarkdownPreview").then((m) => ({ default: m.MarkdownPreview }))
 );
@@ -158,12 +163,8 @@ import {
 } from "./utils/tabsModel";
 import { emptyNavHistory, navigateBack, navigateForward, recordNavigation, type NavEntry } from "./utils/navHistory";
 import { countSourceWords, countWords } from "./utils/documentStats";
-import { Tour } from "./components/Tour";
 import { FindBar, findSeedFromSelection } from "./components/FindBar";
 import { createPreviewFindController } from "./utils/previewFind";
-// The interactive feature guide, shipped as raw markdown so it opens as a real,
-// editable document (offered at the end of the welcome tour / from the palette).
-import tutorialMarkdown from "./assets/tutorial.md?raw";
 
 // Platform-aware AI shortcut hint. Windows uses Alt+J because WebView2 reserves
 // Ctrl+J for its Downloads UI before the page sees it; macOS shows ⌘J. (AI-02.)
@@ -480,6 +481,8 @@ function AppContent() {
   });
 
   const encodingLabel = useEncodingLabel(filePath);
+  const liveContentRef = useRef(content);
+  liveContentRef.current = content;
 
   // On the phone there is no OS open panel (and its SAF result would be
   // unreadable anyway) — "open" means the in-app files browser, rooted at the
@@ -664,24 +667,31 @@ function AppContent() {
   const [deferredWithSwap, flushDeferredPreview] = useDebouncedValue(contentWithSwap, previewDebounceMs);
   const deferredContent = deferredWithSwap.swap === docSwapId ? deferredWithSwap.content : content;
 
-  // Word/char counts feed the status bar — fine to lag a frame behind on huge
-  // docs, so they read deferred too. countSourceWords is the SAME pipeline the
-  // stats dialog uses (strips frontmatter/code, ignores markdown syntax), so
-  // the status bar and the dialog always agree. STATS-01.
-  const wordCount = useMemo(() => countSourceWords(deferredContent), [deferredContent]);
-  const charCount = deferredContent.length;
-  // Selection word count, when the user has a non-empty range highlighted.
-  // Reads LIVE `content` (not deferredContent) since the selection range and
-  // the underlying text must agree — sliding by 80ms would briefly count words
-  // from a stale buffer right after a fast edit. The slice is cheap regardless.
-  // Uses countWords (no frontmatter/code stripping): a selection inside a code
-  // block should still report what's selected.
+  const [previewExportSync, setPreviewExportSync] = useState(0);
+  const frozenPreviewContentRef = useRef(content);
+  const frozenPreviewSwapRef = useRef(docSwapId);
+  const lastExportSyncRef = useRef(previewExportSync);
+  if (
+    mode !== "code" ||
+    frozenPreviewSwapRef.current !== docSwapId ||
+    lastExportSyncRef.current !== previewExportSync
+  ) {
+    const syncForced = lastExportSyncRef.current !== previewExportSync;
+    frozenPreviewContentRef.current = mode === "preview" || syncForced ? content : deferredContent;
+    frozenPreviewSwapRef.current = docSwapId;
+    lastExportSyncRef.current = previewExportSync;
+  }
+  const previewDisplayContent = frozenPreviewContentRef.current;
+
+  // Word/char counts feed the status bar — skipped when hidden (mobile/zen).
+  const showStatusStats = !IS_MOBILE && !(zenMode && hasFile);
+  const wordCount = useMemo(() => (showStatusStats ? countSourceWords(deferredContent) : 0), [showStatusStats, deferredContent]);
+  const charCount = showStatusStats ? deferredContent.length : 0;
   const selectionLength = selectionRange.end - selectionRange.start;
   const selectionWordCount = useMemo(
-    () => (selectionLength > 0 ? countWords(content.slice(selectionRange.start, selectionRange.end)) : 0),
-    [content, selectionRange.start, selectionRange.end, selectionLength]
+    () => (showStatusStats && selectionLength > 0 ? countWords(content.slice(selectionRange.start, selectionRange.end)) : 0),
+    [showStatusStats, content, selectionRange.start, selectionRange.end, selectionLength]
   );
-  // Average adult reading speed for prose: ~200 wpm.
   const readingTimeMin = useMemo(() => wordCount / 200, [wordCount]);
 
   // Settings flags above persist themselves via usePersistedState; the matching
@@ -767,6 +777,7 @@ function AppContent() {
       // pull it in the moment the welcome screen has settled. The other
       // dialogs are tiny and aren't worth racing the network for.
       import("./components/MarkdownPreview").catch(() => {/* offline / cancelled */ });
+      import("./components/CodeEditor").catch(() => {/* offline / cancelled */ });
     }, { timeout: 1500 });
     return () => {
       const cancel = (window as unknown as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback;
@@ -904,9 +915,10 @@ function AppContent() {
     const copyName = `${(fileName ?? "Untitled.md").replace(/\.md$/i, "")} (copy).md`;
     let selected = await promptForSavePath(copyName, dirOf(filePath));
     if (!selected) return;
+    const text = liveContentRef.current;
     const dlCopyName = parseDownloadsSentinel(selected);
     if (dlCopyName !== null) {
-      const res = await saveToDownloads(normalizeMarkdownFileName(dlCopyName || copyName), content);
+      const res = await saveToDownloads(normalizeMarkdownFileName(dlCopyName || copyName), text);
       if (!res.ok || !res.path) {
         showToast(res.error || t("toast.couldNotSaveCopy"), "error");
         return;
@@ -915,12 +927,12 @@ function AppContent() {
       return;
     }
     try {
-      await saveTextFile(selected, content);
+      await saveTextFile(selected, text);
       showToast(t("toast.copySavedConflict"), "success");
     } catch (err) {
       showToast(errMessage(err) || t("toast.couldNotSaveCopy"), "error");
     }
-  }, [content, fileName, promptForSavePath, showToast]);
+  }, [fileName, filePath, promptForSavePath, showToast]);
 
   const handleDiscardAndCloseWindow = useCallback(() => {
     setShowUnsavedBeforeClose(false);
@@ -1002,10 +1014,6 @@ function AppContent() {
     }
   }, [loadFile, showToast]);
 
-  // Live document text for callbacks that must keep a stable identity (the
-  // preview's link renderers are rebuilt whenever their handlers change).
-  const liveContentRef = useRef(content);
-  liveContentRef.current = content;
   // The text the preview DOM currently shows (reported after each commit).
   const renderedPreviewContentRef = useRef<string | null>(null);
   const handlePreviewRendered = useCallback((rendered: string) => {
@@ -1199,7 +1207,14 @@ function AppContent() {
     return lastSep > 0 ? filePath.slice(0, lastSep) : null;
   }, [filePath, workspaceDirectory]);
 
-  const handleOpenTutorial = useCallback(() => openTutorial(tutorialMarkdown), [openTutorial]);
+  const handleOpenTutorial = useCallback(async () => {
+    try {
+      const mod = await import("./assets/tutorial.md?raw");
+      openTutorial(mod.default);
+    } catch (err) {
+      showToast(errMessage(err) || t("toast.failedToOpenFile"), "error");
+    }
+  }, [openTutorial, showToast]);
 
   // "Replay the welcome tour" from Settings → About. The tour spotlights
   // editor chrome, so make sure a buffer exists before showing it. Never on
@@ -1511,9 +1526,7 @@ function AppContent() {
   // (EXPORT-03).
   const getExportHtml = useCallback(async (): Promise<string> => {
     flushDeferredPreview();
-    // The preview renders in a transition, so on a long note "two frames"
-    // wasn't always enough and an export could miss the last edits. Wait
-    // until it reports the current text as rendered (bounded). EXPORT-07.
+    setPreviewExportSync((n) => n + 1);
     const deadline = Date.now() + 5000;
     while (renderedPreviewContentRef.current !== liveContentRef.current && Date.now() < deadline) {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 30));
@@ -1522,9 +1535,6 @@ function AppContent() {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
     if (previewRef.current) {
-      // A forced direction lives on .markdown-body itself, which innerHTML
-      // leaves out; carry it into the export so an RTL document stays RTL.
-      // ("auto" puts dir on the blocks, which innerHTML already includes.)
       const html = previewRef.current.innerHTML;
       return textDirection === "auto" ? html : `<div dir="${textDirection}">${html}</div>`;
     }
@@ -1578,13 +1588,13 @@ function AppContent() {
     try {
       const { prepareExportHtml } = await import("./utils/exportUtils");
       const cleaned = await prepareExportHtml(raw);
-      if (kind === "rich") await writeRichClipboard(cleaned, content);
+      if (kind === "rich") await writeRichClipboard(cleaned, liveContentRef.current);
       else await navigator.clipboard.writeText(cleaned);
       showToast(kind === "rich" ? "Copied as rich text" : "Copied as HTML", "success");
     } catch (err) {
       showToast(errMessage(err) || "Could not copy", "error");
     }
-  }, [content, getExportHtml, showToast]);
+  }, [getExportHtml, showToast]);
 
   // Print the RENDERED document (not the app window): the export pipeline's
   // standalone HTML — which already carries print CSS, KaTeX styles and
@@ -1678,11 +1688,11 @@ function AppContent() {
     setHistoryTarget({ path: filePath, fileName: fileName ?? "Untitled.md" });
   }, [fileName, filePath, proposedDoc, showToast]);
   const handleRestoreVersion = useCallback((text: string) => {
-    if (filePath) void fileHistory.record(filePath, content, "before-restore");
+    if (filePath) void fileHistory.record(filePath, liveContentRef.current, "before-restore");
     handleContentChange(text);
     setHistoryTarget(null);
     showToast("Version restored. Save to keep it, or undo to go back", "success");
-  }, [content, filePath, handleContentChange, showToast]);
+  }, [filePath, handleContentChange, showToast]);
 
   // Run an editor command from the palette. The caret lives in the editor, so
   // the Reader switches to it first, as "replace" does above. EDIT-01.
@@ -1697,6 +1707,7 @@ function AppContent() {
   // Build the command palette item list. Rebuilds on relevant state changes —
   // recent files, current file, current view mode, toggles.
   const paletteItems = useMemo<PaletteCommand[]>(() => {
+    if (!showPalette) return [];
     const items: PaletteCommand[] = [];
 
     // === File ===
@@ -2079,11 +2090,7 @@ function AppContent() {
 
     return items;
   }, [
-    // NB: deferredContent is intentionally NOT a dep here. Building static
-    // file/view/toggle/recent items doesn't depend on the document text, so
-    // letting `content` flow into this useMemo would rebuild every keystroke
-    // (post-debounce) for no reason. Headings are computed below in a
-    // separate hook that's gated on the palette actually being open.
+    showPalette,
     handleNewFile, handleOpenFileAction, handleOpenFolder, handleSaveFile, handleSaveAs, handleOpenTutorial,
     handleToggleSplit, handleToggleFileExplorer, handleToggleTOC, handleToggleBacklinks, toggleFullscreen,
     loadFile, filePath, hasFile, isHtmlDoc, showToast, closeTab, handlePrint, runEditorCommand, handleCopyDocument, openFileHistory, openRecentFolder,
@@ -2153,7 +2160,7 @@ function AppContent() {
   // "Open tabs" palette section — jump to any open tab by name (only worthwhile
   // with more than one open). Uses the same folder disambiguation as the bar. TABS-11.
   const tabPaletteItems = useMemo<PaletteCommand[]>(() => {
-    if (tabs.length < 2) return [];
+    if (!showPalette || tabs.length < 2) return [];
     const resolved = tabs.map((t) => ({
       id: t.id,
       fileName: t.id === activeTabId ? (fileName ?? "Untitled.md") : t.fileName,
@@ -2168,7 +2175,7 @@ function AppContent() {
       keywords: "switch tab open file",
       run: () => activateTab(t.id),
     }));
-  }, [tabs, activeTabId, fileName, filePath, activateTab]);
+  }, [showPalette, tabs, activeTabId, fileName, filePath, activateTab]);
 
   // Concatenated list passed to the palette. Same `paletteItems` shape as
   // before so the CommandPalette component sees no API change. Reference
@@ -2411,37 +2418,39 @@ function AppContent() {
                 minWidth: 0,
               }}
             >
-              <CodeEditor
-                content={content}
-                docSwapId={docSwapId}
-                docKey={activeTabId}
-                onOpenLink={handleEditorOpenLink}
-                onChange={handleContentChange}
-                onCursorChange={handleCursorChange}
-                onSelectionChange={handleSelectionChange}
-                onImagePaste={handleImagePaste}
-                onError={handleError}
-                onNotice={handleNotice}
-                filePath={filePath}
-                onScrollFraction={onCodeScrollFraction}
-                registerScroller={registerCodeScroller}
-                typewriterMode={typewriterModeEnabled}
-                // On mobile the toolbar is the ONLY formatting surface (no
-                // Ctrl+B, no menu row) so it is always on and cannot be hidden.
-                showToolbar={IS_MOBILE || toolbarVisible}
-                wordWrap={wordWrapEnabled}
-                folding={codeFoldingEnabled && !IS_MOBILE}
-                spellCheck={spellCheckEnabled}
-                autoCloseBrackets={autoCloseBracketsEnabled}
-                livePreview={livePreviewEnabled && !isHtmlDoc}
-                vimMode={vimModeEnabled}
-                readableLineLength={readableLineLength}
-                textDirection={textDirection}
-                directionChordEnabled={directionChordEnabled}
-                aiConfig={aiConfig}
-                reviewDoc={proposedDoc}
-                onReviewResolve={handleReviewResolve}
-              />
+              <Suspense fallback={null}>
+                <CodeEditor
+                  content={content}
+                  docSwapId={docSwapId}
+                  docKey={activeTabId}
+                  onOpenLink={handleEditorOpenLink}
+                  onChange={handleContentChange}
+                  onCursorChange={handleCursorChange}
+                  onSelectionChange={handleSelectionChange}
+                  onImagePaste={handleImagePaste}
+                  onError={handleError}
+                  onNotice={handleNotice}
+                  filePath={filePath}
+                  onScrollFraction={onCodeScrollFraction}
+                  registerScroller={registerCodeScroller}
+                  typewriterMode={typewriterModeEnabled}
+                  // On mobile the toolbar is the ONLY formatting surface (no
+                  // Ctrl+B, no menu row) so it is always on and cannot be hidden.
+                  showToolbar={IS_MOBILE || toolbarVisible}
+                  wordWrap={wordWrapEnabled}
+                  folding={codeFoldingEnabled && !IS_MOBILE}
+                  spellCheck={spellCheckEnabled}
+                  autoCloseBrackets={autoCloseBracketsEnabled}
+                  livePreview={livePreviewEnabled && !isHtmlDoc}
+                  vimMode={vimModeEnabled}
+                  readableLineLength={readableLineLength}
+                  textDirection={textDirection}
+                  directionChordEnabled={directionChordEnabled}
+                  aiConfig={aiConfig}
+                  reviewDoc={proposedDoc}
+                  onReviewResolve={handleReviewResolve}
+                />
+              </Suspense>
             </div>
 
             {mode === "split" && (
@@ -2458,22 +2467,16 @@ function AppContent() {
                 minWidth: 0,
               }}
             >
-              {/* MarkdownPreview is lazy-loaded — its react-markdown +
-                  remark-gfm + rehype-highlight stack is ~250 kB and
-                  doesn't need to ship with the welcome screen. The
-                  fallback is invisible since the parent column already
-                  has a background; a brief flash on first render is
-                  preferable to a spinner that pre-empts the layout. */}
               <Suspense fallback={null}>
                 {isHtmlDoc ? (
                   <HtmlPreview
-                    content={mode === "preview" ? content : deferredContent}
+                    content={previewDisplayContent}
                     fileName={fileName || ""}
                     filePath={filePath}
                   />
                 ) : (
                 <MarkdownPreview
-                  content={mode === "preview" ? content : deferredContent}
+                  content={previewDisplayContent}
                   liveContent={mode === "preview" ? content : undefined}
                   allowReaderEditing={mode === "preview"}
                   docKey={activeTabId}
@@ -2761,7 +2764,9 @@ function AppContent() {
       {/* First-run welcome tour. Gated on hasFile because every spotlight
           target (editor panes, mode toggle) only exists with an open buffer. */}
       {showTour && hasFile && !booting && !zenActive && (
-        <Tour onClose={handleCloseTour} onOpenTutorial={handleOpenTutorial} />
+        <Suspense fallback={null}>
+          <Tour onClose={handleCloseTour} onOpenTutorial={handleOpenTutorial} />
+        </Suspense>
       )}
 
       {/* Tab right-click menu. TABS-12. */}

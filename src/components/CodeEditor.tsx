@@ -15,9 +15,16 @@ import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { syntaxHighlighting, HighlightStyle, syntaxTree, codeFolding, foldAll, foldGutter, foldKeymap, unfoldAll } from "@codemirror/language";
 import { autocompletion, closeBrackets, closeBracketsKeymap, type CompletionContext, type CompletionResult, type Completion } from "@codemirror/autocomplete";
-import { unifiedMergeView, getChunks, getOriginalDoc } from "@codemirror/merge";
-import { vim } from "@replit/codemirror-vim";
 import { tags as t } from "@lezer/highlight";
+
+type MergeMod = typeof import("@codemirror/merge");
+type VimMod = typeof import("@replit/codemirror-vim");
+let mergeModCache: MergeMod | null = null;
+let vimModCache: VimMod | null = null;
+const loadMergeMod = (): Promise<MergeMod> =>
+    mergeModCache ? Promise.resolve(mergeModCache) : import("@codemirror/merge").then((m) => (mergeModCache = m));
+const loadVimMod = (): Promise<VimMod> =>
+    vimModCache ? Promise.resolve(vimModCache) : import("@replit/codemirror-vim").then((m) => (vimModCache = m));
 import { getImageFromClipboard, saveImageToFile, createMarkdownImage } from "../utils/imageUtils";
 import {
     handleTab,
@@ -447,6 +454,15 @@ function CodeEditorImpl({
     directionChordEnabledRef.current = directionChordEnabled;
     const dirChordRef = useRef(createDirectionChord());
     const buildEditingKeymapRef = useRef<() => Extension>(() => []);
+    const appliedCompsRef = useRef({
+        wordWrap,
+        folding,
+        spellCheck,
+        autoCloseBrackets,
+        livePreview,
+        vimMode: false,
+        textDirection,
+    });
 
     // Reconfigurable extensions.
     const wrapCompRef = useRef(new Compartment());
@@ -609,32 +625,20 @@ function CodeEditorImpl({
                 // getOriginalDoc() IS exactly that running result — sync it to the
                 // preview so accepting/rejecting a single change updates it live.
                 let accepted: string | null = null;
-                try { accepted = getOriginalDoc(update.state).toString(); } catch { /* merge field not ready */ }
+                try { accepted = mergeModCache ? mergeModCache.getOriginalDoc(update.state).toString() : null; } catch { /* merge field not ready */ }
                 if (accepted !== null && accepted !== lastEmittedRef.current) {
                     lastEmittedRef.current = accepted;
                     onChangeRef.current?.(accepted);
                 }
-                // Detect when the user has resolved every chunk individually via the
-                // gutter buttons (Accept-all/Reject-all clear reviewingRef themselves).
-                // NOT gated on docChanged: accepting a chunk folds the change into the
-                // merge view's ORIGINAL side and leaves the editor doc unchanged
-                // (docChanged = false), so accepting every chunk one-by-one would never
-                // be observed if we only ran this on doc-changing updates. Rejecting a
-                // chunk does change the doc, but running unconditionally covers both.
                 let chunkCount = -1;
-                try { chunkCount = getChunks(update.state)?.chunks.length ?? -1; } catch { /* merge field not ready */ }
+                try { chunkCount = mergeModCache ? (mergeModCache.getChunks(update.state)?.chunks.length ?? -1) : -1; } catch { /* merge field not ready */ }
                 if (chunkCount > 0) reviewHadChunksRef.current = true;
-                // Only finalize AFTER we've seen at least one chunk: the merge
-                // field can briefly report 0 chunks right after entering review.
                 if (reviewHadChunksRef.current && chunkCount === 0) {
-                    // Defer: dispatching synchronously from inside the update
-                    // listener is re-entrant and unsafe. Re-check in the rAF that
-                    // nothing else (a manual Accept/Reject-all) resolved it first.
                     requestAnimationFrame(() => {
                         const v = viewRef.current;
-                        if (!v || !reviewingRef.current) return;
+                        if (!v || !reviewingRef.current || !mergeModCache) return;
                         let stillZero = false;
-                        try { stillZero = (getChunks(v.state)?.chunks.length ?? -1) === 0; } catch { /* ignore */ }
+                        try { stillZero = (mergeModCache.getChunks(v.state)?.chunks.length ?? -1) === 0; } catch { /* ignore */ }
                         if (stillZero) finishReview(v.state.doc.toString());
                     });
                 }
@@ -769,7 +773,7 @@ function CodeEditorImpl({
                     foldComp.of(foldUI(folding)),
                     spellComp.of(EditorView.contentAttributes.of(spellAttrs(spellCheck))),
                     livePreviewComp.of(livePreviewExtension(livePreview)),
-                    vimComp.of(vimMode ? vim() : []),
+                    vimComp.of(vimMode && vimModCache ? vimModCache.vim() : []),
                     dirComp.of(textDirectionExtension(textDirection)),
                     mergeComp.of([]),
                     keymapComp.of(buildEditingKeymap()),
@@ -782,6 +786,15 @@ function CodeEditorImpl({
             }),
         });
         viewRef.current = view;
+        appliedCompsRef.current = {
+            wordWrap,
+            folding,
+            spellCheck,
+            autoCloseBrackets,
+            livePreview,
+            vimMode: Boolean(vimMode && vimModCache),
+            textDirection,
+        };
         lastEmittedRef.current = content;
         view.focus();
 
@@ -1066,13 +1079,32 @@ function CodeEditorImpl({
                         spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(live.spellCheck))),
                         closeBracketsCompRef.current.reconfigure(closeBracketsExt(live.autoCloseBrackets)),
                         livePreviewCompRef.current.reconfigure(livePreviewExtension(live.livePreview)),
-                        vimCompRef.current.reconfigure(live.vimMode ? vim() : []),
+                        vimCompRef.current.reconfigure(live.vimMode && vimModCache ? vimModCache.vim() : []),
                         dirCompRef.current.reconfigure(textDirectionExtension(live.textDirection)),
                         keymapCompRef.current.reconfigure(buildEditingKeymapRef.current()),
                         mergeCompRef.current.reconfigure([]),
+                        setFindMatches.of({ ranges: [], activeIndex: -1 }),
                         cached.scroll,
                     ],
                 });
+                clearRemovedHighlight();
+                appliedCompsRef.current = {
+                    wordWrap: live.wordWrap,
+                    folding: live.folding,
+                    spellCheck: live.spellCheck,
+                    autoCloseBrackets: live.autoCloseBrackets,
+                    livePreview: live.livePreview,
+                    vimMode: Boolean(live.vimMode && vimModCache),
+                    textDirection: live.textDirection,
+                };
+                if (live.vimMode && !vimModCache) {
+                    void loadVimMod().then((m) => {
+                        if (viewRef.current === view && liveSettingsRef.current.vimMode) {
+                            appliedCompsRef.current.vimMode = true;
+                            view.dispatch({ effects: vimCompRef.current.reconfigure(m.vim()) });
+                        }
+                    });
+                }
                 restoredFromCacheRef.current = true;
                 const sel = view.state.selection.main;
                 const line = view.state.doc.lineAt(sel.head);
@@ -1099,11 +1131,15 @@ function CodeEditorImpl({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [docSwapId]);
 
-    // Reconfigure word-wrap / spellcheck / vim when their props change.
+    // Reconfigure compartments only when a setting actually changed since mount/restore.
     useEffect(() => {
+        if (appliedCompsRef.current.wordWrap === wordWrap) return;
+        appliedCompsRef.current.wordWrap = wordWrap;
         viewRef.current?.dispatch({ effects: wrapCompRef.current.reconfigure(wordWrap ? EditorView.lineWrapping : []) });
     }, [wordWrap]);
     useEffect(() => {
+        if (appliedCompsRef.current.folding === folding) return;
+        appliedCompsRef.current.folding = folding;
         viewRef.current?.dispatch({ effects: foldCompRef.current.reconfigure(foldUI(folding)) });
     }, [folding]);
     useEffect(() => {
@@ -1113,8 +1149,6 @@ function CodeEditorImpl({
             if (!view || !id) return;
             if (id === "foldAll") { foldAll(view); view.focus(); return; }
             if (id === "unfoldAll") { unfoldAll(view); view.focus(); return; }
-            // The review's merge view maps chunks onto the proposed text; a
-            // command landing in it would be accepted as part of the proposal.
             if (reviewingRef.current) return;
             const spec = textCommandSpec(view.state, id, new Date());
             if (spec) view.dispatch(spec);
@@ -1125,56 +1159,90 @@ function CodeEditorImpl({
         return () => window.removeEventListener(EDITOR_COMMAND_EVENT, onCommand);
     }, []);
     useEffect(() => {
+        if (appliedCompsRef.current.spellCheck === spellCheck) return;
+        appliedCompsRef.current.spellCheck = spellCheck;
         viewRef.current?.dispatch({ effects: spellCompRef.current.reconfigure(EditorView.contentAttributes.of(spellAttrs(spellCheck))) });
     }, [spellCheck]);
     useEffect(() => {
+        if (appliedCompsRef.current.autoCloseBrackets === autoCloseBrackets) return;
+        appliedCompsRef.current.autoCloseBrackets = autoCloseBrackets;
         viewRef.current?.dispatch({ effects: closeBracketsCompRef.current.reconfigure(closeBracketsExt(autoCloseBrackets)) });
     }, [autoCloseBrackets]);
     useEffect(() => {
+        if (appliedCompsRef.current.livePreview === livePreview) return;
+        appliedCompsRef.current.livePreview = livePreview;
         viewRef.current?.dispatch({ effects: livePreviewCompRef.current.reconfigure(livePreviewExtension(livePreview)) });
     }, [livePreview]);
     useEffect(() => {
-        viewRef.current?.dispatch({ effects: vimCompRef.current.reconfigure(vimMode ? vim() : []) });
+        const view = viewRef.current;
+        if (!view) return;
+        if (!vimMode) {
+            if (!appliedCompsRef.current.vimMode) return;
+            appliedCompsRef.current.vimMode = false;
+            view.dispatch({ effects: vimCompRef.current.reconfigure([]) });
+            return;
+        }
+        if (appliedCompsRef.current.vimMode) return;
+        if (vimModCache) {
+            appliedCompsRef.current.vimMode = true;
+            view.dispatch({ effects: vimCompRef.current.reconfigure(vimModCache.vim()) });
+            return;
+        }
+        let cancelled = false;
+        void loadVimMod().then((mod) => {
+            if (cancelled || viewRef.current !== view) return;
+            appliedCompsRef.current.vimMode = true;
+            view.dispatch({ effects: vimCompRef.current.reconfigure(mod.vim()) });
+        });
+        return () => { cancelled = true; };
     }, [vimMode]);
     useEffect(() => {
+        if (appliedCompsRef.current.textDirection === textDirection) return;
+        appliedCompsRef.current.textDirection = textDirection;
         viewRef.current?.dispatch({ effects: dirCompRef.current.reconfigure(textDirectionExtension(textDirection)) });
     }, [textDirection]);
     useEffect(() => {
         if (!directionChordEnabled) dirChordRef.current.reset();
     }, [directionChordEnabled]);
 
-    // Enter / refresh / exit the AI review (CodeMirror unified merge view). The
-    // original side is the document as it was BEFORE the proposal; the editor doc
-    // becomes the proposed text, and the merge view shows per-change ✓/✗ controls.
+    // Enter / refresh / exit the AI review (CodeMirror unified merge view), loading
+    // @codemirror/merge on demand.
     useEffect(() => {
         const view = viewRef.current;
         if (!view) return;
         if (reviewDoc != null) {
             if (reviewingRef.current && reviewDoc === lastReviewRef.current) return;
-            if (!reviewingRef.current) {
-                reviewOriginalRef.current = view.state.doc.toString();
-                // Fresh review: reset the chunk-seen guard here (not on every
-                // re-render) so a mid-review re-render can't reset it.
-                reviewHadChunksRef.current = false;
-            }
-            reviewingRef.current = true;
-            lastReviewRef.current = reviewDoc;
-            setReviewActive(true);
-            view.dispatch({
-                changes: { from: 0, to: view.state.doc.length, insert: reviewDoc },
-                effects: mergeCompRef.current.reconfigure(unifiedMergeView({ original: reviewOriginalRef.current })),
-            });
-            // Bring the first proposed change into view so the user sees the diff
-            // immediately instead of having to hunt for it (the change may be far
-            // down a long document). Runs after the merge field computes chunks.
-            requestAnimationFrame(() => {
-                const v = viewRef.current;
-                if (!v) return;
-                const chunks = getChunks(v.state)?.chunks;
-                if (chunks && chunks.length) {
-                    v.dispatch({ effects: EditorView.scrollIntoView(chunks[0].fromB, { y: "center" }) });
+            const applyReview = (mod: MergeMod) => {
+                if (viewRef.current !== view) return;
+                if (!reviewingRef.current) {
+                    reviewOriginalRef.current = view.state.doc.toString();
+                    reviewHadChunksRef.current = false;
                 }
+                reviewingRef.current = true;
+                lastReviewRef.current = reviewDoc;
+                setReviewActive(true);
+                view.dispatch({
+                    changes: { from: 0, to: view.state.doc.length, insert: reviewDoc },
+                    effects: mergeCompRef.current.reconfigure(mod.unifiedMergeView({ original: reviewOriginalRef.current })),
+                });
+                requestAnimationFrame(() => {
+                    const v = viewRef.current;
+                    if (!v || !reviewingRef.current) return;
+                    const chunks = mod.getChunks(v.state)?.chunks;
+                    if (chunks && chunks.length) {
+                        v.dispatch({ effects: EditorView.scrollIntoView(chunks[0].fromB, { y: "center" }) });
+                    }
+                });
+            };
+            if (mergeModCache) {
+                applyReview(mergeModCache);
+                return;
+            }
+            let cancelled = false;
+            void loadMergeMod().then((mod) => {
+                if (!cancelled) applyReview(mod);
             });
+            return () => { cancelled = true; };
         } else if (reviewingRef.current) {
             reviewingRef.current = false;
             lastReviewRef.current = null;
@@ -1488,11 +1556,11 @@ function CodeEditorImpl({
         // plainly see is actually found. Outside review this is empty and the
         // search collapses to a plain document search. Issue #111.
         const removedRegions = (v: EditorView): { regions: DeletedRegion[]; original: string } => {
-            if (!reviewingRef.current) return { regions: [], original: "" };
-            const chunks = getChunks(v.state)?.chunks;
+            if (!reviewingRef.current || !mergeModCache) return { regions: [], original: "" };
+            const chunks = mergeModCache.getChunks(v.state)?.chunks;
             if (!chunks?.length) return { regions: [], original: "" };
             return {
-                original: getOriginalDoc(v.state).toString(),
+                original: mergeModCache.getOriginalDoc(v.state).toString(),
                 // A pure insertion has toA === fromA and renders no removed lines.
                 regions: chunks
                     .filter((c) => c.toA > c.fromA)

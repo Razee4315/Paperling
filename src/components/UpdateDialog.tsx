@@ -111,17 +111,23 @@ export function UpdateDialog() {
 
     useEffect(() => {
         let cancelled = false;
-        (async () => {
-            try {
-                const upd = await check();
-                if (cancelled || !upd) return;
-                if (getSkippedUpdateVersion() === upd.version) return;
-                setUpdate(upd);
-            } catch {
-                /* offline / dev build without updater config — stay silent */
-            }
-        })();
-        return () => { cancelled = true; };
+        const timer = window.setTimeout(() => {
+            if (cancelled) return;
+            void (async () => {
+                try {
+                    const upd = await check();
+                    if (cancelled || !upd) return;
+                    if (getSkippedUpdateVersion() === upd.version) return;
+                    setUpdate(upd);
+                } catch {
+                    /* offline / dev build without updater config — stay silent */
+                }
+            })();
+        }, 4000);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
     }, []);
 
     if (!update) return null;

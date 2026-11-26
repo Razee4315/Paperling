@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { memo, useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSidePanel } from "../hooks/useSidePanel";
 import { IS_MOBILE } from "../utils/platform";
@@ -52,7 +52,7 @@ export function withNoteExtension(name: string): string {
     return isDocumentPath(name.trim()) ? name.trim() : `${name.trim()}.md`;
 }
 
-export function FileExplorer({
+function FileExplorerImpl({
     isOpen,
     currentFilePath,
     fallbackDirectory,
@@ -550,3 +550,5 @@ function NameInput({
         </div>
     );
 }
+
+export const FileExplorer = memo(FileExplorerImpl);

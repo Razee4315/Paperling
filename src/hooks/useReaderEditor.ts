@@ -166,11 +166,16 @@ export function useReaderEditor(options: Options) {
     }
 
     function finish() {
+        const wasActive = snapshot.current !== null || active.current !== null || ranges.current.size > 0;
         deactivate();
         // These paragraphs/style replacements are owned by the editing session,
         // not React. Remove them before rebuilding from the saved source, or a
         // newly appended paragraph would appear twice after Done (READ-03).
-        root()?.querySelectorAll("[data-reader-block]").forEach((element) => element.remove());
+        const blocks = root()?.querySelectorAll("[data-reader-block]");
+        if (!wasActive && !blocks?.length && !root()?.querySelector(`[${READER_ISLAND_ATTR}]`)) {
+            return;
+        }
+        blocks?.forEach((element) => element.remove());
         clearIslands(root());
         snapshot.current = null;
         ranges.current.clear();
@@ -548,7 +553,14 @@ export function useReaderEditor(options: Options) {
 
     const shownKey = useRef(options.docKey);
     useLayoutEffect(() => {
-        if (shownKey.current !== options.docKey) { shownKey.current = options.docKey; pending.current = null; finish(); touch(); }
+        if (shownKey.current !== options.docKey) {
+            shownKey.current = options.docKey;
+            pending.current = null;
+            if (snapshot.current !== null || active.current !== null || ranges.current.size > 0) {
+                finish();
+                touch();
+            }
+        }
         if (pending.current && options.renderedContentRef.current === source() && options.enabled) {
             const position = pending.current;
             pending.current = null;

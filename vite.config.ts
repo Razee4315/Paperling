@@ -85,6 +85,9 @@ export default defineConfig(async () => ({
           if (/[\\/]node_modules[\\/](rehype-highlight|lowlight|highlight\.js)[\\/]/.test(id)) return "highlight";
           // Markdown rendering pipeline. Rarely changes per release.
           if (/[\\/]node_modules[\\/](react-markdown|remark-gfm)[\\/]/.test(id)) return "markdown";
+          // CodeMirror editor family — deferred into an async chunk (CodeEditor is lazy-loaded).
+          // Grouping @codemirror/* and @lezer/* together keeps the deduped @codemirror/state singleton in one chunk.
+          if (/[\\/]node_modules[\\/](@codemirror|@lezer)[\\/]/.test(id)) return "codemirror";
         },
       },
     },

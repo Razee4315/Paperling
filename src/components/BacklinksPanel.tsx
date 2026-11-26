@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import mascotMagnify from "../assets/mascot/mascot-magnify.png";
 import mascotReading from "../assets/mascot/mascot-reading.png";
 import { useSidePanel } from "../hooks/useSidePanel";
@@ -25,7 +25,7 @@ interface BacklinksPanelProps {
     onClose: () => void;
 }
 
-export function BacklinksPanel({
+function BacklinksPanelImpl({
     isOpen,
     directory,
     currentFilePath,
@@ -168,3 +168,5 @@ export function BacklinksPanel({
         </aside>
     );
 }
+
+export const BacklinksPanel = memo(BacklinksPanelImpl);

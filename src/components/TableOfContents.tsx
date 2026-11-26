@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, useState } from "react";
+import { memo, useMemo, useEffect, useRef, useState } from "react";
 import { useSidePanel } from "../hooks/useSidePanel";
 import { extractHeadings } from "../utils/outline";
 import { IS_MOBILE } from "../utils/platform";
@@ -21,7 +21,7 @@ interface TableOfContentsProps {
     activeLine?: number;
 }
 
-export function TableOfContents({
+function TableOfContentsImpl({
     isOpen,
     content,
     onClose,
@@ -178,3 +178,5 @@ export function TableOfContents({
         </aside>
     );
 }
+
+export const TableOfContents = memo(TableOfContentsImpl);
