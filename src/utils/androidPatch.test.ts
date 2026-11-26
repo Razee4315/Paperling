@@ -19,12 +19,20 @@ describe("Android generated activity (#252/#253/#254)", () => {
             const run = () => execFileSync(process.execPath, ["scripts/patch-android-open-with.mjs", dir], { encoding: "utf8" });
             run();
             const activity = readFileSync(file, "utf8");
-            for (const method of ["openDocument", "saveToDownloads"]) {
+            for (const method of ["openDocument", "saveToDownloads", "syncToSource"]) {
                 expect(activity).toMatch(new RegExp(`fun ${method}\\([^]*?runOnUiThread \\{[^]*?isAppOrigin`));
             }
             expect(activity).toContain("maxOf(bars.bottom, ime.bottom)");
             expect(activity).toContain('uri.host == "tauri.localhost"');
             expect(activity).toContain("reportPickerError");
+            // ANDR-02 (#305): write permissions, URI tracking, write-back, and backup exclusion.
+            expect(activity).toContain("FLAG_GRANT_WRITE_URI_PERMISSION");
+            expect(activity).toContain("FLAG_GRANT_PERSISTABLE_URI_PERMISSION");
+            expect(activity).toContain("takePersistableUriPermission");
+            expect(activity).toContain('openOutputStream(uri, "wt")');
+            expect(activity).toContain("__paperlingOnSyncResult");
+            expect(readFileSync(join(main, "res/xml/paperling_backup_rules.xml"), "utf8")).toContain("external-uris.json");
+            expect(readFileSync(join(main, "res/xml/paperling_data_extraction_rules.xml"), "utf8")).toContain("external-uris.json");
             run();
             expect(readFileSync(file, "utf8")).toBe(activity);
         } finally { rmSync(dir, { recursive: true, force: true }); }

@@ -123,7 +123,7 @@ const en = {
         conflictBackground: "\"{name}\" changed on disk in a background tab. Its autosave is paused until you review the changes.",
         zenMobile: "Zen mode — tap Normal up top to go back",
         zenDesktop: "Zen mode — {edit} to edit, {exit} to exit. Window controls: top edge",
-        savedToDownloadsAs: "Saved to Downloads as \"{name}\" — a working copy lives in your notes folder",
+        savedToDownloadsAs: "Saved to Downloads as \"{name}\"",
         couldNotOpenFile: "Could not open file: {name}",
         couldNotRestore: "Could not restore \"{path}\": {message}",
         recoveredOne: "Recovered 1 unsaved buffer from the last session",

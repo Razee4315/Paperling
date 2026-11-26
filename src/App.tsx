@@ -853,6 +853,7 @@ function AppContent() {
     // , not : the translation function is in scope here too.
     for (const dirty of collectDirtyTabs()) {
       let path = dirty.filePath;
+      let viaDownloads = false;
       if (!path) {
         const selected = await promptForSavePath(suggestFileName(dirty.content, dirty.fileName), lastUsedDirectory(getRecentFiles()));
         if (!selected) return; // cancelled a save-as → keep the app open
@@ -865,9 +866,10 @@ function AppContent() {
           return;
         }
         path = cachePath.path;
+        viaDownloads = true;
       }
       try {
-        await saveTextFile(path, dirty.content);
+        await saveTextFile(path, dirty.content, { skipExternalSync: viaDownloads });
       } catch (err) {
         const msg = errMessage(err);
         showToast(msg || t("toast.failedToSaveName", { name: dirty.fileName }), "error");

@@ -116,7 +116,7 @@ const zhCN: Dict = {
         conflictBackground: "“{name}”在后台标签页中被磁盘改动。在你查看这些改动之前，它的自动保存已暂停。",
         zenMobile: "禅模式 —— 点顶部的「普通视图」返回",
         zenDesktop: "禅模式 —— {edit} 进入编辑，{exit} 退出。窗口按钮在屏幕顶部边缘",
-        savedToDownloadsAs: "已另存到下载文件夹：“{name}” —— 笔记文件夹里仍保留工作副本",
+        savedToDownloadsAs: "已保存到下载文件夹：“{name}”",
         couldNotOpenFile: "无法打开文件：{name}",
         couldNotRestore: "无法恢复“{path}”：{message}",
         recoveredOne: "已恢复上次会话中 1 个未保存的缓冲区",

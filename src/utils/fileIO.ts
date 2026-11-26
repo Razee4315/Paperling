@@ -3,6 +3,8 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { errMessage } from "./errors";
 import { pathKey } from "./tabsModel";
 import { fileHistory } from "./fileHistory";
+import { IS_MOBILE } from "./platform";
+import { isAndroidCachePath, syncToSource, syncToSourceAvailable } from "./nativePicker";
 
 /**
  * Text-file I/O for documents, layered on the Rust read_file / save_file
@@ -125,10 +127,27 @@ export function idleWriteToken(): number | null {
     return writesInFlight > 0 ? null : writeEpoch;
 }
 
-async function writeDocument(args: { path: string; content: string; encoding?: FileEncoding }): Promise<number> {
+async function writeDocument(
+    args: { path: string; content: string; encoding?: FileEncoding },
+    skipExternalSync = false,
+): Promise<number> {
     writesInFlight++;
     writeEpoch++;
     try {
+        // ANDR-02 (#305): imported SAF / Open-With / Downloads notes edit a
+        // cache copy because std::fs cannot write content:// URIs. Sync back to
+        // the original URI BEFORE updating the cache copy so a write failure or
+        // read-only source never clears isDirty or leaves cache ahead of disk.
+        if (!skipExternalSync && (IS_MOBILE || syncToSourceAvailable()) && isAndroidCachePath(args.path)) {
+            const synced = await syncToSource(args.path, args.content);
+            if (!synced.ok) {
+                throw new Error(
+                    synced.error && synced.error !== "not-available"
+                        ? synced.error
+                        : "Could not save back to the original file on this device. Use Save As to save a copy.",
+                );
+            }
+        }
         return await invoke<number>("save_file", args);
     } finally {
         writesInFlight--;
@@ -139,6 +158,8 @@ async function writeDocument(args: { path: string; content: string; encoding?: F
 export interface SaveOptions {
     /** A save nobody asked for (autosave): it must never open a dialog. */
     background?: boolean;
+    /** Skip Android URI write-back when the native Downloads bridge already wrote the target. */
+    skipExternalSync?: boolean;
 }
 
 /** save_file's refusal; pinned by a Rust test. ENC-04. */
@@ -192,12 +213,16 @@ async function convertToUtf8(path: string, content: string, refusal: RegExpExecA
  * the new mtime. A path never read here sends no encoding: save_file then keeps
  * whatever the file on disk uses.
  */
-export async function saveTextFile(path: string, content: string, { background = false }: SaveOptions = {}): Promise<number> {
+export async function saveTextFile(
+    path: string,
+    content: string,
+    { background = false, skipExternalSync = false }: SaveOptions = {},
+): Promise<number> {
     const out = hadBom(path) && !content.startsWith(BOM) ? BOM + content : content;
     const encoding = encodings.get(pathKey(path));
     let mtime: number;
     try {
-        mtime = await writeDocument({ path, content: out, ...(encoding ? { encoding } : {}) });
+        mtime = await writeDocument({ path, content: out, ...(encoding ? { encoding } : {}) }, skipExternalSync);
     } catch (error) {
         const refusal = UNREPRESENTABLE.exec(errMessage(error));
         if (!refusal) throw error;

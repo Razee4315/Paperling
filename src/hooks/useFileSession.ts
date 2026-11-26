@@ -605,6 +605,7 @@ export function useFileSession({
       return;
     }
     let path = data.filePath;
+    let viaDownloads = false;
     if (!path) {
       // A title-based name in the last-used folder, not "Untitled-1.md". SAVE-05.
       const selected = await promptForPath(suggestFileName(data.content, data.fileName), lastUsedDirectory(getRecentFiles()));
@@ -615,12 +616,13 @@ export function useFileSession({
         const cachePath = await saveViaDownloads(data.fileName, data.content);
         if (!cachePath) return;
         path = cachePath;
+        viaDownloads = true;
       } else {
         path = selected;
       }
     }
     try {
-      await saveTextFile(path, data.content);
+      await saveTextFile(path, data.content, { skipExternalSync: viaDownloads });
     } catch (error) {
       showToast(errMessage(error) || t("toast.failedToSaveFile"), "error");
       return;
@@ -791,7 +793,7 @@ export function useFileSession({
       viaDownloads = true;
     }
     try {
-      knownMtimeRef.current = await saveTextFile(selected, content);
+      knownMtimeRef.current = await saveTextFile(selected, content, { skipExternalSync: viaDownloads });
       const savedPath = selected;
       // Saving over a file that is open in ANOTHER tab left two tabs for one
       // file whose saves clobbered each other. A clean duplicate just closes;

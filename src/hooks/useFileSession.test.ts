@@ -624,3 +624,67 @@ describe("useFileSession crash recovery (HOT-02/04)", () => {
     expect(result.current.isDirty).toBe(true);
   });
 });
+
+describe("useFileSession Android write-back & dirty guard (#305, ANDR-02)", () => {
+  const CACHE_PATH = "/data/user/0/com.paperling/cache/open/deadbeef/tmp.md";
+  const win = window as unknown as {
+    PaperlingAndroid?: { syncToSource?: (path: string, text: string, id: string) => void };
+    __paperlingOnSyncResult?: (ok: boolean, error: string | null, id: string) => void;
+  };
+
+  afterEach(() => {
+    delete win.PaperlingAndroid;
+    delete win.__paperlingOnSyncResult;
+  });
+
+  it("keeps the tab dirty and warns on close when Android write-back fails, and writes back when it succeeds", async () => {
+    (invoke as Mock).mockReset().mockImplementation(async (command: string, args?: { path?: string }) => {
+      if (command === "read_file" && args?.path === CACHE_PATH) {
+        return { path: CACHE_PATH, name: "tmp.md", content: "test", size: 4, line_count: 1, modified: 10 };
+      }
+      if (command === "get_file_info") return { modified: 10 };
+      return 30;
+    });
+
+    const synced: string[] = [];
+    let failSync = true;
+    win.PaperlingAndroid = {
+      syncToSource: (_path, text, id) => {
+        if (failSync) {
+          win.__paperlingOnSyncResult!(false, "Could not write back to device file", id);
+        } else {
+          synced.push(text);
+          win.__paperlingOnSyncResult!(true, null, id);
+        }
+      },
+    };
+
+    const showToast = vi.fn();
+    const { result } = renderHook(() => useFileSession(options({ autoSaveEnabled: true, showToast })));
+    await act(() => result.current.loadFile(CACHE_PATH));
+    act(() => result.current.setContent("test\nadd line"));
+
+    // Failed autosave must NOT update cache or clear isDirty; closing the tab warns.
+    await waitFor(
+      () => expect(showToast).toHaveBeenCalledWith("Could not write back to device file", "error"),
+      { timeout: 3000 },
+    );
+    expect(invoke).not.toHaveBeenCalledWith("save_file", expect.anything());
+    expect(result.current.isDirty).toBe(true);
+
+    act(() => result.current.closeTab(result.current.activeTabId!));
+    expect(result.current.closeTabPrompt?.fileName).toBe("tmp.md");
+    act(() => result.current.cancelCloseTab());
+
+    // Once write-back succeeds, manual save / autosave syncs back and clears isDirty.
+    failSync = false;
+    await act(() => result.current.handleSaveFile());
+    expect(synced).toEqual(["test\nadd line"]);
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: CACHE_PATH, content: "test\nadd line" });
+    expect(result.current.isDirty).toBe(false);
+
+    act(() => result.current.closeTab(result.current.activeTabId!));
+    expect(result.current.closeTabPrompt).toBeNull();
+    expect(result.current.tabs).toHaveLength(0);
+  });
+});
