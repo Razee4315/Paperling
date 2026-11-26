@@ -165,6 +165,22 @@ const KEY_TOUR_DONE = "paperling:tourDone";
 export const getTourDone = (): boolean => safeGet<boolean>(KEY_TOUR_DONE, false);
 export const setTourDone = (v: boolean): void => safeSet(KEY_TOUR_DONE, v);
 
+// UI language (I18N-01). "system" follows the OS locale, which is the default:
+// a first launch on a Chinese Windows shows a Chinese UI without the user
+// having to find the setting, and an English one is unaffected. Values that are
+// not one of the known preferences are discarded rather than trusted, so a
+// hand-edited localStorage entry can't leave the app rendering nothing.
+const KEY_LOCALE = "paperling:locale";
+const LOCALE_PREFERENCES = ["system", "en", "zh-CN"] as const;
+export type StoredLocalePreference = (typeof LOCALE_PREFERENCES)[number];
+export const getLocalePreference = (): StoredLocalePreference => {
+    const v = safeGet<string>(KEY_LOCALE, "system");
+    return (LOCALE_PREFERENCES as readonly string[]).includes(v)
+        ? (v as StoredLocalePreference)
+        : "system";
+};
+export const setLocalePreference = (p: StoredLocalePreference): void => safeSet(KEY_LOCALE, p);
+
 const KEY_TYPEWRITER_MODE = "paperling:typewriterMode";
 const KEY_TOOLBAR = "paperling:toolbar";
 const KEY_WORD_WRAP = "paperling:wordWrap";

@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
+import { useI18n, useSystemLocaleSync } from "./i18n";
 import { saveTextFile } from "./utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { save, ask, open } from "@tauri-apps/plugin-dialog";
@@ -187,6 +188,10 @@ const THEME_CHOICES: { id: Theme; label: string }[] = [
 ];
 
 function AppContent() {
+  // Subscribes this component (and everything under it) to the UI language, and
+  // re-resolves a "follow system" preference once the browser locale is readable.
+  const { t } = useI18n();
+  useSystemLocaleSync();
   const { theme, setTheme, followSystem, setFollowSystem, zoom, zoomBy, resetZoom, font, fontSize, customFont } = useTheme();
   useCustomCss();
 
@@ -313,7 +318,7 @@ function AppContent() {
       })
       .catch((err) => {
         console.error("Could not resolve the notes folder:", err);
-        showToast(errMessage(err) || "Could not open the notes folder", "error");
+        showToast(errMessage(err) || t("toast.couldNotOpenNotesFolder"), "error");
       });
     return () => {
       cancelled = true;
@@ -405,7 +410,7 @@ function AppContent() {
   const [savePulse, setSavePulse] = useState(0);
   const zenActiveRef = useRef(false);
   const handleManualSaved = useCallback(() => {
-    if (zenActiveRef.current || IS_MOBILE) showToast("Saved", "success");
+    if (zenActiveRef.current || IS_MOBILE) showToast(t("toast.saved"), "success");
     else setSavePulse((n) => n + 1);
   }, [showToast]);
 
@@ -827,32 +832,33 @@ function AppContent() {
     );
     if (parked) {
       showToast(
-        `"${parked.fileName}" changed on disk and has unsaved edits. Resolve the conflict before closing.`,
+        t("toast.conflictBeforeClose", { name: parked.fileName }),
         "error",
       );
       return;
     }
     setShowUnsavedBeforeClose(false);
-    for (const t of collectDirtyTabs()) {
-      let path = t.filePath;
+    // , not : the translation function is in scope here too.
+    for (const dirty of collectDirtyTabs()) {
+      let path = dirty.filePath;
       if (!path) {
-        const selected = await promptForSavePath(suggestFileName(t.content, t.fileName), lastUsedDirectory(getRecentFiles()));
+        const selected = await promptForSavePath(suggestFileName(dirty.content, dirty.fileName), lastUsedDirectory(getRecentFiles()));
         if (!selected) return; // cancelled a save-as → keep the app open
         path = selected;
       }
       if (path === DOWNLOADS_SENTINEL) {
-        const cachePath = await saveToDownloads(normalizeMarkdownFileName(t.fileName), t.content);
+        const cachePath = await saveToDownloads(normalizeMarkdownFileName(dirty.fileName), dirty.content);
         if (!cachePath.ok || !cachePath.path) {
-          showToast(cachePath.error || `Could not save ${t.fileName} to Downloads`, "error");
+          showToast(cachePath.error || t("toast.couldNotSaveNameToDownloads", { name: dirty.fileName }), "error");
           return;
         }
         path = cachePath.path;
       }
       try {
-        await saveTextFile(path, t.content);
+        await saveTextFile(path, dirty.content);
       } catch (err) {
         const msg = errMessage(err);
-        showToast(msg || `Failed to save ${t.fileName}`, "error");
+        showToast(msg || t("toast.failedToSaveName", { name: dirty.fileName }), "error");
         return; // don't close on a failed save — the user would lose the buffer
       }
     }
@@ -869,15 +875,15 @@ function AppContent() {
     if (selected === DOWNLOADS_SENTINEL) {
       const res = await saveToDownloads(normalizeMarkdownFileName(copyName), content);
       if (!res.ok || !res.path) {
-        showToast(res.error || "Could not save the copy", "error");
+        showToast(res.error || t("toast.couldNotSaveCopy"), "error");
         return;
       }
-      showToast("Copy saved — the conflicted file is untouched", "success");
+      showToast(t("toast.copySavedConflict"), "success");
       return;
     }
     try {
       await saveTextFile(selected, content);
-      showToast("Copy saved — the conflicted file is untouched", "success");
+      showToast(t("toast.copySavedConflict"), "success");
     } catch (err) {
       showToast(errMessage(err) || "Could not save the copy", "error");
     }
@@ -959,7 +965,7 @@ function AppContent() {
       await loadFile(path);
     } catch (err) {
       const msg = errMessage(err);
-      showToast(msg || "Could not create note", "error");
+      showToast(msg || t("toast.couldNotCreateNote"), "error");
     }
   }, [loadFile, showToast]);
 
@@ -1001,7 +1007,7 @@ function AppContent() {
       if (!anchor || text == null) return;
       const line = findAnchorLine(text, anchor);
       if (line == null) {
-        showToast(`No "${anchor}" in this note`, "info");
+        showToast(t("toast.noAnchor", { anchor }), "info");
         return;
       }
       requestAnimationFrame(() =>
@@ -1024,7 +1030,7 @@ function AppContent() {
       cleaned.includes("\0") ||
       /^[a-zA-Z]:/.test(cleaned)
     ) {
-      showToast(`Invalid wikilink target: [[${target}]]`, "error");
+      showToast(t("toast.invalidWikilink", { target }), "error");
       return;
     }
     const lastSep = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
@@ -1080,11 +1086,11 @@ function AppContent() {
       openUrl(link.target).catch((err) => console.error("Failed to open external URL:", err));
     } else if (link.kind === "relative") {
       if (/\.(md|markdown|txt)(#.*)?$/i.test(link.target)) void handleNavigateRelative(link.target);
-      else showToast("Only notes can be opened from the editor. Use Reader mode for other files.", "info");
+      else showToast(t("toast.notesOnly"), "info");
     } else {
       const text = liveContentRef.current;
       const line = findAnchorLine(text, link.target) ?? findAnchorLine(text, link.target.replace(/-/g, " "));
-      if (line == null) showToast(`No "${link.target}" heading in this note`, "info");
+      if (line == null) showToast(t("toast.noHeading", { target: link.target }), "info");
       else {
         recordNav();
         window.dispatchEvent(new CustomEvent("paperling:goto-line", { detail: { line } }));
@@ -1343,9 +1349,9 @@ function AppContent() {
       setMode("preview");
       // Touch has no keyboard to advertise: point at the visible exit chip.
       showToast(IS_MOBILE
-        ? "Zen mode — tap Normal up top to go back"
+        ? t("toast.zenMobile")
         // The window controls live in the hidden top bar; say where. ZEN-04.
-        : `Zen mode — ${formatShortcut("toggleMode")} to edit, ${formatShortcut("zenMode")} to exit. Window controls: top edge`, "info");
+        : t("toast.zenDesktop", { edit: formatShortcut("toggleMode"), exit: formatShortcut("zenMode") }), "info");
     } else {
       const prev = preZenModeRef.current;
       preZenModeRef.current = null;
@@ -1397,7 +1403,7 @@ function AppContent() {
 
   // Handle image paste success
   const handleImagePaste = useCallback(() => {
-    showToast('Image pasted successfully!', 'success');
+    showToast(t("toast.imagePasted"), "success");
   }, [showToast]);
 
   // Handle error messages from child components
@@ -1420,11 +1426,11 @@ function AppContent() {
   // across renders. Inline arrows here would re-create the closures on every
   // App render and defeat any downstream memoization.
   const handleExportSuccess = useCallback(
-    (fmt: string) => showToast(`Exported as ${fmt}`, "success"),
+    (fmt: string) => showToast(t("toast.exportedAs", { format: fmt }), "success"),
     [showToast]
   );
   const handleExportError = useCallback(
-    (fmt: string) => showToast(`Failed to export ${fmt}`, "error"),
+    (fmt: string) => showToast(t("toast.exportFailed", { format: fmt }), "error"),
     [showToast]
   );
 
@@ -1497,7 +1503,7 @@ function AppContent() {
     }
     const raw = await getExportHtml();
     if (!raw) {
-      showToast("Nothing to export yet", "error");
+      showToast(t("exportMenu.nothing"), "error");
       return;
     }
     try {
@@ -1507,10 +1513,10 @@ function AppContent() {
       const fullHTML = generateHTML(cleaned, title, theme, font, fontSize, true, customFont);
       const res = await saveToDownloads(`${title}.html`, fullHTML, "text/html");
       if (!res.ok) {
-        showToast(res.error || "Could not export HTML", "error");
+        showToast(res.error || t("toast.couldNotExportHtml"), "error");
         return;
       }
-      showToast(`Exported "${title}.html" to Downloads`, "success");
+      showToast(t("toast.exportedHtmlToDownloads", { title }), "success");
     } catch (err) {
       showToast(errMessage(err) || "Could not export HTML", "error");
     }
@@ -1547,7 +1553,7 @@ function AppContent() {
     }
     const raw = await getExportHtml();
     if (!raw) {
-      showToast("Open the document in Reader or Split view to print it", "info");
+      showToast(t("toast.printNeedsReader"), "info");
       return;
     }
     try {
@@ -1565,13 +1571,13 @@ function AppContent() {
           frame.contentWindow?.focus();
           frame.contentWindow?.print();
         } catch {
-          showToast("Printing isn't available here — use Export → PDF instead", "error");
+          showToast(t("toast.printUnavailable"), "error");
         }
         cleanup();
       };
       frame.srcdoc = html;
     } catch (err) {
-      showToast(errMessage(err) || "Could not print", "error");
+      showToast(errMessage(err) || t("toast.couldNotPrint"), "error");
     }
   }, [customFont, fileName, font, fontSize, getExportHtml, isHtmlDoc, showToast]);
 
@@ -1697,7 +1703,7 @@ function AppContent() {
           run: () => {
             revealItemInDir(filePath).catch((err) => {
               console.error("Reveal failed:", err);
-              showToast("Could not reveal file", "error");
+              showToast(t("toast.couldNotReveal"), "error");
             });
           },
         });
@@ -1710,8 +1716,8 @@ function AppContent() {
         keywords: "clipboard absolute",
         run: () => {
           navigator.clipboard.writeText(filePath).then(
-            () => showToast("File path copied", "success"),
-            () => showToast("Could not copy path", "error"),
+            () => showToast(t("toast.pathCopied"), "success"),
+            () => showToast(t("toast.couldNotCopyPath"), "error"),
           );
         },
       });
@@ -2202,7 +2208,7 @@ function AppContent() {
                 // SAF picker for any .md on the phone (Downloads, Drive…),
                 // not just the notes folder the in-app browser can see.
                 if (!openSystemFilePicker()) {
-                  showToast("System file picker isn't available in this build", "error");
+                  showToast(t("explorer.pickerUnavailable"), "error");
                 }
               } },
             ...(hasFile
@@ -2569,7 +2575,7 @@ function AppContent() {
             onPathChanged={(oldPath, newPath) => {
               const affected = retargetPaths(oldPath, newPath);
               if (newPath === null && affected > 0) {
-                showToast("An open tab's file was deleted — its unsaved text stays open; saving will ask where", "info");
+                showToast(t("toast.openTabDeleted"), "info");
               }
             }}
             onNotify={showToast}
@@ -2726,14 +2732,14 @@ function AppContent() {
               { label: "Close to the right", icon: "keyboard_tab", disabled: !hasRight, onClick: () => handleTabMenuAction("closeRight", tabMenu.id) },
               {
                 label: "Copy path", icon: "content_copy", dividerBefore: true, disabled: !menuPath,
-                onClick: () => { if (menuPath) navigator.clipboard.writeText(menuPath).then(() => showToast("File path copied", "success"), () => showToast("Could not copy path", "error")); },
+                onClick: () => { if (menuPath) navigator.clipboard.writeText(menuPath).then(() => showToast(t("toast.pathCopied"), "success"), () => showToast(t("toast.couldNotCopyPath"), "error")); },
               },
               // "Reveal in folder" opens the OS file manager — desktop only.
               ...(!IS_MOBILE
                 ? [
                     {
                       label: "Reveal in folder", icon: "folder_open", disabled: !menuPath,
-                      onClick: () => { if (menuPath) revealItemInDir(menuPath).catch(() => showToast("Could not reveal file", "error")); },
+                      onClick: () => { if (menuPath) revealItemInDir(menuPath).catch(() => showToast(t("toast.couldNotReveal"), "error")); },
                     },
                   ]
                 : []),

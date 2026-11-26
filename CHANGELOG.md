@@ -11,6 +11,19 @@ dialog show, so keep it to a handful of lines and link to the full notes in
 
 ## [Unreleased]
 
+### Added
+
+- **Chinese interface (简体中文) with a language setting (I18N-01).** Settings →
+  Appearance → **语言** offers *Follow system* (the default: a Chinese Windows
+  shows a Chinese UI with no setup), English, and 简体中文; the switch is
+  immediate, no restart. The window chrome, menus, formatting toolbar, tabs,
+  status bar, file explorer, outline, backlinks, cross-file search, statistics,
+  command palette, dialogs and all notifications are translated. Your notes are
+  never translated. Word counts and reading time use each language's own
+  phrasing ("3 words" / "3 词").
+  Still English-only: the AI panel, the Mermaid and find-bar controls, and the
+  command palette's command names.
+
 ## [1.2.0] - 2026-10-31
 
 Paperling 1.2 opens more of your files, keeps earlier versions of them, and fills in the everyday gaps.

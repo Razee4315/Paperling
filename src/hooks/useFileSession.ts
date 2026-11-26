@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { t } from "../i18n";
 import { idleWriteToken, readTextFile, retargetEncodings, saveTextFile, type FileEncoding } from "../utils/fileIO";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -417,7 +418,7 @@ export function useFileSession({
       } catch (error) {
         console.error("Failed to load file:", error);
         // Surface the actual Rust error so size/not-found failures reach the user.
-        showToast(errMessage(error) || "Failed to open file", "error");
+        showToast(errMessage(error) || t("toast.failedToOpenFile"), "error");
       } finally {
         setIsLoading(false);
       }
@@ -569,7 +570,7 @@ export function useFileSession({
     async (name: string, data: string): Promise<string | null> => {
       const result = await saveToDownloads(normalizeMarkdownFileName(name), data);
       if (!result.ok || !result.path) {
-        showToast(result.error || "Could not save to Downloads", "error");
+        showToast(result.error || t("toast.couldNotSaveToDownloads"), "error");
         return null;
       }
       return result.path;
@@ -598,7 +599,7 @@ export function useFileSession({
     ) {
       setCloseTabPrompt(null);
       showToast(
-        `"${data.fileName}" changed on disk. Resolve the conflict (switch to the tab) before saving it.`,
+        t("toast.conflictBeforeSave", { name: data.fileName }),
         "error",
       );
       return;
@@ -621,7 +622,7 @@ export function useFileSession({
     try {
       await saveTextFile(path, data.content);
     } catch (error) {
-      showToast(errMessage(error) || "Failed to save file", "error");
+      showToast(errMessage(error) || t("toast.failedToSaveFile"), "error");
       return;
     }
     setCloseTabPrompt(null);
@@ -835,13 +836,13 @@ export function useFileSession({
       }
       showToast(
         viaDownloads
-          ? `Saved to Downloads as "${name}" — a working copy lives in your notes folder`
-          : "File saved",
+          ? t("toast.savedToDownloadsAs", { name })
+          : t("toast.fileSaved"),
         "success",
       );
     } catch (error) {
       console.error("Failed to save file:", error);
-      showToast(errMessage(error) || "Failed to save file", "error");
+      showToast(errMessage(error) || t("toast.failedToSaveFile"), "error");
     }
   }, [commitTabs, content, fileName, promptForPath, saveViaDownloads, showToast]);
 
@@ -855,7 +856,7 @@ export function useFileSession({
     // external changes the dialog is asking about. Save As stays allowed —
     // it writes to a different path. EXT-02.
     if (conflictPrompt) {
-      showToast("This file changed on disk — pick a version in the dialog first", "info");
+      showToast(t("toast.conflictReviewFirst"), "info");
       return;
     }
     // Same pre-write check autosave runs: a file changed by another program
@@ -883,10 +884,10 @@ export function useFileSession({
         );
       }
       if (onSaved) onSaved();
-      else showToast("File saved", "success");
+      else showToast(t("toast.fileSaved"), "success");
     } catch (error) {
       console.error("Failed to save file:", error);
-      showToast(errMessage(error) || "Failed to save file", "error");
+      showToast(errMessage(error) || t("toast.failedToSaveFile"), "error");
     }
   }, [commitTabs, conflictPrompt, content, diskChangedSince, fileName, filePath, handleSaveAs, onSaved, setConflictPrompt, showToast]);
 
@@ -897,7 +898,7 @@ export function useFileSession({
   // toast on every write. The focus check keeps its toast. EXT-07.
   const handleExternalReloaded = useCallback(
     (trigger: ExternalCheckTrigger) => {
-      if (trigger === "focus") showToast("File changed on disk, reloaded the latest version", "info");
+      if (trigger === "focus") showToast(t("toast.reloadedLatest"), "info");
     },
     [showToast],
   );
@@ -1018,7 +1019,7 @@ export function useFileSession({
             parkedAutosavePathsRef.current.set(path, info.modified);
             if (!alreadyParked) {
               showToast(
-                `"${tab.fileName}" changed on disk in a background tab. Its autosave is paused until you review the changes.`,
+                t("toast.conflictBackground", { name: tab.fileName }),
                 "error",
               );
             }
@@ -1127,7 +1128,7 @@ export function useFileSession({
               // Switching to the tab raises the conflict dialog. EXT-05.
               parkedAutosavePathsRef.current.set(tab.filePath!, info.modified);
               showToast(
-                `"${tab.fileName}" changed on disk in a background tab. Its autosave is paused until you review the changes.`,
+                t("toast.conflictBackground", { name: tab.fileName }),
                 "error",
               );
             }
@@ -1325,8 +1326,8 @@ export function useFileSession({
             if (path === activePath) activeId = id;
           }
           const message = errMessage(error);
-          if (forcedFile && path === forcedFile) showToast(`Could not open file: ${message || path}`, "error");
-          else if (/too large/i.test(message)) showToast(`Could not restore "${path}": ${message}`, "error");
+          if (forcedFile && path === forcedFile) showToast(t("toast.couldNotOpenFile", { name: message || path }), "error");
+          else if (/too large/i.test(message)) showToast(t("toast.couldNotRestore", { path, message }), "error");
         }
       }
       // Untitled dirty buffers become tabs of their own.
@@ -1352,8 +1353,8 @@ export function useFileSession({
       if (recoveredCount > 0) {
         showToast(
           recoveredCount === 1
-            ? "Recovered 1 unsaved buffer from the last session"
-            : `Recovered ${recoveredCount} unsaved buffers from the last session`,
+            ? t("toast.recoveredOne")
+            : t("toast.recoveredMany", { count: recoveredCount }),
           "info",
         );
       }
@@ -1462,7 +1463,7 @@ export function useFileSession({
         finalizeCloseTab(id);
       }
       if (keptDirty > 0) {
-        showToast(`Kept ${keptDirty} unsaved tab${keptDirty > 1 ? "s" : ""} open`, "info");
+        showToast(t("toast.keptDirtyTabs", { count: keptDirty }), "info");
       }
     },
     [finalizeCloseTab, showToast],
